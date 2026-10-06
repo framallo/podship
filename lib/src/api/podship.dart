@@ -33,6 +33,8 @@ import '../release/layout.dart';
 import '../remote/ssh.dart';
 import '../server/registry.dart';
 import '../util/log.dart';
+import '../protocol/tokens.dart';
+import '../providers/providers.dart';
 import 'events.dart';
 import 'github.dart';
 import 'history.dart';
@@ -1225,6 +1227,95 @@ echo "removed $who"
       ]),
     );
   });
+
+  /// Creates a server at [provider] (it costs money: the caller must have
+  /// the user's go-ahead), waits until it answers, and bootstraps it over
+  /// ssh as root. The provider token comes from the secret store
+  /// (`podship provider login <name>`).
+  Operation serverCreate(
+    String provider,
+    ServerSpec spec, {
+    bool bootstrap = true,
+  }) => _op('server create', null, {'provider': provider, ...spec.toJson()}, (
+    ctx,
+    rec,
+  ) async {
+    registerBuiltInProviders();
+    rec.data['provider'] = provider;
+    if (dryRun) {
+      ctx.log.emit(
+        PlanReady('create ${spec.name} at $provider', [
+          'Create',
+          'Wait',
+          'Bootstrap',
+        ], describeCreate(provider, spec)),
+      );
+      return;
+    }
+    final token = TokenStore().read('provider:$provider');
+    if (token == null)
+      throw Aborted(
+        'no $provider token: run `podship provider login $provider`',
+      );
+    final p = providerFor(provider, token);
+    ctx.log.emit(
+      StepStarted(1, 3, 'Create ${spec.name} in ${spec.region} (${spec.plan})'),
+    );
+    final created = await p.create(spec);
+    rec.data['server'] = created.toJson();
+    ctx.log.emit(StepStarted(2, 3, 'Wait until it answers'));
+    final ready = await p.waitReady(created.id);
+    rec.data['server'] = ready.toJson();
+    final ip = ready.ipv4 ?? ready.ipv6!;
+    ctx.log.info('${spec.name}: ${ready.ipv4 ?? ''} ${ready.ipv6 ?? ''}');
+    if (bootstrap) {
+      ctx.log.emit(StepStarted(3, 3, 'Bootstrap'));
+      final host = 'root@${ip.contains(':') ? '[$ip]' : ip}';
+      final e = EnvConfig(
+        name: 'new',
+        host: 'root@$ip',
+        dir: '/srv/podship-new',
+        composeProject: 'podship-new',
+        health: HealthConfig(url: 'http://127.0.0.1/'),
+      );
+      for (var i = 0; i < 30; i++) {
+        final r = await ctx.ssh.captureResult(e.host, 'true');
+        if (r.exitCode == 0) break;
+        await Future<void>.delayed(const Duration(seconds: 10));
+      }
+      await ctx.run(
+        Plan('bootstrap $host', [
+          RemoteStep('Install what is missing', e.host, bootstrapScript(e)),
+        ]),
+      );
+    }
+    ctx.log.info(
+      'Add it to ~/.ssh/config as a Host alias, then use it as `host:` in podship.yaml.',
+    );
+  }, lock: false);
+
+  /// Deletes a server at [provider]. The caller must have asked the user to
+  /// type the server's name.
+  Operation serverDestroy(String provider, String id) => _op(
+    'server destroy',
+    null,
+    {'provider': provider, 'id': id},
+    (ctx, rec) async {
+      registerBuiltInProviders();
+      if (dryRun) {
+        ctx.log.info('would delete $provider server $id');
+        return;
+      }
+      final token = TokenStore().read('provider:$provider');
+      if (token == null)
+        throw Aborted(
+          'no $provider token: run `podship provider login $provider`',
+        );
+      rec.data['result'] = await providerFor(provider, token).destroy(id);
+      ctx.log.info('${rec.data['result']}');
+    },
+    lock: false,
+  );
 
   /// Removes the lock of [envName], for a lock left by a client that died.
   Operation unlock(String envName) => _op('unlock', envName, const {}, (

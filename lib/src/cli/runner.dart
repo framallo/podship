@@ -6,6 +6,7 @@ import '../api/podship.dart' show podshipVersion;
 import 'backup_commands.dart';
 import 'base.dart';
 import 'console_commands.dart';
+import 'provider_commands.dart';
 import 'db_commands.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
@@ -69,6 +70,11 @@ class PodshipRunner extends CommandRunner<int> {
       TunnelCommand(),
       HistoryCommand(),
       UnlockCommand(),
+      GroupCommand(
+        'provider',
+        'Server providers (Vultr, Hostinger): tokens and offers.',
+        [ProviderLoginCommand(), ProviderOffersCommand()],
+      ),
       LoginCommand(),
       LogoutCommand(),
       WhoamiCommand(),
@@ -130,7 +136,12 @@ class PodshipRunner extends CommandRunner<int> {
       GroupCommand(
         'server',
         'The server of an environment, shared by every project on it.',
-        [BootstrapCommand(), ServerStatusCommand()],
+        [
+          BootstrapCommand(),
+          ServerStatusCommand(),
+          ServerCreateCommand(),
+          ServerDestroyCommand(),
+        ],
       ),
       GroupCommand('projects', 'Projects registered on a server.', [
         ProjectsListCommand(),

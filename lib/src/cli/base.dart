@@ -92,6 +92,21 @@ abstract class PodshipCommand extends Command<int> {
   PodshipConfig get config =>
       _config ??= PodshipConfig.load(globalResults?['project-dir'] as String?);
 
+  /// The config, or an empty one outside a project (for server commands).
+  PodshipConfig get configOrEmpty {
+    try {
+      return config;
+    } on ConfigException {
+      return _config = PodshipConfig(
+        project: 'podship',
+        serverPackage: '',
+        build: BuildConfig(),
+        compose: ComposeConfig(),
+        environments: const {},
+      );
+    }
+  }
+
   List<String> get sshOptions => [
     if (globalResults?['ssh-key'] case final String k) ...[
       '-i',
@@ -153,6 +168,11 @@ abstract class PodshipCommand extends Command<int> {
   String get via {
     final flag = globalResults?['via'] as String?;
     if (flag != null) return flag;
+    try {
+      config;
+    } on ConfigException {
+      return 'ssh';
+    }
     final name = takesEnv ? (argResults?['env'] as String?) : null;
     final e = name == null ? null : config.environments[name];
     return e?.transport ?? config.transport;

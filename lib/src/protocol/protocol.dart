@@ -23,6 +23,7 @@ import '../api/models.dart';
 import '../api/podship.dart';
 import '../config/config.dart';
 import '../ops/context.dart';
+import '../providers/provider.dart';
 
 /// The protocol version. A server rejects a request with a newer version.
 const protocolVersion = 1;
@@ -626,6 +627,19 @@ Stream<Map<String, Object?>> dispatch(
         op = api.domainRemove(env!, hosts: l('hosts'));
       case 'server.bootstrap':
         op = api.bootstrap(env!, caddy: b('caddy'));
+      case 'server.create':
+        op = api.serverCreate(
+          s('provider')!,
+          ServerSpec(
+            name: s('name')!,
+            region: s('region')!,
+            plan: s('plan')!,
+            image: s('image'),
+            sshKeys: l('ssh_keys'),
+          ),
+        );
+      case 'server.destroy':
+        op = api.serverDestroy(s('provider')!, s('id')!);
       case 'status':
         value = (await api.status(env!)).toJson();
       case 'releases.list':
