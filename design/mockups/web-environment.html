@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Environment · podship console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="podship.css">
+</head>
+<body class="sheet">
+<div><p class="board-cap">1 · cazafacturas / production, releases <span>Healthy. Deploy is the one filled button (promote from staging is impossible here: different CPU architectures). Each release shows its test badge. Example data.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261006-170512-a0dc2b0"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261005-221844-9c41e07"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-153020-23c8961"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-150211-12c1dfe"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261002-190040-3b71287"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot ok"></span>Healthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-ok">200 OK</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-ok">200 OK</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div></section></div>
+<div><p class="board-cap">2 · Deploy to production: confirm (tier 1) <span>Names the environment, resolves the ref, lists the steps, states the consequence. Focus starts on Cancel; Enter does not confirm.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261006-170512-a0dc2b0"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261005-221844-9c41e07"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-153020-23c8961"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-150211-12c1dfe"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261002-190040-3b71287"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot ok"></span>Healthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-ok">200 OK</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-ok">200 OK</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div><div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="Deploy cazafacturas to production" style="width:600px">
+<div style="border-radius:12px 12px 0 0;overflow:hidden"><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div></div>
+<div class="dialog-h"><h2 class="section" style="font-size:18px;line-height:24px">Deploy cazafacturas to production</h2></div>
+<div class="dialog-b"><div class="field"><label class="label" for="ref">Branch, tag or commit</label><div class="input" id="ref"><span class="mono">main</span></div>
+<div class="hint">main is at <span class="id">a0dc2b0</span>: Fix ticket upload timeout</div></div>
+<div class="stack-2"><h3 class="sub">What runs</h3>
+<ol class="caption" style="padding-left:20px;columns:2;column-gap:24px">
+<li>Export main (a0dc2b0)</li><li>Run tests: server</li><li>Run tests: server-integration</li><li>Run tests: app</li><li>Build Flutter web: app</li><li>Build Flutter web: admin</li><li>Select files and write release</li><li>Prepare caza-vps:/srv/cazafacturas-serverpod</li><li>Upload files</li><li>Create release</li><li>Build images on the server</li><li>Back up the database before the switch</li><li>Switch to the new release</li><li>Health check</li><li>Mark healthy and keep 5 releases</li></ol></div>
+<div class="consequence">The app restarts on the new release. If the health check fails, podship switches back on its own.</div>
+<div class="stack-2"><label class="row" style="align-items:flex-start"><span class="check"></span><span>Skip the public URL check</span></label>
+<label class="row" style="align-items:flex-start"><span class="check"></span><span>Skip the backup before the switch <span class="caption">(asks you to type cazafacturas/production)</span></span></label></div>
+<div class="caption">This runs to the end even if you close the console.</div></div><div class="dialog-f"><button class="btn focus">Cancel</button><button class="btn primary right">Deploy to production</button></div></div></div></section></div>
+<div><p class="board-cap">3 · Roll back production: confirm (tier 1) <span>Target preselected: newest healthy release before the current one. No typing; the database option switches to tier 2.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261006-170512-a0dc2b0"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261005-221844-9c41e07"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-153020-23c8961"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-150211-12c1dfe"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261002-190040-3b71287"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot ok"></span>Healthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-ok">200 OK</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-ok">200 OK</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div><div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="Roll back cazafacturas production" style="width:640px">
+<div style="border-radius:12px 12px 0 0;overflow:hidden"><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div></div>
+<div class="dialog-h"><h2 class="section" style="font-size:18px;line-height:24px">Roll back cazafacturas production</h2></div>
+<div class="dialog-b"><div class="field"><span class="label">Release to run</span>
+<div class="radio on"><span class="rb"></span><div class="stack-1 grow"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div><span class="caption">Newest healthy release before the current one · deployed 5 Oct by federico</span></div></div>
+<a class="caption">Choose another release</a></div>
+<div class="consequence">The app restarts on the older release, usually in under a minute. The database stays as it is: migrations from newer releases are not undone.</div>
+<div class="caption">Migrations newer than 20261005-221844-9c41e07: none.</div>
+<label class="row" style="align-items:flex-start"><span class="check"></span><span>Also restore the database from a backup <span class="caption">(asks you to type cazafacturas/production)</span></span></label></div><div class="dialog-f"><button class="btn focus">Cancel</button><button class="btn primary right">Roll back production to 20261005-221844-9c41e07</button></div></div></div></section></div>
+<div><p class="board-cap">4 · Production unhealthy <span>Roll back becomes the one filled button; deploy is secondary.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span><span class="trail t-danger" title="Unhealthy"><i data-lucide="alert-triangle" class="" aria-hidden="true"></i></span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot danger"></span>Unhealthy</span><div class="right row"><button class="btn"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy…</button><button class="btn"><i data-lucide="scroll-text" class="" aria-hidden="true"></i>Open logs</button><button class="btn primary"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back to 20261005-221844-9c41e07</button></div></div><div class="banner danger" role="alert"><i data-lucide="circle-x" class="i20" aria-hidden="true"></i><div class="grow"><b>Health check failing for 12 min.</b> <span class="mono" style="font-size:13px">http://127.0.0.1:8087/health</span>: connection refused
+<div class="caption">Roll back to the last healthy release first, then read the logs.</div></div></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261006-170512-a0dc2b0"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261005-221844-9c41e07"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-153020-23c8961"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-150211-12c1dfe"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261002-190040-3b71287"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot danger"></span>Unhealthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-danger">connection refused</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-danger">502 Bad Gateway</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div></section></div>
+<div><p class="board-cap">5 · Lock held by a CLI operation <span>Who holds it, since when, from where; every action disabled with the reason.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<span class="pill run"><i data-lucide="loader-circle" class="" aria-hidden="true"></i>1 operation running</span><div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><div class="stack-1" style="align-items:flex-end"><div class="row"><button class="btn" disabled>Roll back…</button><button class="btn" disabled>Restart</button><button class="btn primary" disabled>Deploy main to production</button></div><span class="caption">Deploy running, started 4 min ago by federico. Actions return when it ends.</span></div></div></div><div class="banner run" role="status"><i data-lucide="loader-circle" class="i20" aria-hidden="true"></i><div class="grow"><b>Deploy running · held by federico from CLI on federico-mbp since 11:02 (4 min)</b>
+<div class="caption">Step 9 of 15: Upload files · last event 3 s ago</div></div><button class="btn sm">Open operation</button></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261006-170512-a0dc2b0"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261005-221844-9c41e07"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-153020-23c8961"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-150211-12c1dfe"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261002-190040-3b71287"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot ok"></span>Healthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-ok">200 OK</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-ok">200 OK</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div></section></div>
+<div><p class="board-cap">6 · staging on agentes.local: promote blocked <span>Different CPU architectures: promote disabled with the reason and the alternative.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>staging</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband staging" role="note" aria-label="Environment staging on agentes.local, release 20261006-165802-a0dc2b0"><i data-lucide="flask-conical" class="" aria-hidden="true"></i><span class="mono">staging</span><span aria-hidden="true">·</span><span class="mono">agentes.local</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-165802-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">staging</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to staging</button></div></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-165802-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 4 min 05 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-165802-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-165802-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 3</span></div><div class="tl">
+<div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div><div class="stack-1"><div class="row" style="gap:8px"><span class="id">20261006-165802-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div><div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 2 h ago</div></div><div></div></div>
+<div class="tl-item"><div class="tl-rail"><span class="tl-node"></span></div><div class="stack-1"><div class="row" style="gap:8px"><span class="id">20261005-220510-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div><div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 21 h ago</div></div><div></div></div>
+<div class="tl-item"><div class="tl-rail"><span class="tl-node"></span></div><div class="stack-1"><div class="row" style="gap:8px"><span class="id">20261005-181102-1f0e4aa-dirty</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></div><div>Working tree with uncommitted changes</div><div class="caption">Deploy · CLI over SSH · framallo · 1 day ago</div></div><div></div></div>
+</div></div></div><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Promote to production</h2></div><div class="panel-b stack-2">
+<button class="btn" disabled><i data-lucide="arrow-up-right" class="" aria-hidden="true"></i>Promote to production</button>
+<p class="small" style="font-size:13px">agentes.local is arm64 and caza-vps is x86_64, so the images can't move. Deploy commit <span class="id">a0dc2b0</span> to production instead.</p>
+<div><button class="btn sm">Deploy a0dc2b0 to production…</button></div></div></div></div></div></main></div></div></section></div>
+<div><p class="board-cap">7 · Database tab <span>Migration status, how to connect, database users.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab " role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab on" role="tab">Database</span></div><div class="cols"><div class="stack">
+<div class="panel"><div class="panel-h"><h2 class="section">Database</h2></div><div class="panel-b"><dl class="kv">
+<dt>Engine</dt><dd>PostgreSQL 16.4 in container <span class="mono" style="font-size:13px">cazafacturas-postgres-1</span></dd>
+<dt>Database</dt><dd><span class="mono">cazafacturas</span> · user <span class="mono">postgres</span> · one per environment</dd>
+<dt>Size</dt><dd class="num">48.2 MB · 41 tables</dd></dl></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Migrations</h2><span class="right"><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Up to date</span></span></div><div class="panel-b stack-2">
+<div>All 37 migrations applied. Newest in the release: <span class="id">20261004151203512</span>.</div>
+<table class="t"><thead><tr><th>Migration</th><th>Applied</th></tr></thead><tbody>
+<tr><td class="id">20261004151203512</td><td>4 Oct, 15:31 UTC, by release 20261004-153020-23c8961</td></tr>
+<tr><td class="id">20261002183344102</td><td>2 Oct, 19:01 UTC, by release 20261002-190040-3b71287</td></tr>
+<tr><td class="id">20260929120511870</td><td>29 Sep, 12:06 UTC</td></tr></tbody></table></div></div>
+</div><div class="stack">
+<div class="panel"><div class="panel-h"><h2 class="section">Connect from your machine</h2></div><div class="panel-b stack-2">
+<div class="caption">psql on the environment database:</div>
+<div class="row"><code class="grow" style="font-size:13px">podship db connect --env production</code><button class="btn icon sm" aria-label="Copy command"><i data-lucide="copy" class="" aria-hidden="true"></i></button></div>
+<div class="caption">Forward Postgres to a local port:</div>
+<div class="row"><code class="grow" style="font-size:12px">podship tunnel --env production --service postgres --port 5432</code><button class="btn icon sm" aria-label="Copy command"><i data-lucide="copy" class="" aria-hidden="true"></i></button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Database users</h2><button class="btn sm right">Add a user</button></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow">metabase_ro</span><span class="caption">read only · created 12 Sep</span></div>
+<div class="row"><span class="mono grow">federico</span><span class="caption">read and write · created 2 Oct</span></div></div></div>
+</div></div></main></div></div></section></div>
+<div><p class="board-cap">8 · Collaborator view of production <span>Ana Lucía Torres, viewer on production: actions disabled with the reason, never hidden.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Ana Lucía Torres">AT</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><div class="stack-1" style="align-items:flex-end"><div class="row"><button class="btn" disabled>Roll back…</button><button class="btn" disabled>Restart</button><button class="btn primary" disabled>Deploy main to production</button></div><span class="caption">Only the owner can change production.</span></div></div></div><div class="banner neutral"><i data-lucide="eye" class="i20" aria-hidden="true"></i><div class="grow">You have read access to production. You can read its status, releases and logs. <span class="muted">Ask Federico Ramallo for more access.</span></div></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot ok"></span>Healthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-ok">200 OK</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-ok">200 OK</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div></section></div>
+<div><p class="board-cap">9 · Force release the lock (owner, tier 2) <span>Only after 5 min without events. Typed cazafacturas/production.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><div class="stack-1" style="align-items:flex-end"><div class="row"><button class="btn" disabled>Roll back…</button><button class="btn" disabled>Restart</button><button class="btn primary" disabled>Deploy main to production</button></div><span class="caption">Deploy held by federico since 11:02.</span></div></div></div><div class="banner warn" role="status"><i data-lucide="lock" class="i20" aria-hidden="true"></i><div class="grow"><b>Deploy held by federico from CLI on federico-mbp since 11:02 (21 min)</b>
+<div class="caption">No events for 14 min. Last event: 11:09, step 9 of 15, Upload files.</div></div><button class="btn sm">Open operation</button><button class="btn sm danger-o">Force release…</button></div><div class="tabs" role="tablist"><span class="tab on" role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab " role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Current release</h2></div><div class="panel-b">
+<dl class="kv"><dt>Release</dt><dd class="id">20261006-170512-a0dc2b0</dd>
+<dt>Commit</dt><dd><span class="id">a0dc2b0</span> on <span class="mono">main</span> · Fix ticket upload timeout</dd>
+<dt>Deployed</dt><dd>Deployed by federico 2 h ago, in 3 min 12 s · Console</dd>
+<dt>Tests</dt><dd><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span> <span class="caption">server 412 · server-integration 38 · app 96 passed, 2 skipped</span></dd>
+<dt>Images</dt><dd><span class="mono" style="font-size:13px">cazafacturas-server:20261006-170512-a0dc2b0</span>, <span class="mono" style="font-size:13px">cazafacturas-pacewright:20261006-170512-a0dc2b0</span></dd></dl></div></div><div class="panel"><div class="panel-h"><h2 class="section">Releases</h2><span class="caption">Keeps 5 · newest first</span></div><div class="tl"><div class="tl-item current"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261006-170512-a0dc2b0</span><span class="pill run"><i data-lucide="circle-dot" class="" aria-hidden="true"></i>Current</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>Fix ticket upload timeout</div><div class="caption">Deploy · Console · federico · 6 Oct, 17:05 UTC · 2 h ago · 3 min 12 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261006-170512-a0dc2b0"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261005-221844-9c41e07</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 con marca commit</div><div class="caption">Deploy · CLI · federico on federico-mbp · 5 Oct, 22:18 UTC · 21 h ago · 3 min 40 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261005-221844-9c41e07"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-153020-23c8961</span><span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Healthy</span><span title="Skipped by federico: Hotfix for the SES quota; the integration suite was failing on a timeout unrelated to the change."><span class="pill warn"><i data-lucide="flask-conical-off" class="" aria-hidden="true"></i>Tests skipped</span></span></div>
+<div>docs: autoría de recetas tal como corre ahora</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:30 UTC · 2 days ago · 2 min 58 s</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-153020-23c8961"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item failed"><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261004-150211-12c1dfe</span><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span><span class="pill ok"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>Tests passed</span></div>
+<div>recetas: FacturaGas v2 (first try)</div><div class="caption">Deploy · Console · federico · 4 Oct, 15:02 UTC · Failed health check. podship switched back.</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261004-150211-12c1dfe"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div><div class="tl-item "><div class="tl-rail"><span class="tl-node"></span></div>
+<div class="stack-1"><div class="row wrap" style="gap:8px"><span class="id" style="font-weight:500">20261002-190040-3b71287</span><span class="pill neutral"><i data-lucide="circle-minus" class="" aria-hidden="true"></i>Adopted</span><span class="pill neutral"><i data-lucide="flask-conical" class="" aria-hidden="true"></i>No tests</span></div>
+<div>despliegue: podship.yaml</div><div class="caption">Adopted · CLI over SSH · framallo · 2 Oct, 19:00 UTC · 4 days ago</div></div><div><button class="btn icon sm ghost" aria-label="Actions for release 20261002-190040-3b71287"><i data-lucide="ellipsis" class="" aria-hidden="true"></i></button></div></div></div></div></div><div class="stack">
+
+<div class="panel"><div class="panel-h"><h2 class="section">Health</h2><span class="right"><span class="health"><span class="dot ok"></span>Healthy</span></span></div><div class="panel-b stack-2">
+<div class="row"><span class="mono grow" style="font-size:12px">127.0.0.1:8087/health</span><span class="t-ok">200 OK</span></div>
+<div class="row"><span class="mono grow" style="font-size:12px">cazafacturas.mx/health</span><span class="t-ok">200 OK</span></div>
+<div class="caption">Checked 40 s ago from caza-vps and from the console.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Last backup</h2></div><div class="panel-b stack-2">
+<div><span class="num">8 h ago</span> · <span class="id">2026-10-06T0300</span></div><div class="caption">412 MB · encrypted · pulled to federico-mbp</div>
+<div><button class="btn sm"><i data-lucide="database-backup" class="" aria-hidden="true"></i>Back up now</button></div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">staging</h2><span class="caption right mono">agentes.local</span></div><div class="panel-b stack-2">
+<div class="row"><span class="id">20261006-165802-a0dc2b0</span></div><div class="caption">Same commit as production. Promote isn't offered: agentes.local is arm64 and caza-vps is x86_64.</div></div></div>
+<div class="panel"><div class="panel-h"><h2 class="section">Recent activity</h2><a class="right caption">History</a></div><div class="panel-b stack-2 caption">
+<div>Deploy a0dc2b0 · federico · Console · 2 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Backup now · federico · CLI · 7 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div>
+<div>Deploy 9c41e07 · federico · CLI · 21 h ago · <span class="pill ok"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Succeeded</span></div></div></div>
+</div></div></main></div></div><div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-label="Force release the lock on cazafacturas production" style="width:600px">
+<div style="border-radius:12px 12px 0 0;overflow:hidden"><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div></div>
+<div class="dialog-h"><h2 class="section" style="font-size:18px;line-height:24px">Force release the lock on cazafacturas production</h2></div>
+<div class="dialog-b"><div class="consequence danger">federico's deploy has sent no events for 14 min. If it's still running on caza-vps, a new operation can collide with it.</div>
+<dl class="kv"><dt>Held by</dt><dd>federico · CLI on federico-mbp</dd><dt>Since</dt><dd>11:02 (21 min)</dd><dt>Last event</dt><dd>11:09 · Upload files</dd></dl>
+<div class="field"><label class="label" for="tc">Type <span class="mono">cazafacturas/production</span> to confirm</label><div class="input" id="tc"><span class="mono">cazafacturas/production</span></div></div></div><div class="dialog-f"><button class="btn focus">Cancel</button><button class="btn danger right">Release the lock</button></div></div></div></section></div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

@@ -16,7 +16,7 @@ A product surface: **Flutter on its own design system, backed by a Serverpod ser
 | Folder | Content |
 |---|---|
 | `research/` | `job-stories.md` (from the owner's brief, not interviews), `assumptions.md` (the interview, answered from the brief, as an assumption map) |
-| `decisions/` | default language, navigation model, dangerous actions, live-stream model, visual direction, CLI through the console |
+| `decisions/` | default language, navigation model, dangerous actions, live-stream model, visual direction, CLI through the console, providers + first run + MCP |
 | `specs/` | one spec per screen group, plus `design-system.md` (tokens and components for Flutter) |
 | `copy/` | `glossary.md`, `common.md`, one copy table per screen group (key, en, es, notes) |
 | `mockups/` | the viewer's files: `mockups.json`, `podship.css` (tokens), the brand board, 10 desktop pages, 2 phone flows |
@@ -25,11 +25,11 @@ A product surface: **Flutter on its own design system, backed by a Serverpod ser
 
 ## Locked count (what this round delivers)
 
-Decisions: 6. Specs: 13 (10 screen groups, test stage, CLI and tokens, design system). Copy: 14 files (glossary, common, 12 screen groups).
+Decisions: 7. Specs: 15 (10 screen groups, test stage, CLI and tokens, first-run setup, MCP, design system). Copy: 16 files (glossary, common, 14 screen groups).
 
-Added during the round on request: the test stage and production test gate (`specs/tests.md`), and the CLI through the console with tokens, origins and the lock (`specs/cli-and-tokens.md`).
+Added during the round on request: the test stage and production test gate (`specs/tests.md`); the CLI through the console with tokens, origins and the lock (`specs/cli-and-tokens.md`); new servers through a provider and server destroy (`specs/servers.md`), first-run setup (`specs/first-run.md`) and MCP access (`specs/mcp.md`).
 
-Mockups: 1 brand board (3 panels), 11 desktop pages at 1440 px with 60 states, 2 phone flows at 390 px with 8 main frames and 10 alternates.
+Mockups: 1 brand board (3 panels), 13 desktop pages at 1440 px with 79 states, 2 phone flows at 390 px with 8 main frames and 10 alternates.
 
 | File | States or frames |
 |---|---|
@@ -41,9 +41,11 @@ Mockups: 1 brand board (3 panels), 11 desktop pages at 1440 px with 60 states, 2
 | `web-variables.html` | 1 variables and secrets; 2 set a secret; 3 restart needed; 4 copy secrets from another environment |
 | `web-domains.html` | 1 domains; 2 add a domain, DNS record; 3 DNS not pointing yet |
 | `web-logs.html` | 1 following; 2 paused, filtered, search match; 3 no lines in range |
-| `web-server.html` | 1 caza-vps (resources and registry); 2 agentes.local (macOS); 3 bootstrap plan; 4 server unreachable |
-| `web-history.html` | 1 all operations with origin column and filter; 2 one operation expanded; 3 filtered by origin, no results |
-| `web-settings.html` | 1 people and roles per project or environment; 2 SSH access per server; 3 CI deploy key created (shown once); 4 remove access, typed confirmation; 5 access tokens; 6 create a token; 7 token shown once; 8 CI tokens for a project; 9 revoke a token; 10 authorize the CLI (`podship login`) |
+| `web-server.html` | 1 caza-vps (provider, resources, registry); 2 agentes.local (macOS, no provider); 3 bootstrap plan; 4 server unreachable; 5 MCP-started operation on the server's activity (origin); 6 destroy blocked by environments; 7 destroy an empty server, typed |
+| `web-new-server.html` | 1 how to add; 2 configure (data center, plan, OS, keys, firewall, tunnel); 3 review and buy; 4 provisioning and bootstrap live; 5 registered; 6 bootstrap failed after purchase |
+| `web-first-run.html` | 1 owner; 2 remote access (Cloudflare Tunnel); 3 token missing a permission; 4 provider token tested; 5 first server; 6 done; 7 setup link already used |
+| `web-history.html` | 1 all operations with origin column and filter (Console, CLI, CI, MCP, CLI over SSH); 2 one operation expanded; 3 filtered by origin, no results |
+| `web-settings.html` | 1 people and roles per project or environment; 2 SSH access per server; 3 CI deploy key created (shown once); 4 remove access, typed confirmation; 5 access tokens; 6 create a token; 7 token shown once; 8 CI tokens for a project; 9 revoke a token; 10 authorize the CLI (`podship login`); 11 MCP page (connect Claude Code, tools, rules); 12 create an MCP token; 13 approval request from an agent |
 | `web-tests.html` | 1 test stage running; 2 deploy blocked by failing tests; 3 skip tests on staging (reason); 4 skip tests on production (reason + typed); 5 promote with the release's test status; 6 promote refused, tests not passed; 7 project test suites; 8 edit a suite, validation errors |
 | `status-phone.html` | main: 1 overview, 2 environment, 3 backups. Alternates: overview loading, overview stale, overview dark, environment backup failed |
 | `rollback-phone.html` | main: 1 overview (production unhealthy), 2 environment, 3 confirm, 4 rolling back, 5 healthy again. Alternates: choose another release, confirm in Spanish, reconnecting, rollback failed, collaborator cannot roll back production, confirm dark |

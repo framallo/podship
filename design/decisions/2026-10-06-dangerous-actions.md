@@ -53,6 +53,10 @@ After the fact:
 
 Skipping the test stage is a confirmation of its own (`specs/tests.md`): on a non-production environment it is tier 1 with a required reason; on production it is tier 2 (reason plus typed `<project>/<env>`). Production refuses a promote of a release whose tests did not pass unless the same tier-2 override is completed. The reason and the person are stored on the release and in history.
 
+## MCP and provider actions (added 2026-10-06)
+
+Through MCP, tier-1 operations on production need the owner's approval in the console, and tier-2 operations are not exposed at all. Buying a server is tier 1 with the price in the button; destroying a server is tier 2, typed with the server name (`decisions/2026-10-06-providers-first-run-mcp.md`).
+
 ## Consequences
 
 The design system needs a `ConfirmDialog` with three tiers and a `TypedConfirmField` (`specs/design-system.md`). The copy tables carry the confirm labels with their variables. The console server must persist the lock and check the role before it calls the library.
