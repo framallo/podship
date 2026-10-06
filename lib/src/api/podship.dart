@@ -421,8 +421,9 @@ class Podship {
     // Projects without test suites have no gate.
     if (willRun ||
         config.tests.suites.isEmpty ||
-        !config.tests.gate.contains(e.name))
+        !config.tests.gate.contains(e.name)) {
       return;
+    }
     final where = await findPassingTests(ctx, sha);
     if (where != null) {
       ctx.log.info('tests of ${_short(sha)} passed in the $where deploy');
