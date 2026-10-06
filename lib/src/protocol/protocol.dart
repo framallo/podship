@@ -703,7 +703,16 @@ Stream<Map<String, Object?>> dispatch(
     yield _resultJson(req, false, 'unknown environment "$env"');
     return;
   }
-  final p = req.params;
+  // domain.add/remove manage DNS through Cloudflare when the environment
+  // says so, with or without the provider param: approval follows that.
+  final p = <String, Object?>{...req.params};
+  final envCfg = env == null ? null : podship.config.environments[env];
+  if ((spec.name == 'domain.add' || spec.name == 'domain.remove') &&
+      envCfg != null &&
+      (envCfg.dns.provider == DnsProvider.cloudflare ||
+          envCfg.proxy.remoteManaged)) {
+    p['provider'] = 'cloudflare';
+  }
   String? s(String k) => p[k] as String?;
   bool b(String k) => p[k] == true;
   List<String> l(String k) => [

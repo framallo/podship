@@ -720,6 +720,13 @@ class Podship {
       final (:state, :r) = await _load(ctx, e);
       final macos =
           !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
+      if (e.domains.isNotEmpty &&
+          (e.proxy.remoteManaged || e.dns.provider == DnsProvider.cloudflare)) {
+        ctx.log.warn(
+          'destroy does not remove DNS records, tunnel routes or Access apps in '
+          'Cloudflare: run `podship app teardown --env ${e.name}` first',
+        );
+      }
       rec.previousRelease = state.current;
       await ctx.run(
         planDestroy(
@@ -728,7 +735,10 @@ class Podship {
           state.registry,
           state.registryText,
           purgeBackups: purgeBackups,
-          domainSteps: e.domains.isEmpty || e.proxy.kind == ProxyKind.none
+          domainSteps:
+              e.domains.isEmpty ||
+                  e.proxy.kind == ProxyKind.none ||
+                  e.proxy.remoteManaged
               ? const []
               : planDomain(ctx, r, [
                   for (final d in e.domains) d.host,

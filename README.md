@@ -20,6 +20,7 @@ podship backup now --env production
 - **Secrets on the server only.** `.env` and Serverpod's `passwords.yaml` live on the server. podship edits them over ssh stdin. It never prints a secret value and never puts one in a command line.
 - **Backups.** `pg_dump -Fc` of the database, archives of Docker volumes (SQLite files copied with SQLite's backup API), row counts, checksums, and an encrypted copy that you decrypt with your SSH key. A daily schedule, retention, a restore drill in a throwaway container, a restore that renames the old database instead of dropping it, and an off-site pull to your machine.
 - **Domains.** Routes through a Cloudflare Tunnel, or Caddy with automatic Let's Encrypt certificates.
+- **Cloudflare and SES.** DNS records, tunnel routes, Access apps and the app's email sender, through the Cloudflare and Amazon SES APIs, as plans you approve (see [Cloudflare and SES](#cloudflare-and-ses)).
 - **Dry runs.** Every command that changes something takes `--dry-run` and prints its plan.
 
 ## Install
@@ -70,8 +71,12 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `db user list/create/reset-password/delete` | Database roles for people and tools. The password is printed once. |
 | `db provision` | Shared-Postgres mode: starts `podship-postgres` once per server and creates the environment's database and role. |
 | `db wipe` | An empty database. The old one is renamed, not dropped. |
-| `tunnel` | Forwards a local port to a service port that is not published, like Serverpod Insights (`--service server --port 8081`) or Postgres (`--service postgres --port 5432`). |
-| `domain add/remove/list` | Routes domains through a Cloudflare Tunnel or Caddy, and prints the DNS record you need. |
+| `tunnel forward` | Forwards a local port to a service port that is not published, like Serverpod Insights (`--service server --port 8081`) or Postgres (`--service postgres --port 5432`). `podship tunnel --service …` still works and means `tunnel forward`; a bare `podship tunnel` shows the subcommands. |
+| `tunnel list/route/unroute/create` | Cloudflare Tunnels of the account; route or unroute hostnames of the environment (through the API for a remotely-managed tunnel, or its `config.yml`); create a remotely-managed tunnel. |
+| `dns plan/apply/list` | The DNS records of the domains in Cloudflare: the plan (create/update/delete, before and after), the apply after approval, and the records with drift. |
+| `email status/setup/test` | The app's sender in Amazon SES: whether it can send, the identity, DKIM and MAIL FROM setup, a test email. |
+| `app setup/teardown` | One plan and one approval for a whole app: registry and ports, tunnel route, DNS, Access, TLS check, SES sender; teardown undoes it. |
+| `domain add/remove/list` | Routes domains through a Cloudflare Tunnel or Caddy, and prints the DNS record you need. With `--provider cloudflare` (or `dns.provider: cloudflare`), also creates the record and the Access app, after a plan and an approval (`--plan`, `--plan-id`). |
 | `server bootstrap` | Installs Docker, compose, age, zstd, the firewall rules and podship's folders. Safe to run again. |
 | `server status` | Every project on the server: registry, containers, CPU and memory, disk. |
 | `projects list` | The server registry. |
@@ -146,7 +151,8 @@ Only `project` is required at the top, and `host`, `dir` and `health.url` in eac
 - `health.fallback_urls` and `health.public_fallback_urls`: other URLs that also count as healthy, so a rollback to a release from before a health route moved still passes. `health.attempts`, and `health.interval` in seconds.
 - `secrets.env_file` and `secrets.passwords_file` (relative to `dir`; default `shared/.env` and `shared/passwords.yaml`), `secrets.passwords_link` (where each release sees `passwords.yaml`), and `secrets.password_keys`.
 - `backup.dir`, `unit`, `schedule` (a systemd `OnCalendar` value; empty means a free slot from the registry), `timezone`, `retention` (`days`, `weeks`, `months`), `compression` (`zstd` or `gzip`), `layout` (the `plain`, `encrypted`, `dump`, `counts` and `secrets` names), `stop_on_restore`, `drill.tables` and `drill.volatile` (globs), `offsite.identities`, `before_deploy`, and `replaces` (older schedule units to turn off).
-- `proxy.kind` (`cloudflare_tunnel`, `caddy` or `none`), `proxy.config`, `proxy.service` and `proxy.tunnel_id`.
+- `proxy.kind` (`cloudflare_tunnel`, `caddy` or `none`), `proxy.config`, `proxy.service`, `proxy.tunnel_id` and `proxy.managed` (`remote`: the tunnel's ingress lives in Cloudflare and podship edits it through the API; `local`: a `config.yml` on the host. Default: `local` when `proxy.config` is set, else `remote`).
+- `dns` (`provider: cloudflare` or `none`, `zone`, `account_id`, and for Caddy `ipv4`, `ipv6`, `proxied`), `email` (`from`, `region`, `provider: ses`, `identity`, `mail_from`, `env`), `domains[].access` (`emails`, `email_domains`, `session`), and at the top level `cloudflare: {account_id}`. See [Cloudflare and SES](#cloudflare-and-ses).
 
 For compose files, podship exports `PODSHIP_PORT_<NAME>` for each port, so a compose file can publish `127.0.0.1:${PODSHIP_PORT_WEB}:8082`.
 
@@ -235,7 +241,10 @@ Each environment runs its own Postgres by default. With `database: {mode: shared
 `domain add` routes the domains of an environment as written in `podship.yaml`:
 
 - **Cloudflare Tunnel** (`proxy.kind: cloudflare_tunnel`): podship backs up the tunnel config, replaces the host's ingress rules (path rules first, before the catch-all), validates the result with `cloudflared tunnel ingress validate`, and restarts the tunnel (`systemctl restart` on Linux, `launchctl kickstart -k` on macOS). The DNS record is a proxied CNAME to `<tunnel-id>.cfargotunnel.com`.
+- **Remotely-managed Cloudflare Tunnel** (`proxy.kind: cloudflare_tunnel` without `proxy.config`, or `proxy.managed: remote`): podship reads the tunnel's configuration through the API, replaces the rules of the hostname (other rules and the catch-all stay), and writes it back. Nothing changes on the host. podship refuses to write the API configuration of a tunnel whose `source` is `local`: that tunnel reads a `config.yml` on its host (like a laptop's tunnel), so set `proxy.config` for it.
 - **Caddy** (`proxy.kind: caddy`): podship writes `/etc/caddy/podship/<compose project>.caddy`, imports it from the main Caddyfile, validates and reloads. Caddy gets the certificate from Let's Encrypt. The DNS record is an A or AAAA record to the server.
+
+With a locally-managed tunnel and `proxy.origin_certs`, podship creates the record with `cloudflared tunnel route dns`. Beware: given a hostname outside the cert's zone, cloudflared appends the cert's zone (it created `www.cazafacturas.mx.densitylabs.io` once). podship picks the cert of the longest matching zone only, and checks the name cloudflared reports; but `dns.provider: cloudflare` is the safer path, because the API resolves every hostname to its zone by longest suffix among the zones the token can read, and refuses when none matches.
 
 ## Access and CI
 
@@ -253,7 +262,8 @@ Each environment runs its own Postgres by default. With `database: {mode: shared
 | `unlock` | Removes the environment lock left by a client that stopped in the middle of an operation. |
 | `scale --replicas N` | Changes the number of server containers of the current release (see [Serverpod operations](#serverpod-operations)). |
 | `loadtest [--path] [--users] [--duration]` | Load tests an environment with k6, from its own server, and prints latency and errors. |
-| `provider login <name>`, `provider offers <name> [--country MX]` | Provider API tokens (kept in the system's secret store) and their regions, plans and prices. |
+| `provider login <name>`, `provider offers <name> [--country MX]` | Provider credentials (kept in the system's secret store: `vultr`, `hostinger`, `cloudflare`, `aws`) and the regions, plans and prices of server providers. |
+| `provider check cloudflare`, `provider check aws --region <r>` | Read-only checks of the stored credentials: the token's status and the zones it reads; the SES account of a region. |
 | `server create`, `server destroy` | Buys or deletes a server at a provider; `create` also bootstraps it. Both ask you to type the server name. |
 | `console install` | Sets up a podship console on a machine, deployed by podship itself. |
 | `login`, `logout`, `whoami` | Personal access tokens for a podship console. |
@@ -394,6 +404,7 @@ final history = await podship.history('production');         // List<HistoryReco
 final backups = await podship.backups('production');         // List<BackupInfo>
 ```
 
+- **Cloudflare and SES**: plans (reads that return a `ChangeSet`) `dnsPlan`, `domainPlan`, `tunnelPlan`, `emailPlan`, `appPlan`, `teardownPlan`; operations `dnsApply`, `domainAdd`/`domainRemove` with `provider` and `planId`, `tunnelRoute`, `tunnelUnroute`, `tunnelCreate`, `emailSetup`, `emailTest`, `appSetup`, `appTeardown`; reads `dnsRecords`, `dnsDrift`, `tunnels`, `emailStatus`. `Podship(config, integrations: Integrations(secrets: …, transport: …))` takes a console's secret store and, in tests, a `FixtureTransport`.
 - **Operations**: `deploy`, `rollback`, `promote`, `restart`, `adopt`, `link`, `destroy`, `unlock`, `scale`, `loadtest`, `backupNow`, `backupDrill`, `backupRestore`, `backupSchedule`, `backupPull`, `envSet`, `envUnset`, `secretSet`, `secretUnset`, `secretCopy`, `secretCopyAll`, `secretInit`, `domainAdd`, `domainRemove`, `bootstrap`, `dbProvision`, `dbWipe`, `dbUser`, `access`, `serverCreate`, `serverDestroy`. An `Operation` starts when you first read `events` or `result`, and `op.request` is its protocol request: you can send it to a console instead of running it.
 - **Events**: `OperationStarted`, `PlanReady`, `StepStarted`, `StepFinished`, `StepFailed`, `LogLine`, `SuiteStarted`, `TestFailed`, `SuiteFinished`, `OperationFinished`. Each has `toJson()`; `eventFromJson` reads them back. Events never carry secret values.
 - **Reads**: `status`, `releases`, `currentRelease`, `overview`, `releasesContaining`, `backups`, `envList`, `envGet`, `secretList`, `projects`, `serverStatus`, `domains`, `migrateStatus`, `history`, `logs` (a stream of lines), `lockHolder`.
@@ -435,6 +446,8 @@ The protocol (version 1) is defined in `lib/src/protocol/protocol.dart`:
 - `GET <console>/podship/v1/whoami`: the user and the roles.
 - `GET <console>/podship/v1/operations`: the catalog (`podship operations --json` prints the same): every operation's stable name, whether it changes or destroys something, the typed confirmation it needs, and its parameters as JSON schema, ready for MCP tools.
 
+- Operations that change DNS, tunnels, Access or SES have `"approval": "owner"` in the catalog (`domain.add`/`domain.remove`: `owner_if_cloudflare`) and name their `plan_operation` (`dns.plan`, `domain.plan`, `tunnel.plan`, `email.plan`, `app.plan`, `app.teardown.plan`). A plan returns `plan_id`. The apply runs only with `plan_id`, and only if the plan it computes again has the same id (otherwise nothing runs and the result names the new id). A request may carry `"origin": "cli" | "console" | "mcp"`; with `mcp`, these operations refuse to apply (`dry_run` and the plan operations work). So an MCP agent can plan; the owner approves the plan id in the console, which then sends the apply. `email.test` and `tunnel.create` have no plan: the console asks its usual confirmation.
+
 `dispatch(Podship, OperationRequest)` runs a request and streams its events: a console can use it directly. Operation and parameter names are stable; new versions only add. The console itself is a separate project and is not part of this repository.
 
 ## podship console install
@@ -447,6 +460,125 @@ podship console install --host user@machine --hostname console.example.com \
 
 It writes a small project for the console (its `podship.yaml` and compose file), creates the console's deploy key on the machine (it never leaves it; the command prints the public key to authorize on servers with `podship access add console --key "<key>"`), and runs `link`, `secret init`, `deploy`, `domain add` and `backup schedule`.
 
+## Cloudflare and SES
+
+podship manages DNS records, tunnel routes, Access apps and the app's email sender through the Cloudflare API v4 and Amazon SES API v2. Every change is planned first, through read-only clients (a plan cannot change anything), and printed with before and after:
+
+```
+$ podship app setup --env staging --plan
+Plan: app setup shop/staging on shop-vps (plan 3f2a9c1b04de)
+  + registry           shop/staging
+      after:  shop/staging on shop-vps: ports api=20001 web=20000
+  + tunnel_ingress     tunnel 6ff4…: staging.shop.example
+      after:  staging.shop.example ^/(api|v1)/ → http://localhost:20001; staging.shop.example → http://localhost:20000
+  ~ dns_record         CNAME staging.shop.example
+      before: CNAME staging.shop.example → 24fb…cfargotunnel.com (proxied)
+      after:  CNAME staging.shop.example → 6ff4…cfargotunnel.com (proxied)
+      note:   this record was not created by podship shop/staging
+  + ses_identity       shop.example
+      after:  domain identity shop.example in us-west-1 with Easy DKIM, tag podship=shop/staging
+  + dns_record         DKIM CNAMEs of shop.example
+      after:  3 × CNAME <token>._domainkey.shop.example → <token>.dkim.amazonses.com (the tokens come from SES when the identity is created)
+Checks:
+  ok TLS staging.shop.example: covered by the Universal SSL certificate of shop.example
+  ok SES account (us-west-1): production access; 0 of 50000 sent in 24 h, 14/s
+5 to create, 1 to update, 0 to delete, 0 unchanged.
+```
+
+Without `--plan`, podship prints the same plan and asks `Apply plan 3f2a9c1b04de (6 change(s))?`; `--yes` answers for CI, and `--plan-id 3f2a9c1b04de` applies only that exact plan. Changes run in order; if one fails, podship undoes the ones before it, newest first. The history record on the server holds the plan, what was applied, and how to undo each change. Running the same setup again gives an empty plan.
+
+What podship touches, and what it leaves alone:
+
+- It marks DNS records with the comment `podship <project>/<env>`, names Access apps `podship <project>/<env> <host>`, and tags SES identities `podship=<project>/<env>`.
+- Removing deletes only DNS records that point to this environment (records that point elsewhere are reported and kept), only Access apps whose name starts with `podship `, and the SES identity only with `app teardown --email` and only when it carries this environment's tag (a domain identity is shared by every environment that sends from it).
+- `app teardown` keeps the server registry entry; `podship destroy` removes the environment, and says to run `app teardown` first.
+- Zones: each hostname goes to the longest zone it ends with among the zones the token can read; `dns.zone` must hold the hostname. No match is an error, never a guess.
+- After an apply, `app setup` checks each name over DNS over HTTPS (`cloudflare-dns.com/dns-query`, so a stale negative answer in the local resolver does not matter) and fetches `health.public_url` with `curl --resolve` pinned to an edge address it got there.
+- `podship status` shows DNS drift: a domain whose record points to another tunnel (or anywhere else) than the environment's, following a CNAME to the apex of the same zone (`www` → apex → tunnel).
+
+### Configuration
+
+```yaml
+cloudflare:
+  account_id: f037e56e89293a057740de681ac9abbe   # optional: default is the zone's account
+
+environments:
+  staging:
+    proxy: {kind: cloudflare_tunnel, tunnel_id: 6ff42ae2-…}    # no config: → remotely managed
+    dns:
+      provider: cloudflare        # create the records through the API
+      zone: shop.example          # optional
+    domains:
+      - host: staging.shop.example
+        routes: [{path: "^/(api|v1)/", port: api}, {port: web}]
+      - host: admin.staging.shop.example
+        routes: [{port: web}]
+        access: {emails: [you@shop.example], email_domains: [shop.example], session: 24h}
+    email:
+      from: "Shop <hola@shop.example>"
+      region: us-west-1
+      provider: ses
+      identity: shop.example       # optional: the identity to create (default: the from domain)
+      mail_from: bounce.shop.example   # optional: custom MAIL FROM, with its MX and SPF records
+      env: {from: EMAIL_FROM, region: SES_REGION, provider: EMAIL_PROVIDER}   # the defaults
+```
+
+At deploy, podship gives the server container `EMAIL_FROM`, `SES_REGION` and `EMAIL_PROVIDER` (names from `email.env`). It never gives it podship's own AWS keys: the app's sending credentials are the app's secrets (`podship secret set`), ideally an IAM user that may only `ses:SendEmail` from its identity.
+
+### Cloudflare API token
+
+Create it in the Cloudflare dashboard: My Profile → API Tokens → Create Token → Custom token.
+
+| Permission | Why |
+|---|---|
+| Zone · Zone · Read | Find the zone of a hostname (and its account). |
+| Zone · DNS · Edit | Create, update and delete records. |
+| Account · Cloudflare Tunnel · Edit | List tunnels, create one, and edit the ingress of remotely-managed tunnels. |
+| Account · Access: Apps and Policies · Edit | Optional: only for `domains[].access`. |
+
+Zone Resources: include the zones podship manages (all zones of the account, or specific ones). Account Resources: your account. A Universal SSL check (`/ssl/universal/settings`) also needs Zone · SSL and Certificates · Read; without it, the TLS check reports "could not check" and nothing else changes.
+
+### AWS credentials for SES
+
+An IAM user (or role) for podship, with this policy (narrow `Resource` to your identities' ARNs if you like):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "ses:GetAccount", "ses:GetEmailIdentity", "ses:CreateEmailIdentity",
+      "ses:DeleteEmailIdentity", "ses:PutEmailIdentityMailFromAttributes",
+      "ses:TagResource", "ses:SendEmail"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+### Where credentials live
+
+`podship provider login cloudflare` and `podship provider login aws` (the access key id, then the secret) store them in the macOS Keychain, the Linux Secret Service, or `~/.config/podship/tokens.json` (mode 0600), as `provider:cloudflare` and `provider:aws`. In CI: `CLOUDFLARE_API_TOKEN`, and `AWS_ACCESS_KEY_ID` with `AWS_SECRET_ACCESS_KEY` (and `AWS_SESSION_TOKEN`). podship does not read `~/.aws` profiles. No credential is ever printed, logged, put in an event, or written to the history. A console passes its own encrypted store through `Integrations(secrets: …)`.
+
+### First run (checklist)
+
+Read-only first, then one live change on staging:
+
+1. `podship provider login cloudflare`, then `podship provider check cloudflare`: the token is `active` and lists every zone podship will manage.
+2. `podship provider login aws`, then `podship provider check aws --region us-west-1`: shows sandbox or production and the quota.
+3. `podship tunnel list --env staging`: the environment's tunnel is marked `*`, with `remote` or `local` as expected.
+4. `podship dns plan --env staging` and `podship status --env staging`: the plan and the drift match what you see in the dashboard.
+5. `podship email status --env staging`: which identity lets the sender send, or what is missing.
+6. `podship app setup --env staging --plan`: read the whole plan.
+7. `podship app setup --env staging` and approve: the first live changes. Then `podship dns list --env staging` and `podship status --env staging` (drift: ok).
+8. `podship email setup --env staging` if step 5 said it cannot send; DKIM verification takes minutes to hours. Then `podship email test --env staging` (to the SES mailbox simulator by default; with `--to`, a verified address while in the sandbox).
+9. Only then, production: `podship app setup --env production --plan`, then apply.
+
+To undo step 7: `podship app teardown --env staging --plan`, then apply.
+
+Checked against recorded responses but not yet against the live APIs (look at the first real plan and result): the inline `policies` body of an Access app create; the `source` field of a newly created remote tunnel's configuration; `Tags` in `GetEmailIdentity`; MX `priority` and TXT quoting as Cloudflare returns them.
+
 ## Moving from hand-written scripts
 
 See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a real production setup as the example.
@@ -454,6 +586,8 @@ See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a 
 ## Tests
 
 Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing and the compose override (replicas, Redis, egress).
+
+The Cloudflare and SES integrations are tested against recorded API responses in `test/api_fixtures/` (`cloudflare_test.dart`, `ses_test.dart`, `zones_test.dart`, `changes_test.dart`, `app_test.dart`): every client call, SigV4 against AWS's published test vectors, plan rendering and plan ids, idempotency, rollback, zone resolution (including the zone of the owner's real account), drift, the approval rules of the protocol, and the CLI wiring. They never reach the network.
 
 The integration test in `test/integration/flow_test.dart` deploys a small project to a real Docker host over ssh: a deploy, a failed deploy with automatic rollback, `rollback`, `rollback --to`, a backup, a drill, a restore, `env set`, `promote`, `status` and `destroy`. It runs only when `PODSHIP_IT_HOST` is set. `tool/it.sh` runs it and prints a short log.
 

@@ -456,6 +456,38 @@ void main() {
       expect(domain['error'], contains('needs plan_id'));
     });
 
+    test(
+      'domain.add on a Cloudflare environment needs approval without the provider param',
+      () async {
+        final t = setup(before());
+        final mcp = await last(t.api, req('domain.add', origin: 'mcp'));
+        expect(mcp['ok'], isFalse);
+        expect(mcp['error'], contains('MCP clients may only plan'));
+        final console = await last(
+          t.api,
+          req('domain.remove', origin: 'console'),
+        );
+        expect(console['error'], contains('needs plan_id'));
+        expect(t.http.writes, isEmpty);
+      },
+    );
+
+    test(
+      'destroy plans on a remotely-managed tunnel and says to tear down first',
+      () async {
+        final t = setup(before(), dryRun: true);
+        final op = t.api.destroy('production');
+        final events = await op.events.toList();
+        final r = await op.result;
+        expect(r.ok, isTrue, reason: r.error);
+        expect(
+          events.whereType<LogLine>().map((e) => e.text).join('\n'),
+          contains('podship app teardown --env production'),
+        );
+        expect(t.http.calls, isEmpty);
+      },
+    );
+
     test('the console applies the approved plan id', () async {
       final t = setup([...before(), ...writes()]);
       final plan = await last(t.api, req('dns.plan'));
