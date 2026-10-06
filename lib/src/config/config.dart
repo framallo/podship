@@ -116,6 +116,107 @@ class GitHubConfig {
   final String releaseTag;
 }
 
+/// An outbound proxy for some containers, for example to leave from a
+/// Mexican address while the app runs elsewhere.
+///
+/// `applies_to` lists compose services; every one gets `HTTPS_PROXY`,
+/// `HTTP_PROXY` and `ALL_PROXY`. A service named `chrome` also gets
+/// `PODSHIP_CHROME_PROXY`, for an entrypoint that passes it to Chrome's
+/// `--proxy-server`.
+class EgressConfig {
+  EgressConfig({
+    required this.proxy,
+    this.appliesTo = const ['chrome'],
+    this.noProxy = const [],
+  });
+
+  /// Like `socks5://user:pass@host:1080` or `http://host:3128`. Put a
+  /// proxy with a password in a secret and write `${NAME}` here.
+  final String proxy;
+  final List<String> appliesTo;
+  final List<String> noProxy;
+}
+
+/// Serverpod operations settings of an environment.
+class ServerpodSettings {
+  ServerpodSettings({
+    this.readiness = true,
+    this.readinessUrl,
+    this.logRetentionPeriod,
+    this.logRetentionCount,
+    this.logCleanupInterval,
+    this.persistentLogs,
+    this.consoleLogs,
+    this.replicas = 1,
+    this.redis = false,
+    this.dbPool,
+    this.stopGraceSeconds = 30,
+    this.exceptionDsnEnv,
+    this.replicaEntrypoint,
+  });
+
+  /// Also gate deploys on Serverpod's `/readyz`.
+  final bool readiness;
+
+  /// The readiness URL on the server. Default: `/readyz` on the `web` port,
+  /// else on the `api` port.
+  final String? readinessUrl;
+
+  /// Session log retention, like `30d` (SERVERPOD_SESSION_LOG_RETENTION_PERIOD).
+  final String? logRetentionPeriod;
+
+  /// At most this many session log rows (SERVERPOD_SESSION_LOG_RETENTION_COUNT).
+  final int? logRetentionCount;
+
+  /// How often old logs are deleted, like `24h`.
+  final String? logCleanupInterval;
+  final bool? persistentLogs;
+  final bool? consoleLogs;
+
+  /// Server containers. Above 1, podship adds `server-replica` containers
+  /// with the serverless role, a load balancer with sticky sessions for
+  /// streams, and Redis.
+  final int replicas;
+
+  /// Run Redis for this environment (always when replicas > 1).
+  final bool redis;
+
+  /// Database connections per server container.
+  final int? dbPool;
+
+  /// Seconds a server gets to finish requests when it stops (Serverpod
+  /// drains on SIGTERM).
+  final int stopGraceSeconds;
+
+  /// The `.env` variable that holds the exception monitoring DSN (for
+  /// example SENTRY_DSN), checked by `doctor`. The app reports to it.
+  final String? exceptionDsnEnv;
+
+  /// The entrypoint of replicas, when the compose file pins `--role` in
+  /// the server's entrypoint.
+  final List<String>? replicaEntrypoint;
+
+  bool get needsRedis => redis || replicas > 1;
+
+  /// Environment variables for every server container.
+  Map<String, String> get environment => {
+    'SERVERPOD_SESSION_LOG_RETENTION_PERIOD': ?logRetentionPeriod,
+    if (logRetentionCount != null)
+      'SERVERPOD_SESSION_LOG_RETENTION_COUNT': '$logRetentionCount',
+    'SERVERPOD_SESSION_LOG_CLEANUP_INTERVAL': ?logCleanupInterval,
+    if (persistentLogs != null)
+      'SERVERPOD_SESSION_PERSISTENT_LOG_ENABLED': '$persistentLogs',
+    if (consoleLogs != null)
+      'SERVERPOD_SESSION_CONSOLE_LOG_ENABLED': '$consoleLogs',
+    if (dbPool != null) 'SERVERPOD_DATABASE_MAX_CONNECTION_COUNT': '$dbPool',
+    if (needsRedis) ...{
+      'SERVERPOD_REDIS_ENABLED': 'true',
+      'SERVERPOD_REDIS_HOST': 'redis',
+      'SERVERPOD_REDIS_PORT': '6379',
+    },
+  };
+}
+
 /// One test suite that runs during a deploy.
 class TestSuite {
   TestSuite({
@@ -499,7 +600,10 @@ class EnvConfig {
     this.remotePreBuild,
     this.scheduler = Scheduler.auto,
     this.transport,
-  }) : secrets = secrets ?? SecretsConfig(),
+    ServerpodSettings? serverpod,
+    this.egress,
+  }) : serverpod = serverpod ?? ServerpodSettings(),
+       secrets = secrets ?? SecretsConfig(),
        database = database ?? DatabaseConfig(),
        proxy = proxy ?? ProxyConfig();
 
@@ -552,6 +656,12 @@ class EnvConfig {
 
   /// `ssh` or `console` for this environment; null means the project's.
   final String? transport;
+
+  /// Serverpod operations settings: logs, readiness, replicas, Redis.
+  final ServerpodSettings serverpod;
+
+  /// An outbound proxy for some containers (see [EgressConfig]).
+  final EgressConfig? egress;
 
   bool get isProduction => name == 'production';
   String get registryPath => '$podshipHome/registry.yaml';
@@ -910,6 +1020,43 @@ class PodshipConfig {
           ? e.strs('remote_pre_build')
           : null,
       transport: e.optStr('transport'),
+      serverpod: () {
+        final sp = e.map('serverpod');
+        final logs = sp.map('logs');
+        return ServerpodSettings(
+          readiness: sp.boolean('readiness', true),
+          readinessUrl: sp.optStr('readiness_url'),
+          logRetentionPeriod: logs.optStr('retention_period'),
+          logRetentionCount: logs.has('retention_count')
+              ? logs.integer('retention_count')
+              : null,
+          logCleanupInterval: logs.optStr('cleanup_interval'),
+          persistentLogs: logs.has('persistent')
+              ? logs.boolean('persistent', true)
+              : null,
+          consoleLogs: logs.has('console')
+              ? logs.boolean('console', true)
+              : null,
+          replicas: sp.integer('replicas', 1),
+          redis: sp.boolean('redis', false),
+          dbPool: sp.has('db_pool') ? sp.integer('db_pool') : null,
+          stopGraceSeconds: sp.integer('stop_grace', 30),
+          exceptionDsnEnv: sp.optStr('exception_dsn_env'),
+          replicaEntrypoint: sp.has('replica_entrypoint')
+              ? sp.strs('replica_entrypoint')
+              : null,
+        );
+      }(),
+      egress: e.has('egress')
+          ? EgressConfig(
+              proxy: e.map('egress').str('proxy'),
+              appliesTo: e.map('egress').strs('applies_to', const ['chrome']),
+              noProxy: e.map('egress').strs('no_proxy', const [
+                'localhost',
+                '127.0.0.1',
+              ]),
+            )
+          : null,
       scheduler: switch (e.str('scheduler', 'auto')) {
         'auto' => Scheduler.auto,
         'systemd' => Scheduler.systemd,

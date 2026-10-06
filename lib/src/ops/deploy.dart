@@ -135,6 +135,26 @@ void writeReleaseMeta({
       }(),
   ];
   final built = builtServices(texts);
+  final sp = env.serverpod;
+  final serverPorts = servicePorts(texts, env.serverService);
+  final defining = [
+    for (final (i, t) in texts.indexed)
+      if (allServices([t]).contains(env.serverService)) files[i],
+  ];
+  final extras = OverrideExtras(
+    serverEnv: sp.environment,
+    stopGraceSeconds: sp.stopGraceSeconds,
+    replicas: sp.replicas,
+    redis: sp.needsRedis,
+    serverPorts: serverPorts,
+    extendsFile: defining.isEmpty
+        ? null
+        : p.posix.join(l.release(id), defining.first),
+    replicaEntrypoint: sp.replicaEntrypoint,
+    egressProxy: env.egress?.proxy,
+    egressServices: env.egress?.appliesTo ?? const [],
+    noProxy: env.egress?.noProxy ?? const [],
+  );
   final shared = env.database.mode == DatabaseMode.shared;
   final dir = Directory(p.join(releaseRoot, '.podship'))
     ..createSync(recursive: true);
@@ -153,8 +173,17 @@ void writeReleaseMeta({
       pinnedImages: pinnedImages,
       sharedNetwork: shared ? DatabaseConfig.sharedNetwork : null,
       serverService: env.serverService,
+      extras: extras,
     ),
   );
+  if (sp.replicas > 1) {
+    w(
+      'lb.conf',
+      lbConfig([
+        for (final port in serverPorts) ?containerPort(port),
+      ], server: env.serverService),
+    );
+  }
   w('compose-files', '${files.join('\n')}\n');
   w('images', images.isEmpty ? '' : '${images.join('\n')}\n');
   w('status', 'pending\n');
@@ -371,6 +400,14 @@ Plan planDeploy({
       attempts: env.health.attempts,
       intervalSeconds: env.health.intervalSeconds,
     ),
+    if (r.readinessUrl != null)
+      HealthStep(
+        'Serverpod readiness (/readyz)',
+        env.host,
+        [r.readinessUrl!],
+        attempts: env.health.attempts,
+        intervalSeconds: env.health.intervalSeconds,
+      ),
   ]);
   final guardTo = steps.length - 1;
   final toPrune = releasesToPrune(

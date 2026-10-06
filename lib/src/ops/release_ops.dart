@@ -43,6 +43,14 @@ import 'state.dart';
         attempts: env.health.attempts,
         intervalSeconds: env.health.intervalSeconds,
       ),
+      if (r.readinessUrl != null)
+        HealthStep(
+          'Serverpod readiness (/readyz)',
+          env.host,
+          [r.readinessUrl!],
+          attempts: env.health.attempts,
+          intervalSeconds: env.health.intervalSeconds,
+        ),
     ],
     recovery: [
       if (old != null) ...[
@@ -125,7 +133,7 @@ Plan planRollback({
     steps,
     recovery: sw.recovery,
     guardFrom: guardFrom,
-    guardTo: guardFrom + 1,
+    guardTo: guardFrom + sw.steps.length - 1,
   );
 }
 
@@ -351,7 +359,7 @@ Future<Plan> planPromote({
       ...sw.recovery,
     ],
     guardFrom: guardFrom,
-    guardTo: guardFrom + 1,
+    guardTo: guardFrom + sw.steps.length - 1,
   );
 }
 

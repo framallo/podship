@@ -40,6 +40,15 @@ class ResolvedEnv {
   String? get publicHealthUrl =>
       env.health.publicUrl == null ? null : sub(env.health.publicUrl!);
 
+  /// Serverpod's readiness probe, when the deploy is gated on it.
+  String? get readinessUrl {
+    final sp = env.serverpod;
+    if (!sp.readiness) return null;
+    if (sp.readinessUrl != null) return sub(sp.readinessUrl!);
+    final port = ports['web'] ?? ports['api'];
+    return port == null ? null : 'http://127.0.0.1:$port/readyz';
+  }
+
   /// Every URL that counts as healthy on the server, primary first.
   List<String> get healthUrls => [
     healthUrl,

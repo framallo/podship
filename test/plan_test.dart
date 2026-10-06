@@ -102,6 +102,7 @@ void main() {
         'Back up the database before the switch',
         'Switch to 20261006-160000-a0dc2b0',
         'Health check',
+        'Serverpod readiness (/readyz)',
         'Mark 20261006-160000-a0dc2b0 healthy and keep 5 releases',
       ]);
       expect(

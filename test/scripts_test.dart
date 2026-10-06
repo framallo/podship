@@ -178,8 +178,8 @@ services:
           built: ['server', 'worker'],
           buildContexts: {'worker': '/srv/worker'},
         );
-        expect(o, contains('image: "demo-staging-server:R"'));
-        expect(o, contains('context: "/srv/worker"'));
+        expect(o, contains('"image": "demo-staging-server:R"'));
+        expect(o, contains('"context": "/srv/worker"'));
         expect(o, isNot(contains('postgres')));
       },
     );
@@ -192,8 +192,41 @@ services:
         serverService: 'server',
       );
       expect(o, contains('external: true'));
-      expect(o, contains('- "podship-shared"'));
+      expect(o, contains('"networks": ["default","podship-shared"]'));
     });
+    test(
+      'replicas add serverless replicas, a sticky load balancer and Redis',
+      () {
+        final o = overrideYaml(
+          composeProject: 'p',
+          release: 'R',
+          built: ['server'],
+          extras: OverrideExtras(
+            serverEnv: {'SERVERPOD_SESSION_LOG_RETENTION_PERIOD': '30d'},
+            stopGraceSeconds: 30,
+            replicas: 3,
+            serverPorts: ['127.0.0.1:20001:8082'],
+            extendsFile: '/r/docker-compose.yml',
+            egressProxy: 'socks5://mx:1080',
+            egressServices: ['chrome'],
+          ),
+        );
+        expect(o, contains('"ports": !reset []'));
+        expect(o, contains('"server-replica":'));
+        expect(o, contains('"replicas": 2'));
+        expect(o, contains('"SERVERPOD_SERVER_ROLE": "serverless"'));
+        expect(o, contains('"podship-lb":'));
+        expect(o, contains('"redis":'));
+        expect(o, contains('"PODSHIP_CHROME_PROXY": "socks5://mx:1080"'));
+        expect(o, contains('"stop_grace_period": "30s"'));
+        expect('\n'.allMatches(o).length, greaterThan(20));
+        expect(
+          lbConfig([8080, 8082]),
+          contains('ip_hash; server server:8082; server server-replica:8082;'),
+        );
+        expect(containerPort('127.0.0.1:\${PUERTO_WEB:-8082}:8082'), 8082);
+      },
+    );
     test('compose.sh passes the project, the files and the ports', () {
       final s = composeSh(
         composeProject: 'demo',

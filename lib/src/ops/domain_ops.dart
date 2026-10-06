@@ -1,7 +1,6 @@
 // domain: routes from a hostname to an environment's loopback ports,
 // through a Cloudflare Tunnel or Caddy (automatic TLS with Let's Encrypt).
 
-
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
@@ -23,12 +22,18 @@ String editTunnelConfig(String text, String host, List<ResolvedRoute> routes) {
     throw ConfigException('the tunnel config has no ingress list');
   }
   // Nothing to do when the host already has exactly these rules.
-  final ordered0 = [...routes.where((r) => r.path != null), ...routes.where((r) => r.path == null)];
+  final ordered0 = [
+    ...routes.where((r) => r.path != null),
+    ...routes.where((r) => r.path == null),
+  ];
   final current = [
     for (final r in ingress)
-      if (r is YamlMap && r['hostname'] == host) '${r['path'] ?? ''}|${r['service']}',
+      if (r is YamlMap && r['hostname'] == host)
+        '${r['path'] ?? ''}|${r['service']}',
   ];
-  final wanted = [for (final r in ordered0) '${r.path ?? ''}|http://localhost:${r.port}'];
+  final wanted = [
+    for (final r in ordered0) '${r.path ?? ''}|http://localhost:${r.port}',
+  ];
   if (current.join(',') == wanted.join(',')) return text;
   // Remove the host's rules, from the end so indexes stay valid.
   for (var i = ingress.length - 1; i >= 0; i--) {
