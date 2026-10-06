@@ -62,6 +62,11 @@ String config() =>
 project: podship-it
 server_package: server
 compose: {files: [docker-compose.yml]}
+tests:
+  suites:
+    - name: smoke
+      command: "test -f server/app.py && echo '00:01 +3: All tests passed!'"
+      environments: [staging]
 environments:
 ${['staging', 'production'].map((e) => '''
   $e:

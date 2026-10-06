@@ -391,7 +391,8 @@ class Podship {
     },
   );
 
-  static String _short(String sha) => sha.length > 7 ? sha.substring(0, 7) : sha;
+  static String _short(String sha) =>
+      sha.length > 7 ? sha.substring(0, 7) : sha;
 
   /// The git commit of release [id], from its metadata.
   static String? _shaOf(EnvState state, String? id) {
@@ -418,12 +419,13 @@ class Podship {
       rec.data['tests'] = {'skipped': true, 'reason': reason};
     }
     // Projects without test suites have no gate.
-    if (willRun || config.tests.suites.isEmpty || !config.tests.gate.contains(e.name)) return;
+    if (willRun ||
+        config.tests.suites.isEmpty ||
+        !config.tests.gate.contains(e.name))
+      return;
     final where = await findPassingTests(ctx, sha);
     if (where != null) {
-      ctx.log.info(
-        'tests of ${_short(sha)} passed in the $where deploy',
-      );
+      ctx.log.info('tests of ${_short(sha)} passed in the $where deploy');
       rec.data['tests_passed_in'] = where;
       return;
     }
