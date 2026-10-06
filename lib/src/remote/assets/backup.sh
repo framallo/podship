@@ -205,7 +205,10 @@ for entry in $VOLUMES; do
   # SQLite files: copy with the backup API, as the file owner, so the daemon
   # never finds -wal/-shm files it cannot open.
   for db in ${sqlite//,/ }; do
-    owner=$(docker run --rm -v "$vol:/v:ro" "$HELPER_IMAGE" stat -c '%u:%g' "/v/$db")
+    if ! owner=$(docker run --rm -v "$vol:/v:ro" "$HELPER_IMAGE" stat -c '%u:%g' "/v/$db" 2>/dev/null); then
+      log "volume $vol has no $db yet; skipped"
+      continue
+    fi
     docker run --rm -i --network none --user "$owner" \
       -v "$vol:/v" -v "$VTMP:/out" "$HELPER_IMAGE" python - "$db" <<'PY'
 import sqlite3, sys

@@ -181,8 +181,8 @@ Plan planSchedule(
       'Install ${b.unit}.service and .timer (${r.backupSchedule})',
       env.host,
       '${ctx.header(env)}'
-          'for f in ${shq('${b.unit}.service')} ${shq('${b.unit}.timer')}; do\n'
-          '  [ -f /etc/systemd/system/\$f ] && cp /etc/systemd/system/\$f ${shq(env.etcDir)}/\$f.before-podship-\$(date +%Y%m%d%H%M%S)\n'
+          'mkdir -p ${shq(env.etcDir)}\nfor f in ${shq('${b.unit}.service')} ${shq('${b.unit}.timer')}; do\n'
+          '  if [ -f /etc/systemd/system/\$f ]; then cp /etc/systemd/system/\$f ${shq(env.etcDir)}/\$f.before-podship-\$(date +%Y%m%d%H%M%S); fi\n'
           'done\n'
           'mkdir -p ${shq(env.etcDir)}\n'
           '${writeFile('/etc/systemd/system/${b.unit}.service', units.service)}'

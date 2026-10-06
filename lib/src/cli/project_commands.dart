@@ -61,7 +61,7 @@ String configTemplate(String project, String server, List<String> webApps) {
       api: auto                  # a free loopback port from the server registry
       web: auto
     health:
-      url: http://127.0.0.1:{port:api}/
+      url: "http://127.0.0.1:{port:api}/"
     secrets:
       database_password_env: POSTGRES_PASSWORD
     database:
@@ -96,20 +96,28 @@ environments:
 ${envBlock('production', project)}${envBlock('staging', '$project-staging')}''';
 }
 
-String composeTemplate(String project, String server) =>
+String composeTemplate(
+  String project,
+  String server, {
+  bool fromRoot = false,
+}) =>
     '''
 # Written by podship init. Each environment runs it with its own .env,
 # passwords.yaml, ports and volumes.
 services:
   server:
     build:
-      context: $server
+${fromRoot ? '      context: .\n      dockerfile: $server/Dockerfile' : '      context: $server'}
     restart: unless-stopped
     env_file: [.env]
     environment:
       runmode: production
       SERVERPOD_APPLY_MIGRATIONS: "true"
       SERVERPOD_DATABASE_HOST: postgres
+      SERVERPOD_DATABASE_PORT: "5432"
+      SERVERPOD_DATABASE_NAME: $project
+      SERVERPOD_DATABASE_USER: postgres
+      SERVERPOD_DATABASE_REQUIRE_SSL: "false"
     volumes:
       - ./$server/config/passwords.yaml:/app/config/passwords.yaml:ro
     ports:
@@ -173,7 +181,16 @@ class InitCommand extends PodshipCommand {
         d.server ?? (throw Aborted('no Serverpod server package found here'));
     final files = <String, String>{
       configFileName: configTemplate(d.project, server, d.webApps),
-      'deploy/docker-compose.yml': composeTemplate(d.project, server),
+      'deploy/docker-compose.yml': composeTemplate(
+        d.project,
+        server,
+        // Serverpod's own Dockerfile builds from the workspace root.
+        fromRoot:
+            File(p.join(root, server, 'Dockerfile')).existsSync() &&
+            File(
+              p.join(root, server, 'Dockerfile'),
+            ).readAsStringSync().contains('from the project root'),
+      ),
       '.podshipignore':
           '# Like .gitignore, for what podship ships. `!pattern` includes again.\n',
       if (!File(p.join(root, server, 'Dockerfile')).existsSync())

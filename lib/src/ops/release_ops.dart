@@ -10,6 +10,7 @@ import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../release/release.dart';
 import '../remote/ssh.dart';
+import 'backup_ops.dart';
 import 'context.dart';
 import 'deploy.dart';
 import 'resolve.dart';
@@ -95,7 +96,7 @@ Plan planRollback({
       RemoteStep(
         'Install backup scripts',
         env.host,
-        ctx.header(env) + backupConfInstall(ctx.config, r),
+        ctx.header(env) + backupSetup(ctx.config, r),
       ),
       RemoteStep(
         'Restore database backup $withDb',
@@ -313,7 +314,7 @@ Future<Plan> planPromote({
         env.host,
         '${ctx.header(env)}'
             '${toState.dbRunning ? '' : 'echo "no database running yet: no backup"; exit 0\n'}'
-            '${backupConfInstall(config, to)}${backupNow(env)}',
+            '${backupSetup(config, to)}${backupNow(env)}',
       ),
   ]);
   final sw = switchSteps(

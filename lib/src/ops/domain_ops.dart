@@ -137,7 +137,7 @@ Plan planDomain(
             '${remove ? 'remove the rules of' : 'route'} ${hosts.join(', ')}'
                 '${remove ? '' : ': ${[for (final h in hosts)
                         for (final x in r.domains[h]!) '${x.path ?? '/'} → ${x.port}'].join(', ')}'}; '
-                'back up, validate, write',
+                'back up, validate, write, restart $svc (only when something changed)',
             () async {
               final before = await readRemote(ctx, env, cfg);
               var after = before;
@@ -158,13 +158,10 @@ new=${shq('$cfg.podship-new')}
 cat > "\$new"
 cloudflared tunnel --config "\$new" ingress validate
 mv -f "\$new" ${shq(cfg)}
+${restartService(svc)}sleep 3
 ''', stdin: utf8.encode(after));
+              ctx.log.info('restarted $svc');
             },
-          ),
-          RemoteStep(
-            'Restart $svc',
-            env.host,
-            '${ctx.header(env)}${restartService(svc)}sleep 3\n',
           ),
         ],
       );

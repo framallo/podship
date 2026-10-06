@@ -36,8 +36,15 @@ class RemoteStep extends Step {
   final bool tty;
   @override
   String describe() {
-    // Skip the shared header (set -e and helper functions).
-    final lines = script
+    // Skip the shared header (set -e and helper functions), and show file
+    // writes as one line instead of their content.
+    final compact = script.replaceAllMapped(
+      RegExp(
+        r"cat > (\S+?)\.podship-tmp <<'(PODSHIP_EOF\w*)'\n[\s\S]*?\n\2\n(?:chmod \d+ \S+\n)?mv -f \S+ \S+\n",
+      ),
+      (m) => 'write ${m[1]}\n',
+    );
+    final lines = compact
         .trim()
         .split('\n')
         .where(

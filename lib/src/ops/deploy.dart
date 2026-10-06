@@ -17,6 +17,7 @@ import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../release/release.dart';
 import '../remote/ssh.dart';
+import 'backup_ops.dart';
 import 'context.dart';
 import 'resolve.dart';
 import 'scripts.dart';
@@ -268,7 +269,7 @@ Plan planDeploy({
         env.host,
         '${ctx.header(env)}'
             '${state.dbRunning ? '' : 'echo "no database running yet: no backup"; exit 0\n'}'
-            '${backupConfInstall(config, r)}${backupNow(env)}',
+            '${backupSetup(config, r)}${backupNow(env)}',
       ),
     if (env.migrations == MigrationMode.maintenance)
       RemoteStep(

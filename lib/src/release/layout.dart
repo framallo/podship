@@ -97,7 +97,7 @@ String overrideYaml({
       );
     }
     final ctx = buildContexts[s];
-    if (ctx != null && built.contains(s)) {
+    if (ctx != null && (built.contains(s) || pinnedImages.containsKey(s))) {
       b
         ..writeln('    build:')
         ..writeln('      context: ${jsonEncode(ctx)}');

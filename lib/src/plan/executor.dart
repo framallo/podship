@@ -79,7 +79,7 @@ class Executor {
         '''
 for i in \$(seq ${step.attempts}); do
   for u in ${step.remoteUrls.map(shq).join(' ')}; do
-    if curl -fsS -o /dev/null --max-time 5 "\$u"; then
+    if curl -fs -o /dev/null --max-time 5 "\$u"; then
       echo "healthy after \$i check(s): \$u"; exit 0
     fi
   done
