@@ -2,14 +2,9 @@
 
 import 'dart:io';
 
-import '../config/config.dart';
 import '../edit/dotenv.dart';
-import '../edit/passwords.dart';
 import '../ops/context.dart';
-import '../ops/release_ops.dart';
 import '../ops/secrets.dart';
-import '../plan/plan.dart';
-import '../release/layout.dart';
 import 'base.dart';
 
 abstract class _EditCommand extends PodshipCommand {
@@ -23,14 +18,13 @@ abstract class _EditCommand extends PodshipCommand {
   @override
   bool get mutating => true;
 
-  Future<int> runEdit(EnvConfig e, Plan plan) async {
-    await ctx.run(plan);
-    if (argResults!['restart'] == true) {
-      final (:state, :r) = await load(e);
-      await ctx.run(planRestart(ctx: ctx, r: r, state: state));
-    } else if (!dryRun) {
+  Future<int> edit(String envName, Future<int> Function() change) async {
+    final code = await change();
+    if (code != 0) return code;
+    if (argResults!['restart'] == true) return runOp(api.restart(envName));
+    if (!dryRun && !json) {
       log.info(
-        'Applies at the next deploy, or now with: $exe restart --env ${e.name}',
+        'Applies at the next deploy, or now with: $exe restart --env $envName',
       );
     }
     return 0;
@@ -57,21 +51,7 @@ class EnvSetCommand extends _EditCommand {
       pairs[a.substring(0, i)] = a.substring(i + 1);
     }
     if (pairs.isEmpty) usageException('give at least one NAME=VALUE');
-    final l = EnvLayout(e);
-    return runEdit(
-      e,
-      Plan('env set on ${e.name}', [
-        ActionStep(
-          'Edit ${l.envFile}',
-          'set ${pairs.entries.map((x) => '${x.key}=${x.value}').join(' ')} (plain)',
-          () async {
-            final f = DotEnv(await readRemote(ctx, e, l.envFile));
-            pairs.forEach((k, v) => f.set(k, v, plain: true));
-            await writeRemote(ctx, e, l.envFile, f.toString());
-          },
-        ),
-      ]),
-    );
+    return edit(e.name, () => runOp(api.envSet(e.name, pairs)));
   }
 }
 
@@ -85,15 +65,11 @@ class EnvGetCommand extends PodshipCommand {
   String get invocation => '$exe env get NAME [--env <env>]';
   @override
   Future<int> execute() async {
-    final e = env;
     if (argResults!.rest.length != 1) usageException('give one NAME');
-    final n = argResults!.rest.single;
-    final f = DotEnv(await readRemote(ctx, e, EnvLayout(e).envFile));
-    if (!f.has(n)) throw Aborted('$n is not set in ${e.name}');
-    if (!isPlain(e, f, n)) {
-      throw Aborted('$n is a secret; podship never prints secret values');
-    }
-    stdout.writeln(f.get(n));
+    final v = await api.envGet(env.name, argResults!.rest.single);
+    json
+        ? printJson({'name': argResults!.rest.single, 'value': v})
+        : stdout.writeln(v);
     return 0;
   }
 }
@@ -106,9 +82,16 @@ class EnvListCommand extends PodshipCommand {
       'Variables: plain ones with values, secrets by name only.';
   @override
   Future<int> execute() async {
-    final e = env;
-    final f = DotEnv(await readRemote(ctx, e, EnvLayout(e).envFile));
-    listLines(e, f, secretsOnly: false).forEach(stdout.writeln);
+    final list = await api.envList(env.name);
+    if (json) {
+      printJson([for (final v in list) v.toJson()]);
+    } else {
+      for (final v in list) {
+        stdout.writeln(
+          v.secret ? '${v.name} (secret)' : '${v.name}=${v.value}',
+        );
+      }
+    }
     return 0;
   }
 }
@@ -123,19 +106,8 @@ class EnvUnsetCommand extends _EditCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    final names = argResults!.rest;
-    if (names.isEmpty) usageException('give at least one NAME');
-    final l = EnvLayout(e);
-    return runEdit(
-      e,
-      Plan('env unset on ${e.name}', [
-        editRemote(ctx, e, l.envFile, 'unset ${names.join(' ')}', (t) {
-          final f = DotEnv(t);
-          names.forEach(f.unset);
-          return f.toString();
-        }),
-      ]),
-    );
+    if (argResults!.rest.isEmpty) usageException('give at least one NAME');
+    return edit(e.name, () => runOp(api.envUnset(e.name, argResults!.rest)));
   }
 }
 
@@ -170,32 +142,17 @@ class SecretSetCommand extends _EditCommand {
     final n = argResults!.rest.single;
     final pw = argResults!['password'] == true;
     if (!pw && !validEnvName(n)) usageException('invalid name "$n"');
+    final gen = argResults!['generate'] == true;
+    final file = argResults!['from-file'] as String?;
     final value = dryRun
         ? ''
-        : (argResults!['generate'] == true ||
-              argResults!['from-file'] != null ||
-              stdin.hasTerminal)
-        ? readSecretValue(
-            n,
-            fromFile: argResults!['from-file'] as String?,
-            generate: argResults!['generate'] == true,
-          )
+        : (gen || file != null || stdin.hasTerminal)
+        ? readSecretValue(n, fromFile: file, generate: gen)
         : await readAllStdin();
     if (!dryRun && value.isEmpty) throw Aborted('empty value');
-    final l = EnvLayout(e);
-    final path = pw ? l.passwordsFile : l.envFile;
-    return runEdit(
-      e,
-      Plan('secret set on ${e.name}', [
-        editRemote(ctx, e, path, 'set ${pw ? '${e.runMode}.' : ''}$n', (t) {
-          if (pw) {
-            final f = PasswordsFile(t)..set(e.runMode, n, value);
-            return f.toString();
-          }
-          final f = DotEnv(t)..set(n, value);
-          return f.toString();
-        }),
-      ]),
+    return edit(
+      e.name,
+      () => runOp(api.secretSet(e.name, n, value, password: pw)),
     );
   }
 }
@@ -208,18 +165,8 @@ class SecretListCommand extends PodshipCommand {
       'Secret names (never values): .env secrets and passwords.yaml keys.';
   @override
   Future<int> execute() async {
-    final e = env;
-    final l = EnvLayout(e);
-    final f = DotEnv(await readRemote(ctx, e, l.envFile));
-    for (final n in f.names) {
-      if (!isPlain(e, f, n)) stdout.writeln(n);
-    }
-    final pw = PasswordsFile(await readRemote(ctx, e, l.passwordsFile));
-    for (final s in pw.sections) {
-      for (final k in pw.keys(s)) {
-        stdout.writeln('password $s.$k');
-      }
-    }
+    final list = await api.secretList(env.name);
+    json ? printJson(list) : list.forEach(stdout.writeln);
     return 0;
   }
 }
@@ -242,32 +189,16 @@ class SecretUnsetCommand extends _EditCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    final names = argResults!.rest;
-    if (names.isEmpty) usageException('give at least one NAME');
-    final pw = argResults!['password'] == true;
-    final l = EnvLayout(e);
-    return runEdit(
-      e,
-      Plan('secret unset on ${e.name}', [
-        editRemote(
-          ctx,
-          e,
-          pw ? l.passwordsFile : l.envFile,
-          'unset ${names.join(' ')}',
-          (t) {
-            if (pw) {
-              final f = PasswordsFile(t);
-              for (final n in names) {
-                f.unset(e.runMode, n);
-              }
-              return f.toString();
-            }
-            final f = DotEnv(t);
-            names.forEach(f.unset);
-            return f.toString();
-          },
+    if (argResults!.rest.isEmpty) usageException('give at least one NAME');
+    return edit(
+      e.name,
+      () => runOp(
+        api.secretUnset(
+          e.name,
+          argResults!.rest,
+          password: argResults!['password'] == true,
         ),
-      ]),
+      ),
     );
   }
 }
@@ -297,47 +228,19 @@ class SecretCopyCommand extends _EditCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    final src = config.env(argResults!['from'] as String);
-    if (src.name == e.name) {
-      usageException('--from must be another environment');
-    }
-    final names = argResults!.rest;
-    if (names.isEmpty) usageException('give at least one NAME');
-    final pw = argResults!['password'] == true;
-    final sl = EnvLayout(src), dl = EnvLayout(e);
-    return runEdit(
-      e,
-      Plan('secret copy ${src.name} → ${e.name}', [
-        ActionStep(
-          'Copy ${names.join(', ')}',
-          '${src.name} → ${e.name} (values hidden)',
-          () async {
-            if (pw) {
-              final from = PasswordsFile(
-                await readRemote(ctx, src, sl.passwordsFile),
-              );
-              final to = PasswordsFile(
-                await readRemote(ctx, e, dl.passwordsFile),
-              );
-              for (final n in names) {
-                final v = from.get(src.runMode, n) ?? from.get('shared', n);
-                if (v == null) throw Aborted('${src.name} has no password $n');
-                to.set(e.runMode, n, v);
-              }
-              await writeRemote(ctx, e, dl.passwordsFile, to.toString());
-            } else {
-              final from = DotEnv(await readRemote(ctx, src, sl.envFile));
-              final to = DotEnv(await readRemote(ctx, e, dl.envFile));
-              for (final n in names) {
-                final v = from.get(n);
-                if (v == null) throw Aborted('${src.name} has no $n');
-                to.set(n, v);
-              }
-              await writeRemote(ctx, e, dl.envFile, to.toString());
-            }
-          },
+    final from = argResults!['from'] as String;
+    if (from == e.name) usageException('--from must be another environment');
+    if (argResults!.rest.isEmpty) usageException('give at least one NAME');
+    return edit(
+      e.name,
+      () => runOp(
+        api.secretCopy(
+          from,
+          e.name,
+          argResults!.rest,
+          password: argResults!['password'] == true,
         ),
-      ]),
+      ),
     );
   }
 }
@@ -360,12 +263,10 @@ class SecretInitCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    if (argResults!['force'] == true &&
-        e.isProduction &&
-        argResults!['env'] != 'production') {
+    final force = argResults!['force'] == true;
+    if (force && e.isProduction && argResults!['env'] != 'production') {
       usageException('production must be named');
     }
-    await ctx.run(planSecretInit(ctx, e, force: argResults!['force'] == true));
-    return 0;
+    return runOp(api.secretInit(e.name, force: force));
   }
 }

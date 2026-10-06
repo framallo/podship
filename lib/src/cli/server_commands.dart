@@ -1,20 +1,10 @@
-// server, projects, destroy, domain, access, ci, link, db provision.
+// server, projects, link, destroy, domain, access, ci.
 
 import 'dart:io';
 
-import '../config/config.dart';
-import '../edit/dotenv.dart';
-import '../edit/passwords.dart';
 import '../ops/backup_ops.dart';
 import '../ops/context.dart';
-import '../ops/domain_ops.dart';
-import '../ops/scripts.dart';
-import '../ops/secrets.dart';
 import '../ops/server_ops.dart';
-import '../ops/state.dart';
-import '../plan/plan.dart';
-import '../release/layout.dart';
-import '../remote/ssh.dart';
 import 'base.dart';
 
 class BootstrapCommand extends PodshipCommand {
@@ -44,25 +34,14 @@ class BootstrapCommand extends PodshipCommand {
   @override
   bool get mutating => true;
   @override
-  Future<int> execute() async {
-    final e = env;
-    await ctx.run(
-      Plan('bootstrap ${e.host}', [
-        RemoteStep(
-          'Install what is missing',
-          e.host,
-          bootstrapScript(
-            e,
-            caddy:
-                argResults!['caddy'] == true || e.proxy.kind == ProxyKind.caddy,
-            firewall: argResults!['firewall'] == true,
-            deployUser: argResults!['user'] as String?,
-          ),
-        ),
-      ]),
-    );
-    return 0;
-  }
+  Future<int> execute() async => runOp(
+    api.bootstrap(
+      env.name,
+      caddy: argResults!['caddy'] == true,
+      firewall: argResults!['firewall'] == true,
+      user: argResults!['user'] as String?,
+    ),
+  );
 }
 
 class ServerStatusCommand extends PodshipCommand {
@@ -70,26 +49,28 @@ class ServerStatusCommand extends PodshipCommand {
   String get name => 'status';
   @override
   String get description =>
-      'Every project on the server of --env: registry, containers, memory, disk.';
+      'Every project on the server of --env: registry, containers, CPU, memory, disk.';
   @override
   Future<int> execute() async {
-    final e = env;
-    final state = await fetchState(ctx, e);
-    stdout.writeln('Server ${e.host} — projects in ${e.registryPath}:');
-    registryTable(state.registry).forEach((x) => stdout.writeln('  $x'));
-    stdout.write(
-      await ctx.query(e, r'''
-echo
-echo "Containers by compose project:"
-docker ps --format '{{.Label "com.docker.compose.project"}}' | sort | uniq -c | sed 's/^/  /'
-echo
-echo "Memory and CPU:"
-docker stats --no-stream --format '  {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' | sort
-echo
-df -h / | tail -1 | awk '{print "Disk /: " $4 " free of " $2 " (" $5 " used)"}'
-docker system df | sed 's/^/  /'
-'''),
-    );
+    final s = await api.serverStatus(env.name);
+    if (json) {
+      printJson(s.toJson());
+      return 0;
+    }
+    stdout.writeln('Server ${s.host}:');
+    registryTable(s.registry).forEach((x) => stdout.writeln('  $x'));
+    stdout.writeln('\nContainers:');
+    for (final c in s.containers) {
+      stdout.writeln(
+        '  ${'${c['name']}'.padRight(34)} ${'${c['project'] ?? '-'}'.padRight(24)} '
+        '${'${c['cpu'] ?? ''}'.padLeft(7)}  ${'${c['memory'] ?? ''}'.padRight(22)} ${c['status']}',
+      );
+    }
+    if (s.diskFreeKb != null) {
+      stdout.writeln(
+        '\nDisk /: ${(s.diskFreeKb! / 1048576).toStringAsFixed(1)} GB free of ${(s.diskTotalKb! / 1048576).toStringAsFixed(1)} GB',
+      );
+    }
     return 0;
   }
 }
@@ -102,8 +83,10 @@ class ProjectsListCommand extends PodshipCommand {
       'The projects and environments registered on the server of --env.';
   @override
   Future<int> execute() async {
-    final state = await fetchState(ctx, env);
-    registryTable(state.registry).forEach(stdout.writeln);
+    final reg = await api.projects(env.name);
+    json
+        ? printJson([for (final e in reg.entries.values) e.toMap()])
+        : registryTable(reg).forEach(stdout.writeln);
     return 0;
   }
 }
@@ -117,29 +100,7 @@ class LinkCommand extends PodshipCommand {
   @override
   bool get mutating => true;
   @override
-  Future<int> execute() async {
-    final e = env;
-    final (:state, :r) = await load(e);
-    final reg = state.registry..put(r.entry);
-    await ctx.run(
-      Plan('link ${config.project}/${e.name} on ${e.host}', [
-        RemoteStep(
-          'Write the registry',
-          e.host,
-          ctx.header(e) +
-              installAssets(e) +
-              writeRegistry(e, state.registryText, reg.render()),
-        ),
-      ]),
-    );
-    if (!dryRun) {
-      log.info(
-        'ports: ${r.ports.entries.map((x) => '${x.key}=${x.value}').join(' ')}'
-        '${r.backupSchedule == null ? '' : '; backups: ${r.backupSchedule}'}',
-      );
-    }
-    return 0;
-  }
+  Future<int> execute() async => runOp(api.link(env.name));
 }
 
 class DestroyCommand extends PodshipCommand {
@@ -171,27 +132,9 @@ class DestroyCommand extends PodshipCommand {
       'This DELETES ${config.project}/${e.name} on ${e.host}, its database volume included.',
       typed: argResults!['confirm'] as String?,
     );
-    final (:state, :r) = await load(e);
-    final macos =
-        !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
-    await ctx.run(
-      planDestroy(
-        ctx,
-        r,
-        state.registry,
-        state.registryText,
-        purgeBackups: argResults!['purge-backups'] == true,
-        domainSteps: e.domains.isEmpty || e.proxy.kind == ProxyKind.none
-            ? const []
-            : planDomain(ctx, r, [
-                for (final d in e.domains) d.host,
-              ], remove: true).steps,
-        scheduleSteps: e.backup == null
-            ? const []
-            : planSchedule(ctx, r, macos: macos, remove: true).steps,
-      ),
+    return runOp(
+      api.destroy(e.name, purgeBackups: argResults!['purge-backups'] == true),
     );
-    return 0;
   }
 }
 
@@ -213,20 +156,11 @@ class DomainAddCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final e = _remove ? guardedEnv : env;
-    final hosts = argResults!.rest.isEmpty
-        ? [for (final d in e.domains) d.host]
-        : argResults!.rest;
-    if (hosts.isEmpty) {
-      usageException('no domains in environments.${e.name}.domains');
-    }
-    final (:state, :r) = await load(e);
-    await ctx.run(planDomain(ctx, r, hosts, remove: _remove));
-    if (!_remove) {
-      for (final h in hosts) {
-        log.info('DNS for $h: ${dnsRecord(e, h)}');
-      }
-    }
-    return 0;
+    return runOp(
+      _remove
+          ? api.domainRemove(e.name, hosts: argResults!.rest)
+          : api.domainAdd(e.name, hosts: argResults!.rest),
+    );
   }
 }
 
@@ -238,82 +172,23 @@ class DomainListCommand extends PodshipCommand {
       'Domains in podship.yaml, the routes on the proxy, and DNS answers.';
   @override
   Future<int> execute() async {
-    final e = env;
-    final (:state, :r) = await load(e);
-    for (final d in r.domains.entries) {
-      List<InternetAddress> addrs = const [];
-      try {
-        addrs = await InternetAddress.lookup(d.key);
-      } catch (_) {}
-      stdout.writeln(
-        '${d.key}: ${d.value.map((x) => '${x.path ?? '/'} → ${x.port}').join(', ')}'
-        '  DNS: ${addrs.isEmpty ? 'no answer' : addrs.map((a) => a.address).join(' ')}',
-      );
-      stdout.writeln('  needs: ${dnsRecord(e, d.key)}');
+    final list = await api.domains(env.name);
+    if (json) {
+      printJson([for (final d in list) d.toJson()]);
+      return 0;
     }
-    if (e.proxy.kind == ProxyKind.cloudflareTunnel && e.proxy.config != null) {
-      stdout.writeln('Tunnel rules on ${e.host}:');
-      for (final rule in tunnelRules(
-        await readRemote(ctx, e, e.proxy.config!),
-      )) {
-        stdout.writeln('  $rule');
+    for (final d in list) {
+      stdout.writeln(
+        '${d.host}: ${d.routes.join(', ')}  DNS: ${d.dnsAnswers.isEmpty ? 'no answer' : d.dnsAnswers.join(' ')}',
+      );
+      stdout.writeln('  needs: ${d.dnsNeeded}');
+      for (final r in d.proxyRules) {
+        stdout.writeln('  proxy: $r');
       }
     }
     return 0;
   }
 }
-
-class DbProvisionCommand extends PodshipCommand {
-  @override
-  String get name => 'provision';
-  @override
-  String get description =>
-      'Shared-Postgres mode: start podship-postgres once per server, create this environment\'s database and role, store the credentials.';
-  @override
-  bool get mutating => true;
-  @override
-  Future<int> execute() async {
-    final e = env;
-    if (e.database.mode != DatabaseMode.shared) {
-      throw Aborted(
-        '${e.name} uses its own Postgres (database.mode: per_env); nothing to provision',
-      );
-    }
-    final l = EnvLayout(e);
-    await ctx.run(
-      Plan('provision ${e.database.name} in the shared Postgres on ${e.host}', [
-        ActionStep(
-          'Create database and role',
-          '${e.database.name} owned by ${e.database.user}; password stored as a secret (hidden)',
-          () async {
-            final out = await ctx.query(e, sharedDbScript(e));
-            final pw = RegExp(
-              r'PODSHIP_DB_PASSWORD=(\S+)',
-            ).firstMatch(out)![1]!;
-            final p = PasswordsFile(await readRemote(ctx, e, l.passwordsFile))
-              ..set(e.runMode, 'database', pw);
-            await writeRemote(ctx, e, l.passwordsFile, p.toString());
-            final f = DotEnv(await readRemote(ctx, e, l.envFile))
-              ..set(
-                'SERVERPOD_DATABASE_HOST',
-                DatabaseConfig.sharedContainer,
-                plain: true,
-              )
-              ..set('SERVERPOD_DATABASE_PORT', '5432', plain: true)
-              ..set('SERVERPOD_DATABASE_NAME', e.database.name, plain: true)
-              ..set('SERVERPOD_DATABASE_USER', e.database.user, plain: true)
-              ..set('SERVERPOD_DATABASE_REQUIRE_SSL', 'false', plain: true);
-            await writeRemote(ctx, e, l.envFile, f.toString());
-          },
-        ),
-      ]),
-    );
-    return 0;
-  }
-}
-
-/// The marker podship puts on the keys it manages in authorized_keys.
-String accessTag(String name) => 'podship:$name';
 
 class AccessCommand extends PodshipCommand {
   AccessCommand(this._action) {
@@ -333,7 +208,7 @@ class AccessCommand extends PodshipCommand {
   String get description => switch (_action) {
     'add' =>
       'Give a person (or CI) ssh access to the server of --env with their own key.',
-    'remove' => 'Remove a person\'s key from the server of --env.',
+    'remove' => "Remove a person's key from the server of --env.",
     _ => 'People with a podship-managed key on the server of --env.',
   };
   @override
@@ -345,54 +220,24 @@ class AccessCommand extends PodshipCommand {
   Future<int> execute() async {
     final e = env;
     if (_action == 'list') {
-      stdout.write(
-        await ctx.query(
-          e,
-          r'''grep -o 'podship:[A-Za-z0-9._@-]*' ~/.ssh/authorized_keys 2>/dev/null | sed 's/^podship://' || true''',
-        ),
+      final out = await ctx.query(
+        e,
+        r'''grep -o 'podship:[A-Za-z0-9._@-]*' ~/.ssh/authorized_keys 2>/dev/null | sed 's/^podship://' || true''',
       );
+      final names = out.trim().isEmpty ? <String>[] : out.trim().split('\n');
+      json ? printJson(names) : names.forEach(stdout.writeln);
       return 0;
     }
     if (argResults!.rest.length != 1) usageException('give one NAME');
-    final who = argResults!.rest.single;
-    if (!RegExp(r'^[A-Za-z0-9._@-]+$').hasMatch(who)) {
-      usageException('invalid NAME');
-    }
-    String script;
+    String? key;
     if (_action == 'add') {
       final k = argResults!['key'] as String;
       final f = File(expandHome(k));
-      final key = (f.existsSync() ? f.readAsStringSync() : k)
-          .trim()
-          .split('\n')
-          .first;
-      final parts = key.split(RegExp(r'\s+'));
-      if (parts.length < 2 || !isPublicKey(key)) {
-        throw Aborted('not a public key: $k');
-      }
-      final line = '${parts[0]} ${parts[1]} ${accessTag(who)}';
-      script =
-          '''
-umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys
-grep -v ${shq(' ${accessTag(who)}\$')} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.podship-tmp || true
-echo ${shq(line)} >> ~/.ssh/authorized_keys.podship-tmp
-mv -f ~/.ssh/authorized_keys.podship-tmp ~/.ssh/authorized_keys
-echo "added $who"
-''';
-    } else {
-      script =
-          '''
-grep -v ${shq(' ${accessTag(who)}\$')} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.podship-tmp || true
-mv -f ~/.ssh/authorized_keys.podship-tmp ~/.ssh/authorized_keys
-echo "removed $who"
-''';
+      key = f.existsSync() ? f.readAsStringSync() : k;
     }
-    await ctx.run(
-      Plan('access $_action $who on ${e.host}', [
-        RemoteStep('Edit ~/.ssh/authorized_keys', e.host, script),
-      ]),
+    return runOp(
+      api.access(e.name, _action, argResults!.rest.single, publicKey: key),
     );
-    return 0;
   }
 }
 
@@ -437,19 +282,10 @@ class CiSetupCommand extends PodshipCommand {
       }
     }
     final pub = dryRun
-        ? 'ssh-ed25519 AAAA… podship-$who'
-        : File('$key.pub').readAsStringSync().trim();
-    final line = '${pub.split(' ').take(2).join(' ')} ${accessTag(who)}';
-    await ctx.run(
-      Plan('ci setup on ${e.host}', [
-        RemoteStep('Authorize the CI key', e.host, '''
-umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys
-grep -v ${shq(' ${accessTag(who)}\$')} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.podship-tmp || true
-echo ${shq(line)} >> ~/.ssh/authorized_keys.podship-tmp
-mv -f ~/.ssh/authorized_keys.podship-tmp ~/.ssh/authorized_keys
-'''),
-      ]),
-    );
+        ? 'ssh-ed25519 AAAA podship-$who'
+        : File('$key.pub').readAsStringSync();
+    final code = await runOp(api.access(e.name, 'add', who, publicKey: pub));
+    if (code != 0) return code;
     final g = await Process.run('ssh', ['-G', e.host]);
     String field(String n) =>
         RegExp('^$n (.*)\$', multiLine: true).firstMatch('${g.stdout}')?[1] ??
@@ -483,7 +319,7 @@ GitHub Actions example (.github/workflows/deploy.yml):
             echo "\${{ secrets.PODSHIP_SSH_KEY }}" > ~/.ssh/podship && chmod 600 ~/.ssh/podship
             echo "\${{ secrets.PODSHIP_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
             printf 'Host ${e.host}\\n  HostName $hostName\\n  User $user\\n  Port ${port.isEmpty ? '22' : port}\\n  IdentityFile ~/.ssh/podship\\n' >> ~/.ssh/config
-        - run: podship deploy --env ${e.name} --yes
+        - run: podship deploy --env ${e.name} --yes --json
 ''');
     return 0;
   }

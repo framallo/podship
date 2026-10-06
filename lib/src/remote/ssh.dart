@@ -108,12 +108,21 @@ class Ssh {
     return proc.exitCode;
   }
 
+  /// Runs [script] and passes each output line to [onLine]. Returns the
+  /// exit code.
+  Future<int> lines(
+    String host,
+    String script,
+    void Function(String line, bool stderr) onLine,
+  ) => runLines('ssh', _args(host, script), onLine);
+
   /// Copies [localDir] to [host]:[remoteDir] with rsync.
   Future<int> upload(
     String host,
     String localDir,
     String remoteDir, {
     bool delete = true,
+    void Function(String line, bool stderr)? onLine,
   }) async {
     final args = [
       '-a',
@@ -125,6 +134,7 @@ class Ssh {
       '$localDir/',
       '$host:$remoteDir/',
     ];
+    if (onLine != null) return runLines('rsync', args, onLine);
     final proc = await Process.start('rsync', args);
     await proc.stdin.close();
     await Future.wait([
@@ -133,4 +143,27 @@ class Ssh {
     ]);
     return proc.exitCode;
   }
+}
+
+/// Runs [exe] with [args] and passes each output line to [onLine].
+Future<int> runLines(
+  String exe,
+  List<String> args,
+  void Function(String line, bool stderr) onLine, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+}) async {
+  final proc = await Process.start(
+    exe,
+    args,
+    workingDirectory: workingDirectory,
+    environment: environment,
+  );
+  await proc.stdin.close();
+  Future<void> pump(Stream<List<int>> s, bool err) => s
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .forEach((l) => onLine(l, err));
+  await Future.wait([pump(proc.stdout, false), pump(proc.stderr, true)]);
+  return proc.exitCode;
 }

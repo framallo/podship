@@ -240,6 +240,31 @@ void main() {
       expect(await currentId('production'), v3);
       mark('promote ok');
       expect(await podship(['status', '--env', 'production']), 0);
+
+      // The library gives the same data as the CLI, typed.
+      final api = Podship(PodshipConfig.load(dir.path));
+      final status = await api.status('production');
+      expect(status.current, v3);
+      expect(status.healthy, isTrue);
+      final history = await api.history('staging', limit: 50);
+      expect(
+        history.map((r) => r.operation),
+        containsAll(['deploy', 'rollback', 'backup now', 'backup restore']),
+      );
+      expect(
+        history.where((r) => r.operation == 'deploy' && !r.ok),
+        isNotEmpty,
+      );
+      final op = api.backupNow('staging');
+      final types = <String>[];
+      await op.events.forEach((e) => types.add(e.type));
+      final result = await op.result;
+      expect(result.ok, isTrue);
+      expect(result.data['stamp'], isNotNull);
+      expect(types.first, 'operation_started');
+      expect(types.last, 'result');
+      expect(types, contains('step_started'));
+      mark('library api ok');
     });
   });
 }

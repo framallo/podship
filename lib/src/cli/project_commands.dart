@@ -7,6 +7,8 @@ import 'package:yaml/yaml.dart';
 
 import '../config/config.dart';
 import '../ops/context.dart';
+import '../ops/resolve.dart';
+import '../ops/state.dart';
 import '../remote/ssh.dart';
 import 'base.dart';
 
@@ -254,7 +256,7 @@ class LaunchCommand extends PodshipCommand {
       if (e.backup != null) ['backup', 'schedule', '--env', e.name, ...d],
     ];
     for (final s in steps) {
-      log.step('$exe ${s.join(' ')}');
+      log.info('\$ $exe ${s.join(' ')}');
       final code = await runner!.run([...g, ...s]) ?? 0;
       if (code != 0) return code;
     }
@@ -336,7 +338,13 @@ for t in curl rsync age zstd; do command -v $t >/dev/null && echo "tool $t ok" |
         }
       }
       try {
-        final (:state, :r) = await load(e);
+        final state = await fetchState(ctx, e);
+        final r = resolveEnv(
+          config,
+          e,
+          state.registry,
+          listening: state.listening,
+        );
         _ok(
           'registry: ports ${r.ports.entries.map((x) => '${x.key}=${x.value}').join(' ')}',
         );

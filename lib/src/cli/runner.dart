@@ -2,6 +2,7 @@
 
 import 'package:args/command_runner.dart';
 
+import '../api/podship.dart' show podshipVersion;
 import 'backup_commands.dart';
 import 'base.dart';
 import 'db_commands.dart';
@@ -11,7 +12,6 @@ import 'secret_commands.dart';
 import 'server_commands.dart';
 
 /// The version printed by `podship --version`.
-const podshipVersion = '0.1.0';
 
 class PodshipRunner extends CommandRunner<int> {
   PodshipRunner()
@@ -26,6 +26,12 @@ class PodshipRunner extends CommandRunner<int> {
       ..addFlag('version', negatable: false, help: 'Print the version.')
       ..addFlag('verbose', abbr: 'v', negatable: false)
       ..addFlag('quiet', abbr: 'q', negatable: false)
+      ..addFlag(
+        'json',
+        negatable: false,
+        help:
+            'Machine-readable output: JSON documents for reads, JSON event lines for changes.',
+      )
       ..addFlag(
         'yes',
         abbr: 'y',

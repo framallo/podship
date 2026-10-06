@@ -1,29 +1,25 @@
-// Console output.
+// The log of an operation: it turns messages into events.
 
-import 'dart:io';
+import '../api/events.dart';
 
-/// Writes progress to the terminal. Never pass secret values to it.
+/// Emits [LogLine] events. Never pass secret values to it.
 class Log {
-  Log({this.verbose = false, this.quiet = false});
+  Log(this.emit, {this.verbose = false, this.quiet = false});
+
+  /// A log that drops everything (for tests).
+  Log.silent() : emit = _drop, verbose = false, quiet = true;
+
+  static void _drop(PodshipEvent _) {}
+
+  final void Function(PodshipEvent event) emit;
   final bool verbose;
   final bool quiet;
 
-  bool get _color => stdout.hasTerminal && stdout.supportsAnsiEscapes;
-  String _c(String code, String s) => _color ? '\x1B[${code}m$s\x1B[0m' : s;
-
-  void step(String s) {
-    if (!quiet) stdout.writeln(_c('1;36', '▶ $s'));
-  }
-
-  void info(String s) {
-    if (!quiet) stdout.writeln(s);
-  }
-
-  void detail(String s) {
-    if (verbose) stdout.writeln(_c('2', '  $s'));
-  }
-
-  void ok(String s) => stdout.writeln(_c('32', '✓ $s'));
-  void warn(String s) => stderr.writeln(_c('33', '! $s'));
-  void error(String s) => stderr.writeln(_c('31', '✗ $s'));
+  void info(String s) => emit(LogLine(s));
+  void detail(String s) => emit(LogLine(s, level: LogLevel.detail));
+  void ok(String s) => emit(LogLine(s, level: LogLevel.ok));
+  void warn(String s) => emit(LogLine(s, level: LogLevel.warn));
+  void error(String s) => emit(LogLine(s, level: LogLevel.error));
+  void output(String s, {bool stderr = false}) =>
+      emit(LogLine(s, level: LogLevel.output, stderr: stderr));
 }

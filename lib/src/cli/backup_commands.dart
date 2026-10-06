@@ -2,9 +2,7 @@
 
 import 'dart:io';
 
-import '../ops/backup_ops.dart';
 import '../ops/context.dart';
-import '../ops/scripts.dart';
 import '../remote/ssh.dart';
 import 'base.dart';
 
@@ -17,11 +15,7 @@ class BackupNowCommand extends PodshipCommand {
   @override
   bool get mutating => true;
   @override
-  Future<int> execute() async {
-    final (:state, :r) = await load(env);
-    await ctx.run(planBackupNow(ctx, r));
-    return 0;
-  }
+  Future<int> execute() async => runOp(api.backupNow(env.name));
 }
 
 class BackupListCommand extends PodshipCommand {
@@ -32,14 +26,16 @@ class BackupListCommand extends PodshipCommand {
       'Backups on the server: stamp, size, encrypted copy.';
   @override
   Future<int> execute() async {
-    final e = env;
-    final (:state, :r) = await load(e);
-    stdout.write(
-      await ctx.query(
-        e,
-        '${backupSetup(config, r)}${shq('${e.libDir}/backup.sh')} ${shq(backupConfPath(e))} --list',
-      ),
-    );
+    final list = await api.backups(env.name);
+    if (json) {
+      printJson([for (final b in list) b.toJson()]);
+    } else {
+      for (final b in list) {
+        stdout.writeln(
+          '${b.stamp}  ${b.size.padLeft(6)}  ${b.encrypted ? 'encrypted copy' : 'no encrypted copy'}',
+        );
+      }
+    }
     return 0;
   }
 }
@@ -55,17 +51,12 @@ class BackupDrillCommand extends PodshipCommand {
   @override
   bool get mutating => true;
   @override
-  Future<int> execute() async {
-    final (:state, :r) = await load(env);
-    await ctx.run(
-      planDrill(
-        ctx,
-        r,
-        argResults!.rest.isEmpty ? null : argResults!.rest.first,
-      ),
-    );
-    return 0;
-  }
+  Future<int> execute() async => runOp(
+    api.backupDrill(
+      env.name,
+      stamp: argResults!.rest.isEmpty ? null : argResults!.rest.first,
+    ),
+  );
 }
 
 class BackupRestoreCommand extends PodshipCommand {
@@ -101,16 +92,13 @@ class BackupRestoreCommand extends PodshipCommand {
       'with ${stamp ?? argResults!['dump'] ?? 'the newest backup'}. The current database is renamed, not dropped.',
       typed: argResults!['confirm'] as String?,
     );
-    final (:state, :r) = await load(e);
-    await ctx.run(
-      planRestore(
-        ctx,
-        r,
+    return runOp(
+      api.backupRestore(
+        e.name,
         stamp: stamp,
         dumpFile: argResults!['dump'] as String?,
       ),
     );
-    return 0;
   }
 }
 
@@ -134,26 +122,25 @@ class BackupScheduleCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    final macos = dryRun
-        ? false
-        : (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
     if (argResults!['show'] == true) {
       final u = e.backup?.unit ?? (throw Aborted('no backup settings'));
       stdout.write(
-        await ctx.query(
-          e,
-          macos
-              ? 'launchctl print gui/\$(id -u)/${shq(u)} 2>/dev/null | grep -E "state|last exit|path" || echo "not installed"; tail -n 15 ${shq('${e.podshipHome}/log/$u.log')} 2>/dev/null || true'
-              : 'systemctl list-timers ${shq('$u.timer')} --no-pager || true; systemctl cat ${shq('$u.service')} 2>/dev/null | grep ExecStart || true; journalctl -u ${shq(u)} -n 15 --no-pager -o cat || true',
-        ),
+        await ctx.query(e, '''
+if [ "\$(uname -s)" = Darwin ]; then
+  launchctl print gui/\$(id -u)/${shq(u)} 2>/dev/null | grep -E "state|last exit|path" || echo "not installed"
+  tail -n 15 ${shq('${e.podshipHome}/log/$u.log')} 2>/dev/null || true
+else
+  systemctl list-timers ${shq('$u.timer')} --no-pager || true
+  systemctl cat ${shq('$u.service')} 2>/dev/null | grep ExecStart || true
+  journalctl -u ${shq(u)} -n 15 --no-pager -o cat || true
+fi
+'''),
       );
       return 0;
     }
-    final (:state, :r) = await load(e);
-    await ctx.run(
-      planSchedule(ctx, r, macos: macos, remove: argResults!['remove'] == true),
+    return runOp(
+      api.backupSchedule(e.name, remove: argResults!['remove'] == true),
     );
-    return 0;
   }
 }
 
@@ -176,11 +163,8 @@ class BackupPullCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    if (argResults!['install-agent'] == true) {
-      return _installAgent(e.name);
-    }
-    await ctx.run(planPull(ctx, e));
-    return 0;
+    if (argResults!['install-agent'] == true) return _installAgent(e.name);
+    return runOp(api.backupPull(e.name));
   }
 
   Future<int> _installAgent(String envName) async {

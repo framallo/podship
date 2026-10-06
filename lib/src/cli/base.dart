@@ -1,15 +1,19 @@
-// Shared command plumbing: global flags, --env, config loading.
+// Shared command plumbing: global flags, --env, rendering of events.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:args/command_runner.dart';
 
+import '../api/events.dart';
+import '../api/podship.dart';
+import '../api/render.dart';
 import '../config/config.dart';
 import '../ops/context.dart';
-import '../ops/resolve.dart';
-import '../ops/state.dart';
 import '../plan/plan.dart';
 import '../remote/ssh.dart';
+import '../server/registry.dart';
 import '../util/log.dart';
 
 /// The executable name shown in help.
@@ -17,25 +21,6 @@ const exe = 'podship';
 
 abstract class PodshipCommand extends Command<int> {
   PodshipCommand() {
-    addCommonFlags();
-  }
-
-  /// Whether the command changes something. Mutating commands get
-  /// `--dry-run`.
-  bool get mutating => false;
-
-  /// Whether the command can destroy data or stop production. Those default
-  /// to `--env staging` and need `--env production` spelled out.
-  bool get destructive => false;
-
-  /// Whether the command takes `--env`.
-  bool get takesEnv => true;
-
-  bool _flagsAdded = false;
-
-  void addCommonFlags() {
-    if (_flagsAdded) return;
-    _flagsAdded = true;
     if (takesEnv) {
       argParser.addOption(
         'env',
@@ -54,29 +39,70 @@ abstract class PodshipCommand extends Command<int> {
     }
   }
 
-  late final Log log = Log(
-    verbose: globalResults?['verbose'] == true,
-    quiet: globalResults?['quiet'] == true,
-  );
+  /// Whether the command changes something. Mutating commands get
+  /// `--dry-run`.
+  bool get mutating => false;
 
+  /// Whether the command can destroy data or stop production. Those default
+  /// to `--env staging` and need `--env production` spelled out.
+  bool get destructive => false;
+
+  /// Whether the command takes `--env`.
+  bool get takesEnv => true;
+
+  bool get verbose => globalResults?['verbose'] == true;
+  bool get quiet => globalResults?['quiet'] == true;
+  bool get json => globalResults?['json'] == true;
   bool get dryRun => mutating && argResults?['dry-run'] == true;
   bool get yes => globalResults?['yes'] == true;
+
+  bool get _color => !json && stdout.hasTerminal && stdout.supportsAnsiEscapes;
+
+  /// Prints one event: a JSON line with `--json`, else text.
+  void render(PodshipEvent e) {
+    if (json) {
+      stdout.writeln(jsonEncode(e.toJson()));
+      return;
+    }
+    if (e is PlanReady) {
+      if (dryRun) stdout.write(e.text);
+      return;
+    }
+    if (quiet &&
+        e is! OperationFinished &&
+        !(e is LogLine && e.level == LogLevel.error)) {
+      return;
+    }
+    final text = renderEventText(e, verbose: verbose, color: _color);
+    if (text == null) return;
+    final err =
+        (e is LogLine &&
+            (e.level == LogLevel.error || e.level == LogLevel.warn)) ||
+        e is StepFailed ||
+        (e is OperationFinished && !e.result.ok);
+    (err ? stderr : stdout).writeln(text);
+  }
+
+  late final Log log = Log(render, verbose: verbose, quiet: quiet);
 
   PodshipConfig? _config;
   PodshipConfig get config =>
       _config ??= PodshipConfig.load(globalResults?['project-dir'] as String?);
 
-  Ssh get ssh => Ssh(
-    extraOptions: [
-      if (globalResults?['ssh-key'] case final String k) ...[
-        '-i',
-        k,
-        '-o',
-        'IdentitiesOnly=yes',
-      ],
+  List<String> get sshOptions => [
+    if (globalResults?['ssh-key'] case final String k) ...[
+      '-i',
+      k,
+      '-o',
+      'IdentitiesOnly=yes',
     ],
-    verbose: log.verbose,
-  );
+  ];
+
+  Ssh get ssh => Ssh(extraOptions: sshOptions, verbose: verbose);
+
+  /// The library, configured from the global flags.
+  Podship get api =>
+      Podship(config, sshOptions: sshOptions, dryRun: dryRun, verbose: verbose);
 
   Ctx get ctx =>
       Ctx(config: config, ssh: ssh, log: log, dryRun: dryRun, yes: yes);
@@ -91,28 +117,25 @@ abstract class PodshipCommand extends Command<int> {
     throw UsageException('pass --env (${envs.keys.join(', ')})', usage);
   }
 
-  /// For destructive commands: production must be named, and confirmed.
+  /// For destructive commands: production must be named.
   EnvConfig get guardedEnv {
     final e = env;
-    final named = argResults?['env'] as String?;
-    if (e.isProduction && named != 'production') {
+    if (e.isProduction && argResults?['env'] != 'production') {
       throw UsageException('production must be named: --env production', usage);
     }
     return e;
   }
 
-  /// Fetches the state and resolves the environment against the registry.
-  Future<({EnvState state, ResolvedEnv r})> load(EnvConfig e) async {
-    final state = await fetchState(ctx, e);
-    final r = resolveEnv(
-      config,
-      e,
-      state.registry,
-      listening: state.listening,
-      now: DateTime.now().toUtc().toIso8601String(),
-    );
-    return (state: state, r: r);
+  /// Renders the events of [op] and returns 0 when it worked.
+  Future<int> runOp(Operation op) async {
+    await op.events.forEach(render);
+    final r = await op.result;
+    return r.ok ? 0 : 1;
   }
+
+  /// Prints [value] as indented JSON.
+  void printJson(Object? value) =>
+      stdout.writeln(const JsonEncoder.withIndent('  ').convert(value));
 
   @override
   FutureOr<int> run() async {
@@ -124,10 +147,13 @@ abstract class PodshipCommand extends Command<int> {
     } on ConfigException catch (e) {
       log.error('$e');
       return 2;
+    } on RegistryConflict catch (e) {
+      log.error('$e');
+      return 2;
     } on RemoteException catch (e) {
       log.error('$e');
       return 1;
-    } on StepFailed catch (e) {
+    } on StepError catch (e) {
       log.error('failed: $e');
       return 1;
     }

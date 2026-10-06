@@ -37,12 +37,7 @@ EnvState stateWith({
 
 void main() {
   final config = PodshipConfig.parse(sampleConfig, root: '/work/demo');
-  final ctx = Ctx(
-    config: config,
-    ssh: Ssh(),
-    log: Log(quiet: true),
-    dryRun: true,
-  );
+  final ctx = Ctx(config: config, ssh: Ssh(), log: Log.silent(), dryRun: true);
   ResolvedEnv resolve(String env, EnvState s) =>
       resolveEnv(config, config.env(env), s.registry, listening: s.listening);
 

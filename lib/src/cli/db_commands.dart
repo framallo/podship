@@ -1,36 +1,10 @@
-// db: connect, migrate status, users, wipe, and tunnels to services.
+// db: connect, provision, wipe, migrate status, users; and tunnel.
 
 import 'dart:io';
 
-import '../config/config.dart';
-import '../ops/context.dart';
-import '../ops/secrets.dart';
-import '../plan/plan.dart';
-import '../release/layout.dart';
+import '../ops/db_ops.dart';
 import '../remote/ssh.dart';
 import 'base.dart';
-
-/// The shell expression that finds the database container of [e].
-String dbContainerExpr(EnvConfig e) => e.database.mode == DatabaseMode.shared
-    ? DatabaseConfig.sharedContainer
-    : '\$(docker ps -q --filter label=com.docker.compose.project=${shq(e.composeProject)} '
-          '--filter label=com.docker.compose.service=${shq(e.database.service)} | head -1)';
-
-String _admin(EnvConfig e) =>
-    e.database.mode == DatabaseMode.shared ? 'postgres' : e.database.user;
-
-/// Runs SQL as the database admin and returns the output.
-Future<String> sql(
-  Ctx ctx,
-  EnvConfig e,
-  String query, {
-  String? db,
-}) => ctx.query(
-  e,
-  'c=${dbContainerExpr(e)}; [ -n "\$c" ] || { echo "no database container" >&2; exit 1; }\n'
-  'docker exec -i "\$c" psql -U ${shq(_admin(e))} -d ${shq(db ?? e.database.name)} -v ON_ERROR_STOP=1 -Atq -F " | "',
-  stdin: query.codeUnits,
-);
 
 class DbConnectCommand extends PodshipCommand {
   @override
@@ -43,7 +17,7 @@ class DbConnectCommand extends PodshipCommand {
     final e = env;
     return ctx.ssh.stream(
       e.host,
-      '${ctx.header(e)}c=${dbContainerExpr(e)}; exec docker exec -it "\$c" psql -U ${shq(_admin(e))} -d ${shq(e.database.name)}',
+      '${ctx.header(e)}c=${dbContainerExpr(e)}; exec docker exec -it "\$c" psql -U ${shq(dbAdmin(e))} -d ${shq(e.database.name)}',
       tty: true,
     );
   }
@@ -57,41 +31,26 @@ class DbMigrateStatusCommand extends PodshipCommand {
       'Applied Serverpod migrations per module, against the ones in the current release.';
   @override
   Future<int> execute() async {
-    final e = env;
-    final l = EnvLayout(e);
-    final applied = await sql(
-      ctx,
-      e,
-      'select module, version, "timestamp" from serverpod_migrations order by module;',
-    );
-    final shipped = await ctx.query(
-      e,
-      'ls -1 ${shq('${l.current}/${config.serverPackage}/migrations')} 2>/dev/null | grep -E "^[0-9]{17}" | sort | tail -1 || true',
-    );
-    stdout.writeln('Applied (module | version | time):');
-    stdout.write(applied);
-    final latest = shipped.trim();
-    stdout.writeln(
-      'Newest migration in the current release: ${latest.isEmpty ? '(none found)' : latest}',
-    );
-    final mine = applied
-        .split('\n')
-        .where(
-          (x) => x.startsWith(
-            '${config.serverPackage.replaceAll('_server', '')} |',
-          ),
-        )
-        .map((x) => x.split(' | ')[1])
-        .firstOrNull;
-    if (mine != null && latest.isNotEmpty) {
-      stdout.writeln(
-        mine == latest
-            ? 'Up to date.'
-            : mine.compareTo(latest) < 0
-            ? 'Pending: the server applies $latest at its next start (or run a deploy).'
-            : 'The database is AHEAD of the release ($mine > $latest): it ran a newer release.',
-      );
+    final s = await api.migrateStatus(env.name);
+    if (json) {
+      printJson(s.toJson());
+      return 0;
     }
+    stdout.writeln('Applied (module | version | time):');
+    for (final a in s.applied) {
+      stdout.writeln('  ${a['module']} | ${a['version']} | ${a['time'] ?? ''}');
+    }
+    stdout.writeln(
+      'Newest migration in the current release: ${s.newestShipped ?? '(none found)'}',
+    );
+    stdout.writeln(switch (s.state) {
+      'up_to_date' => 'Up to date.',
+      'pending' =>
+        'Pending: the server applies ${s.newestShipped} at its next start.',
+      'ahead' =>
+        'The database is AHEAD of the release (${s.appliedVersion} > ${s.newestShipped}): it ran a newer release.',
+      _ => 'Cannot compare.',
+    });
     return 0;
   }
 }
@@ -121,52 +80,45 @@ class DbUserCommand extends PodshipCommand {
   Future<int> execute() async {
     final e = _action == 'delete' ? guardedEnv : env;
     if (_action == 'list') {
-      stdout.write(
-        await sql(
-          ctx,
-          e,
-          "select rolname, rolcanlogin, rolsuper from pg_roles where rolname !~ '^pg_' order by 1;",
-        ),
+      final out = await sql(
+        ctx,
+        e,
+        "select rolname, rolcanlogin, rolsuper from pg_roles where rolname !~ '^pg_' order by 1;",
       );
+      json
+          ? printJson([
+              for (final l in out.trim().split('\n'))
+                if (l.contains(' | '))
+                  {
+                    'role': l.split(' | ')[0],
+                    'login': l.split(' | ')[1] == 't',
+                    'superuser': l.split(' | ')[2] == 't',
+                  },
+            ])
+          : stdout.write(out);
       return 0;
     }
     if (argResults!.rest.length != 1) usageException('give one NAME');
-    final role = argResults!.rest.single;
-    if (!RegExp(r'^[a-z_][a-z0-9_]{0,62}$').hasMatch(role)) {
-      usageException('invalid role name');
+    final op = api.dbUser(e.name, _action, argResults!.rest.single);
+    final code = await runOp(op);
+    final r = await op.result;
+    if (code == 0 && !json && r.data['password'] != null) {
+      stdout.writeln('Password (shown once): ${r.data['password']}');
     }
-    final pw = randomSecret(24).replaceAll(RegExp(r'[^A-Za-z0-9]'), 'x');
-    final db = e.database.name;
-    final q = switch (_action) {
-      'create' =>
-        'create role "$role" login password \'$pw\';\n'
-            'grant connect on database "$db" to "$role";\n'
-            'grant usage on schema public to "$role";\n'
-            'grant select, insert, update, delete on all tables in schema public to "$role";\n'
-            'grant usage, select on all sequences in schema public to "$role";\n'
-            'alter default privileges in schema public grant select, insert, update, delete on tables to "$role";\n',
-      'reset-password' => 'alter role "$role" password \'$pw\';\n',
-      _ =>
-        'reassign owned by "$role" to "${_admin(e)}"; drop owned by "$role"; drop role "$role";\n',
-    };
-    await ctx.run(
-      Plan('db user $_action $role on ${e.name}', [
-        ActionStep(
-          'Run SQL',
-          'db user $_action $role (password hidden)',
-          () async {
-            await sql(ctx, e, q);
-            if (_action != 'delete') {
-              stdout.writeln(
-                'Role $role on ${e.name}. Password (shown once): $pw',
-              );
-            }
-          },
-        ),
-      ]),
-    );
-    return 0;
+    return code;
   }
+}
+
+class DbProvisionCommand extends PodshipCommand {
+  @override
+  String get name => 'provision';
+  @override
+  String get description =>
+      "Shared-Postgres mode: start podship-postgres once per server, create this environment's database and role, store the credentials.";
+  @override
+  bool get mutating => true;
+  @override
+  Future<int> execute() async => runOp(api.dbProvision(env.name));
 }
 
 class DbWipeCommand extends PodshipCommand {
@@ -192,22 +144,7 @@ class DbWipeCommand extends PodshipCommand {
       'This empties the ${e.name} database of ${config.project}.',
       typed: argResults!['confirm'] as String?,
     );
-    final l = EnvLayout(e);
-    final db = e.database.name;
-    await ctx.run(
-      Plan('db wipe ${e.name}', [
-        RemoteStep('Rename $db and create an empty one', e.host, '''
-${ctx.header(e)}c=${dbContainerExpr(e)}
-${shq(l.currentComposeSh)} stop ${shq(e.serverService)}
-docker exec -i "\$c" psql -U ${shq(_admin(e))} -d postgres -v ON_ERROR_STOP=1 \\
-  -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '$db' and pid <> pg_backend_pid();" \\
-  -c "alter database \\"$db\\" rename to \\"${db}_wiped_\$(date +%Y%m%d%H%M%S)\\";" \\
-  -c "create database \\"$db\\";"
-${shq(l.currentComposeSh)} up -d --no-build ${shq(e.serverService)}
-'''),
-      ]),
-    );
-    return 0;
+    return runOp(api.dbWipe(e.name));
   }
 }
 

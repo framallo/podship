@@ -160,8 +160,8 @@ class Plan {
 }
 
 /// A step failed.
-class StepFailed implements Exception {
-  StepFailed(this.step, this.message);
+class StepError implements Exception {
+  StepError(this.step, this.message);
   final Step step;
   final String message;
   @override

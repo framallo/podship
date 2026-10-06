@@ -95,7 +95,7 @@ a{color:var(--primary); text-decoration:underline; text-underline-offset:2px;}
 .kv dt{color:var(--ink-2);} .kv dd{min-width:0;}
 table.t{width:100%; border-collapse:collapse;}
 .t th{font-size:12px; line-height:16px; font-weight:500; color:var(--ink-2); text-align:left; padding:var(--s2) var(--s4); border-bottom:1px solid var(--hairline); background:var(--container); position:sticky; top:0;}
-.t td{padding:0 var(--s4); height:44px; border-bottom:1px solid var(--hairline); vertical-align:middle;}
+.t td{padding:6px var(--s4); height:44px; border-bottom:1px solid var(--hairline); vertical-align:middle;}
 .t tr:last-child td{border-bottom:0;}
 .t tr.sel td{background:var(--run-c);}
 .t tr.group td{background:var(--container); height:36px; font-weight:600;}
@@ -113,7 +113,7 @@ table.t{width:100%; border-collapse:collapse;}
 .t-ok{color:var(--ok);} .t-warn{color:var(--warn);} .t-danger{color:var(--danger);} .t-run{color:var(--run);}
 
 /* Buttons. One filled (primary) per screen. Danger filled only inside a confirm dialog. */
-.btn{display:inline-flex; align-items:center; justify-content:center; gap:var(--s2); height:36px; padding:0 var(--s4); border-radius:var(--r-control); font:500 14px/20px 'IBM Plex Sans'; border:1px solid var(--outline); background:var(--surface); color:var(--ink); white-space:nowrap; cursor:pointer;}
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:var(--s2); height:36px; padding:0 var(--s4); border-radius:var(--r-control); font:500 14px/20px 'IBM Plex Sans'; border:1px solid var(--outline); background:var(--surface); color:var(--ink); white-space:nowrap; cursor:pointer; text-decoration:none;}
 .btn.primary{background:var(--primary); color:var(--on-primary); border-color:var(--primary);}
 .btn.danger{background:var(--danger); color:var(--on-danger); border-color:var(--danger);}
 .btn.danger-o{color:var(--danger); border-color:var(--danger);}

@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../api/events.dart';
 import '../config/config.dart';
 import '../plan/executor.dart';
 import '../plan/plan.dart';
@@ -36,8 +37,12 @@ class Ctx {
 
   /// Prints [plan] on `--dry-run`, else runs it.
   Future<void> run(Plan plan) async {
+    log.emit(
+      PlanReady(plan.title, [
+        for (final s in plan.steps) s.title,
+      ], plan.render()),
+    );
     if (dryRun) {
-      stdout.write(plan.render());
       log.info('(dry run: nothing was changed)');
       return;
     }
