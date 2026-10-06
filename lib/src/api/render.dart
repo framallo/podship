@@ -32,6 +32,14 @@ String? renderEventText(
       LogLevel.error => c('31', '✗ ${e.text}'),
       LogLevel.info || LogLevel.output => e.text,
     },
+    SuiteStarted() => c('1;35', '◆ tests: ${e.suite} (${e.command})'),
+    TestFailed() => c('31', '  ✗ ${e.suite}: ${e.test}'),
+    SuiteFinished() => c(
+      e.result.ok ? '32' : '31',
+      '${e.result.ok ? '✓' : '✗'} tests ${e.result.suite}: ${e.result.passed} passed, '
+      '${e.result.skipped} skipped, ${e.result.failed} failed in ${secs(e.result.duration)}'
+      '${e.result.timedOut ? ' (timed out)' : ''}',
+    ),
     OperationFinished() =>
       e.result.ok
           ? c(

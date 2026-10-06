@@ -86,6 +86,65 @@ enum SourceMode {
   worktree,
 }
 
+/// One test suite that runs during a deploy.
+class TestSuite {
+  TestSuite({
+    required this.name,
+    required this.dir,
+    required this.command,
+    this.timeoutSeconds = 1800,
+    this.environments = const [],
+    this.image,
+  });
+
+  final String name;
+
+  /// The working directory, relative to the project root.
+  final String dir;
+
+  /// A shell command, like `dart test --concurrency=1` or `flutter test`.
+  final String command;
+  final int timeoutSeconds;
+
+  /// The environments it runs for. Empty means all.
+  final List<String> environments;
+
+  /// The Docker image for `runner: container` (like `dart:stable`).
+  final String? image;
+
+  bool runsFor(String env) =>
+      environments.isEmpty || environments.contains(env);
+}
+
+/// Where tests run.
+enum TestRunner {
+  /// On the machine that runs podship (a laptop or CI).
+  local,
+
+  /// In a throwaway container on the environment's server, from the
+  /// uploaded release files, before the images are built.
+  container,
+}
+
+class TestsConfig {
+  TestsConfig({
+    this.runner = TestRunner.local,
+    this.suites = const [],
+    this.gate = const ['production'],
+  });
+  final TestRunner runner;
+  final List<TestSuite> suites;
+
+  /// Environments that only take a commit whose tests passed (in this
+  /// deploy, or in another environment's deploy of the same commit).
+  final List<String> gate;
+
+  List<TestSuite> forEnv(String env) => [
+    for (final s in suites)
+      if (s.runsFor(env)) s,
+  ];
+}
+
 /// Compose settings shared by all environments.
 class ComposeConfig {
   ComposeConfig({
@@ -235,6 +294,7 @@ class BackupVolume {
     required this.volume,
     this.sqlite = const [],
     this.files = const [],
+    this.owner,
   });
 
   /// The archive name, like `pacewright` → `pacewright.tar.zst`.
@@ -248,6 +308,10 @@ class BackupVolume {
 
   /// Other files to copy. Empty means the whole volume.
   final List<String> files;
+
+  /// `uid:gid` that owns the volume's files after a restore, like
+  /// `10001:10001` for a daemon that does not run as root.
+  final String? owner;
 }
 
 /// File and folder names inside the backup directory.
@@ -399,6 +463,7 @@ class EnvConfig {
     this.buildContexts,
     this.remotePreBuild,
     this.scheduler = Scheduler.auto,
+    this.transport,
   }) : secrets = secrets ?? SecretsConfig(),
        database = database ?? DatabaseConfig(),
        proxy = proxy ?? ProxyConfig();
@@ -450,6 +515,9 @@ class EnvConfig {
   /// How scheduled backups run on the server.
   final Scheduler scheduler;
 
+  /// `ssh` or `console` for this environment; null means the project's.
+  final String? transport;
+
   bool get isProduction => name == 'production';
   String get registryPath => '$podshipHome/registry.yaml';
   String get libDir => '$podshipHome/lib';
@@ -465,7 +533,20 @@ class PodshipConfig {
     required this.compose,
     required this.environments,
     this.root = '.',
-  });
+    TestsConfig? tests,
+    this.consoleUrl,
+    this.transport = 'ssh',
+  }) : tests = tests ?? TestsConfig();
+
+  /// The podship console of this project, if there is one.
+  final String? consoleUrl;
+
+  /// `ssh` (default) or `console`: how commands run unless `--via` says
+  /// otherwise. An environment can set its own.
+  final String transport;
+
+  /// The test stage of deploys.
+  final TestsConfig tests;
 
   /// The project name. Destructive commands ask you to type it.
   final String project;
@@ -566,7 +647,44 @@ class PodshipConfig {
     }
     _checkIsolation(envs.values.toList());
 
+    final t = r.map('tests');
+    final tests = TestsConfig(
+      runner: switch (t.str('runner', 'local')) {
+        'local' => TestRunner.local,
+        'container' => TestRunner.container,
+        final x => throw ConfigException('tests.runner: unknown "$x"'),
+      },
+      gate: t.strs('gate', const ['production']),
+      suites: [
+        for (final m in t.maps('suites'))
+          TestSuite(
+            name: m.str('name'),
+            dir: m.str('dir', '.'),
+            command: m.str('command'),
+            timeoutSeconds: m.integer('timeout', 1800),
+            environments: m.strs('environments'),
+            image: m.optStr('image'),
+          ),
+      ],
+    );
+    for (final s in tests.suites) {
+      for (final e in s.environments) {
+        if (!envs.containsKey(e)) {
+          throw ConfigException(
+            'tests suite ${s.name}: unknown environment "$e"',
+          );
+        }
+      }
+    }
+
+    final transport = r.str('transport', 'ssh');
+    if (!const ['ssh', 'console'].contains(transport)) {
+      throw ConfigException('transport must be ssh or console');
+    }
     return PodshipConfig(
+      consoleUrl: r.map('console').optStr('url'),
+      transport: transport,
+      tests: tests,
       project: project,
       serverPackage: serverPackage,
       build: build,
@@ -622,6 +740,7 @@ class PodshipConfig {
               volume: v.str('volume', '${composeProject}_${v.str('name')}'),
               sqlite: v.strs('sqlite'),
               files: v.strs('files'),
+              owner: v.optStr('owner'),
             ),
         ],
         layout: BackupLayout(
@@ -738,6 +857,7 @@ class PodshipConfig {
       remotePreBuild: e.has('remote_pre_build')
           ? e.strs('remote_pre_build')
           : null,
+      transport: e.optStr('transport'),
       scheduler: switch (e.str('scheduler', 'auto')) {
         'auto' => Scheduler.auto,
         'systemd' => Scheduler.systemd,

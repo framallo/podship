@@ -9,6 +9,9 @@ import 'package:args/command_runner.dart';
 import '../api/events.dart';
 import '../api/podship.dart';
 import '../api/render.dart';
+import '../protocol/protocol.dart';
+import '../protocol/tokens.dart';
+import '../protocol/transport.dart';
 import '../config/config.dart';
 import '../ops/context.dart';
 import '../plan/plan.dart';
@@ -126,12 +129,100 @@ abstract class PodshipCommand extends Command<int> {
     return e;
   }
 
-  /// Renders the events of [op] and returns 0 when it worked.
+  /// Asks the user to type the environment name [name]. [typed] is the
+  /// value of `--confirm` for CI.
+  void confirmEnvName(String name, String what, String? typed) {
+    if (dryRun) return;
+    if (typed != null) {
+      if (typed != name) throw Aborted('--confirm must be "$name"');
+      return;
+    }
+    if (!stdin.hasTerminal) {
+      throw Aborted(
+        '$what Pass --confirm $name to confirm without a terminal.',
+      );
+    }
+    stdout.write('$what\nType "$name" to continue: ');
+    if (stdin.readLineSync(encoding: utf8)?.trim() != name) {
+      throw Aborted('cancelled');
+    }
+  }
+
+  /// `ssh` or `console`: `--via`, else the environment's or the project's
+  /// `transport`.
+  String get via {
+    final flag = globalResults?['via'] as String?;
+    if (flag != null) return flag;
+    final name = takesEnv ? (argResults?['env'] as String?) : null;
+    final e = name == null ? null : config.environments[name];
+    return e?.transport ?? config.transport;
+  }
+
+  /// The console URL: `PODSHIP_CONSOLE_URL`, else `console.url`.
+  String get consoleUrl {
+    final u = Platform.environment['PODSHIP_CONSOLE_URL'] ?? config.consoleUrl;
+    if (u == null) {
+      throw Aborted(
+        'no console: set console.url in podship.yaml or PODSHIP_CONSOLE_URL',
+      );
+    }
+    return u;
+  }
+
+  ConsoleTransport get console {
+    final url = consoleUrl;
+    final token = TokenStore().read(url);
+    if (token == null) {
+      throw Aborted('not signed in to $url: run `podship login $url`');
+    }
+    return ConsoleTransport(url, token);
+  }
+
+  /// Renders the events of [op] and returns 0 when it worked. With the
+  /// console transport, sends [op]'s request to the console instead and
+  /// renders the console's events the same way.
   Future<int> runOp(Operation op) async {
+    if (via == 'console') return runRemote(op.request);
     await op.events.forEach(render);
     final r = await op.result;
     return r.ok ? 0 : 1;
   }
+
+  /// Runs [req] on the console and renders its events.
+  Future<int> runRemote(OperationRequest req) async {
+    try {
+      var ok = false;
+      await for (final j in console.run(req)) {
+        final e = eventFromJson(j);
+        if (e is OperationFinished) ok = e.result.ok;
+        render(e);
+      }
+      return ok ? 0 : 1;
+    } on ConsoleUnreachable catch (e) {
+      log.error('$e');
+      log.info(
+        'If your ssh key has access to the server, run the same command with --via ssh.',
+      );
+      return 1;
+    } on ConsoleRefused catch (e) {
+      log.error('$e');
+      return e.status == 401 || e.status == 403 ? 3 : 1;
+    }
+  }
+
+  /// For read commands: the console request that returns the same data.
+  OperationRequest? get consoleRead => null;
+
+  /// A request for [operation] on the `--env` environment.
+  OperationRequest request(
+    String operation, [
+    Map<String, Object?> params = const {},
+  ]) => OperationRequest(
+    operation: operation,
+    project: config.project,
+    env: env.name,
+    params: params,
+  );
 
   /// Prints [value] as indented JSON.
   void printJson(Object? value) =>
@@ -140,6 +231,15 @@ abstract class PodshipCommand extends Command<int> {
   @override
   FutureOr<int> run() async {
     try {
+      final read = via == 'console' ? consoleRead : null;
+      if (read != null) {
+        var code = 1;
+        Object? value;
+        final rc = await runRemoteRead(read, (v) => value = v);
+        code = rc;
+        if (code == 0) printJson(value);
+        return code;
+      }
       return await execute();
     } on Aborted catch (e) {
       log.error(e.message);
@@ -160,6 +260,35 @@ abstract class PodshipCommand extends Command<int> {
   }
 
   Future<int> execute();
+
+  Future<int> runRemoteRead(
+    OperationRequest req,
+    void Function(Object?) onValue,
+  ) async {
+    try {
+      await for (final j in console.run(req)) {
+        final e = eventFromJson(j);
+        if (e is OperationFinished) {
+          if (!e.result.ok) {
+            log.error(e.result.error ?? 'failed');
+            return 1;
+          }
+          onValue(e.result.data['value']);
+          return 0;
+        }
+      }
+      return 1;
+    } on ConsoleUnreachable catch (e) {
+      log.error('$e');
+      log.info(
+        'If your ssh key has access to the server, run the same command with --via ssh.',
+      );
+      return 1;
+    } on ConsoleRefused catch (e) {
+      log.error('$e');
+      return 3;
+    }
+  }
 }
 
 /// A command group like `backup` or `db`.

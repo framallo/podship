@@ -7,7 +7,7 @@
 #       with the live database, and deletes the container. Does not touch the
 #       live database. Without STAMP it uses the newest backup.
 #
-#   restore.sh CONF restore --confirmed NAME (STAMP | --dump FILE)
+#   restore.sh CONF restore --confirmed NAME (STAMP | --dump FILE | --dir DIR) [--volumes]
 #       Replaces the live database. podship asks you to type the project
 #       name first and passes it as NAME. Steps:
 #         1. takes a fresh backup of the current state;
@@ -15,6 +15,9 @@
 #         3. RENAMES the current database to <db>_before_<time> (no drop);
 #         4. creates an empty database and restores the dump;
 #         5. starts the services again and waits for the health URL.
+#       With --volumes, also replaces the configured Docker volumes with the
+#       archives of the backup (the old content is kept as a tar.gz next to
+#       them). --dir restores a backup folder copied from another server.
 #       To undo: stop the services, swap the database names, start them.
 set -euo pipefail
 
@@ -31,6 +34,7 @@ DB_SERVICE="${DB_SERVICE:-postgres}"
 DB_USER="${DB_USER:-postgres}"
 DB_CONTAINER="${DB_CONTAINER:-}"
 PG_IMAGE="${PG_IMAGE:-postgres:16-alpine}"
+HELPER_IMAGE="${HELPER_IMAGE:-python:3.12-alpine}"
 DRILL_TABLES="${DRILL_TABLES:-}"
 DRILL_VOLATILE="${DRILL_VOLATILE:-}"
 STOP_SERVICES="${STOP_SERVICES:-}"
@@ -42,19 +46,24 @@ log() { echo "[restore] $*"; }
 _sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 fail() { echo "[restore] ERROR: $*" >&2; exit 1; }
 
-CONFIRMED="" STAMP="" DUMP=""
+CONFIRMED="" STAMP="" DUMP="" DIR="" WITH_VOLUMES=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --confirmed) CONFIRMED="${2:?}"; shift ;;
     --dump) DUMP="${2:?--dump needs a file}"; shift ;;
+    --dir) DIR="${2:?--dir needs a folder}"; shift ;;
+    --volumes) WITH_VOLUMES=1 ;;
     -*) fail "unknown option $1" ;;
     *) STAMP="$1" ;;
   esac
   shift
 done
 
-DIR=""
-if [[ -z "$DUMP" ]]; then
+if [[ -n "$DIR" ]]; then
+  DUMP="$DIR/$DUMP_NAME"
+  log "checking the checksums of $DIR"
+  (cd "$DIR" && _sha256 -c --status SHA256SUMS) || fail "SHA-256 checksums do not match"
+elif [[ -z "$DUMP" ]]; then
   [[ -n "$STAMP" ]] || STAMP=$(ls -1 "$DEST/$LAYOUT_PLAIN" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{4}$' | sort | tail -1)
   [[ -n "$STAMP" ]] || fail "no backups in $DEST/$LAYOUT_PLAIN"
   DIR="$DEST/$LAYOUT_PLAIN/$STAMP"
@@ -168,6 +177,24 @@ restore() {
   if ! docker exec -i "$pg" pg_restore -U "$DB_USER" -d "$DB_NAME" --no-owner --exit-on-error <"$DUMP"; then
     echo "[restore] pg_restore failed. To go back: rename $before to $DB_NAME and run: $COMPOSE_SH up -d --force-recreate $services" >&2
     exit 1
+  fi
+
+  if [[ -n "$WITH_VOLUMES" ]]; then
+    [[ -n "$DIR" ]] || fail "--volumes needs a backup folder (a stamp or --dir)"
+    for entry in ${VOLUMES:-}; do
+      IFS='|' read -r vname vol _sqlite _files owner <<<"$entry"
+      arc=""
+      for ext in tar.zst tar.gz; do [[ -f "$DIR/$vname.$ext" ]] && arc="$DIR/$vname.$ext"; done
+      [[ -n "$arc" ]] || { log "no archive for volume $vname; kept"; continue; }
+      log "volume $vol ← $(basename "$arc")"
+      docker volume create "$vol" >/dev/null
+      keep="$(dirname "$DUMP")/$vname-before-$(date +%Y%m%d%H%M%S).tar.gz"
+      docker run --rm -v "$vol:/v" "$HELPER_IMAGE" tar -C /v -czf - . >"$keep" || true
+      case "$arc" in
+        *.zst) zstd -dc "$arc" ;;
+        *) gzip -dc "$arc" ;;
+      esac | docker run --rm -i -v "$vol:/v" "$HELPER_IMAGE" sh -c "tar -x -C /v --strip-components=1${owner:+ && chown -R $owner /v}"
+    done
   fi
 
   log "5/5 starting $services"

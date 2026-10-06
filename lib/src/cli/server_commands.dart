@@ -5,6 +5,7 @@ import 'dart:io';
 import '../ops/backup_ops.dart';
 import '../ops/context.dart';
 import '../ops/server_ops.dart';
+import '../protocol/protocol.dart';
 import 'base.dart';
 
 class BootstrapCommand extends PodshipCommand {
@@ -46,6 +47,8 @@ class BootstrapCommand extends PodshipCommand {
 
 class ServerStatusCommand extends PodshipCommand {
   @override
+  OperationRequest? get consoleRead => request('server.status');
+  @override
   String get name => 'status';
   @override
   String get description =>
@@ -76,6 +79,8 @@ class ServerStatusCommand extends PodshipCommand {
 }
 
 class ProjectsListCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('projects.list');
   @override
   String get name => 'list';
   @override
@@ -165,6 +170,8 @@ class DomainAddCommand extends PodshipCommand {
 }
 
 class DomainListCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('domain.list');
   @override
   String get name => 'list';
   @override

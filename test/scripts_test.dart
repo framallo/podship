@@ -85,7 +85,7 @@ void main() {
   test('the backup settings file has the layout and no secret values', () {
     final conf = backupConf(config, prod);
     expect(conf, contains('PROJECT=demo'));
-    expect(conf, contains("VOLUMES='worker|demo_worker|q.db|'"));
+    expect(conf, contains("VOLUMES='worker|demo_worker|q.db||'"));
     expect(conf, contains("DRILL_TABLES='user* ticket'"));
     expect(
       conf,

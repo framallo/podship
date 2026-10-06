@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../config/config.dart';
+import '../api/events.dart';
 import '../files/ignore.dart';
 import '../plan/plan.dart';
 import '../release/layout.dart';
@@ -22,12 +23,31 @@ import 'context.dart';
 import 'resolve.dart';
 import 'scripts.dart';
 import 'state.dart';
+import 'tests.dart';
 
 /// The commit a release comes from.
 class GitInfo {
-  GitInfo(this.sha, {this.dirty = false, this.ref = 'HEAD'});
+  GitInfo(
+    this.sha, {
+    this.worktreeDirty = false,
+    this.ref = 'HEAD',
+    bool? dirty,
+  }) : dirty = dirty ?? false;
   final String sha;
+
+  /// Whether the release has uncommitted changes. Only true in worktree
+  /// mode; a git export is clean whatever the working tree holds.
   final bool dirty;
+
+  /// Whether the working tree has uncommitted changes.
+  final bool worktreeDirty;
+
+  GitInfo shipping(SourceMode mode) => GitInfo(
+    sha,
+    worktreeDirty: worktreeDirty,
+    ref: ref,
+    dirty: mode == SourceMode.worktree && worktreeDirty,
+  );
   final String ref;
 
   /// Reads the commit of [ref] in [root]. Outside git, the sha is `nogit`.
@@ -36,7 +56,7 @@ class GitInfo {
       'rev-parse',
       ref,
     ], workingDirectory: root);
-    if (r.exitCode != 0) return GitInfo('nogit', dirty: true, ref: ref);
+    if (r.exitCode != 0) return GitInfo('nogit', worktreeDirty: true, ref: ref);
     final st = await Process.run('git', [
       'status',
       '--porcelain',
@@ -44,7 +64,7 @@ class GitInfo {
     ], workingDirectory: root);
     return GitInfo(
       (r.stdout as String).trim(),
-      dirty: (st.stdout as String).trim().isNotEmpty,
+      worktreeDirty: (st.stdout as String).trim().isNotEmpty,
       ref: ref,
     );
   }
@@ -57,6 +77,8 @@ class DeployOptions {
     this.skipBackup = false,
     this.skipHooks = false,
     this.publicCheck = true,
+    this.skipTests = false,
+    this.tests,
   });
 
   /// Overrides `build.source`.
@@ -68,6 +90,19 @@ class DeployOptions {
   /// Whether the health check also fetches the public URL. Off for a first
   /// deploy, before the domain points at the new environment.
   final bool publicCheck;
+
+  /// Skip the test stage.
+  final bool skipTests;
+
+  /// Receives the test results while the plan runs.
+  final TestRun? tests;
+}
+
+/// Test results of one deploy, filled while the plan runs.
+class TestRun {
+  final List<SuiteResult> results = [];
+  String? recordPath;
+  bool get ok => results.every((r) => r.ok);
 }
 
 /// The compose files of [env], relative to the release root.
@@ -192,7 +227,7 @@ Plan planDeploy({
   final id = ReleaseId.create(
     now,
     git.sha,
-    suffix: source == SourceMode.worktree && git.dirty ? 'dirty' : null,
+    suffix: source == SourceMode.worktree && git.worktreeDirty ? 'dirty' : null,
   ).toString();
   final root = config.root;
   final buildRoot = source == SourceMode.git ? snapshot : root;
@@ -205,6 +240,25 @@ Plan planDeploy({
         'Export ${git.ref} (${git.sha.substring(0, git.sha.length.clamp(0, 7))})',
         'git archive ${git.sha} → $snapshot',
         () => exportCommit(root, git.sha, snapshot),
+      ),
+    if (!options.skipTests &&
+        config.tests.runner == TestRunner.local &&
+        config.tests.forEnv(env.name).isNotEmpty)
+      ActionStep(
+        'Run tests (${config.tests.forEnv(env.name).map((s) => s.name).join(', ')})',
+        'on this machine, in ${source == SourceMode.git ? 'the export' : 'the project'}; a failure stops the deploy',
+        () => _runTests(
+          ctx,
+          env,
+          git.sha,
+          options.tests ?? TestRun(),
+          () => runSuitesLocally(
+            ctx,
+            config.tests.forEnv(env.name),
+            buildRoot,
+            '$snapshot.tests',
+          ),
+        ),
       ),
     if (!options.skipWeb)
       for (final app in config.build.flutterWeb)
@@ -237,7 +291,7 @@ Plan planDeploy({
           r: r,
           releaseRoot: snapshot,
           id: id,
-          git: git,
+          git: git.shipping(source),
         );
       },
     ),
@@ -254,6 +308,26 @@ Plan planDeploy({
       env.host,
       ctx.header(env) + makeReleaseScript(r, id),
     ),
+    if (!options.skipTests &&
+        config.tests.runner == TestRunner.container &&
+        config.tests.forEnv(env.name).isNotEmpty)
+      ActionStep(
+        'Run tests in containers on ${env.host}',
+        'from the release files; a failure stops the deploy before the build',
+        () => _runTests(
+          ctx,
+          env,
+          git.sha,
+          options.tests ?? TestRun(),
+          () => runSuitesInContainers(
+            ctx,
+            env,
+            config.tests.forEnv(env.name),
+            l.release(id),
+            '$snapshot.tests',
+          ),
+        ),
+      ),
     RemoteStep(
       'Build images on the server',
       env.host,
@@ -345,6 +419,33 @@ Plan planDeploy({
     guardFrom: switchIndex,
     guardTo: guardTo,
   );
+}
+
+Future<void> _runTests(
+  Ctx ctx,
+  EnvConfig env,
+  String sha,
+  TestRun run,
+  Future<List<SuiteResult>> Function() body,
+) async {
+  final results = await body();
+  run.results
+    ..clear()
+    ..addAll(results);
+  try {
+    run.recordPath = await writeTestRecord(ctx, env, sha, results);
+  } catch (e) {
+    ctx.log.warn('could not store the test results on ${env.host}: $e');
+  }
+  final failed = [
+    for (final r in results)
+      if (!r.ok) r,
+  ];
+  if (failed.isNotEmpty) {
+    throw Aborted(
+      'tests failed: ${failed.map((r) => '${r.suite} (${r.timedOut ? 'timed out' : '${r.failed} failed, exit code ${r.exitCode}${r.failures.isEmpty ? '' : ': ${r.failures.take(5).join('; ')}'}'}; log ${r.log})').join(', ')}',
+    );
+  }
 }
 
 /// Writes the backup settings file (no secrets) before a backup runs.

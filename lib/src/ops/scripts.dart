@@ -128,7 +128,7 @@ String backupConf(PodshipConfig config, ResolvedEnv r, {bool encrypt = true}) {
     'COMPRESS': b.compression,
     'VOLUMES': [
       for (final v in b.volumes)
-        '${v.name}|${v.volume}|${v.sqlite.join(',')}|${v.files.join(',')}',
+        '${v.name}|${v.volume}|${v.sqlite.join(',')}|${v.files.join(',')}|${v.owner ?? ''}',
     ].join(' '),
     'SECRET_FILES': [
       '${l.envFile}|env',

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../ops/context.dart';
 import '../remote/ssh.dart';
+import '../protocol/protocol.dart';
 import 'base.dart';
 
 class BackupNowCommand extends PodshipCommand {
@@ -19,6 +20,8 @@ class BackupNowCommand extends PodshipCommand {
 }
 
 class BackupListCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('backup.list');
   @override
   String get name => 'list';
   @override
@@ -67,6 +70,17 @@ class BackupRestoreCommand extends PodshipCommand {
         help: 'Restore this local pg_dump -Fc file instead of a server backup.',
       )
       ..addOption(
+        'from',
+        help:
+            'Restore a backup of this other environment (it may be on another server).',
+      )
+      ..addFlag(
+        'volumes',
+        negatable: false,
+        help:
+            'Also replace the configured Docker volumes with the backup archives.',
+      )
+      ..addOption(
         'confirm',
         help: 'The project name, to confirm without a terminal.',
       );
@@ -97,6 +111,8 @@ class BackupRestoreCommand extends PodshipCommand {
         e.name,
         stamp: stamp,
         dumpFile: argResults!['dump'] as String?,
+        fromEnv: argResults!['from'] as String?,
+        volumes: argResults!['volumes'] == true,
       ),
     );
   }

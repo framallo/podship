@@ -5,6 +5,7 @@ import 'dart:io';
 import '../edit/dotenv.dart';
 import '../ops/context.dart';
 import '../ops/secrets.dart';
+import '../protocol/protocol.dart';
 import 'base.dart';
 
 abstract class _EditCommand extends PodshipCommand {
@@ -75,6 +76,8 @@ class EnvGetCommand extends PodshipCommand {
 }
 
 class EnvListCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('env.list');
   @override
   String get name => 'list';
   @override
@@ -159,6 +162,8 @@ class SecretSetCommand extends _EditCommand {
 
 class SecretListCommand extends PodshipCommand {
   @override
+  OperationRequest? get consoleRead => request('secret.list');
+  @override
   String get name => 'list';
   @override
   String get description =>
@@ -211,10 +216,15 @@ class SecretCopyCommand extends _EditCommand {
         mandatory: true,
         help: 'The environment to copy from.',
       )
+      ..addFlag('password', negatable: false, help: 'Copy passwords.yaml keys.')
       ..addFlag(
-        'password',
+        'all',
         negatable: false,
-        help: 'Copy passwords.yaml keys.',
+        help: 'Copy every variable and every password.',
+      )
+      ..addMultiOption(
+        'except',
+        help: 'With --all: names to leave as they are (like ports).',
       );
   }
   @override
@@ -230,6 +240,18 @@ class SecretCopyCommand extends _EditCommand {
     final e = env;
     final from = argResults!['from'] as String;
     if (from == e.name) usageException('--from must be another environment');
+    if (argResults!['all'] == true) {
+      return edit(
+        e.name,
+        () => runOp(
+          api.secretCopyAll(
+            from,
+            e.name,
+            except: argResults!['except'] as List<String>,
+          ),
+        ),
+      );
+    }
     if (argResults!.rest.isEmpty) usageException('give at least one NAME');
     return edit(
       e.name,

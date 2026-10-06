@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../ops/db_ops.dart';
 import '../remote/ssh.dart';
+import '../protocol/protocol.dart';
 import 'base.dart';
 
 class DbConnectCommand extends PodshipCommand {
@@ -24,6 +25,8 @@ class DbConnectCommand extends PodshipCommand {
 }
 
 class DbMigrateStatusCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('db.migrate.status');
   @override
   String get name => 'status';
   @override

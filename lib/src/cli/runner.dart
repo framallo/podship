@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import '../api/podship.dart' show podshipVersion;
 import 'backup_commands.dart';
 import 'base.dart';
+import 'console_commands.dart';
 import 'db_commands.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
@@ -44,6 +45,12 @@ class PodshipRunner extends CommandRunner<int> {
         help: 'The folder of podship.yaml (default: here or above).',
       )
       ..addOption(
+        'via',
+        allowed: ['ssh', 'console'],
+        help:
+            'Run over ssh from here, or through the podship console (default: transport in podship.yaml).',
+      )
+      ..addOption(
         'ssh-key',
         help: 'An ssh private key for every connection (CI).',
       );
@@ -60,6 +67,12 @@ class PodshipRunner extends CommandRunner<int> {
       StatusCommand(),
       LogsCommand(),
       TunnelCommand(),
+      HistoryCommand(),
+      UnlockCommand(),
+      LoginCommand(),
+      LogoutCommand(),
+      WhoamiCommand(),
+      OperationsCommand(),
       DestroyCommand(),
       GroupCommand('releases', 'Releases kept on the server.', [
         ReleasesListCommand(),

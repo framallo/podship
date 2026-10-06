@@ -27,6 +27,7 @@ import '../ops/scripts.dart';
 import '../ops/secrets.dart';
 import '../ops/server_ops.dart';
 import '../ops/state.dart';
+import '../ops/tests.dart';
 import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../remote/ssh.dart';
@@ -34,8 +35,10 @@ import '../server/registry.dart';
 import '../util/log.dart';
 import 'events.dart';
 import 'history.dart';
+import 'lock.dart';
 import 'render.dart';
 import 'models.dart';
+import '../protocol/protocol.dart' show OperationRequest;
 
 export '../ops/deploy.dart' show DeployOptions;
 export '../ops/state.dart' show ReleaseInfo;
@@ -45,15 +48,25 @@ const podshipVersion = '0.2.0';
 
 /// A running operation: its events, and its result when it ends.
 class Operation {
-  Operation(this.events, this.result);
+  Operation._(this.request, this._start);
+
+  /// The protocol request of this operation: its stable name and params.
+  /// A client can send it to a console instead of running it here.
+  final OperationRequest request;
+  final (Stream<PodshipEvent>, Future<OperationResult>) Function() _start;
+  (Stream<PodshipEvent>, Future<OperationResult>)? _running;
+
+  (Stream<PodshipEvent>, Future<OperationResult>) get _run =>
+      _running ??= _start();
 
   /// Every event, from [OperationStarted] to [OperationFinished]. A single
-  /// listener; events are kept until someone listens.
-  final Stream<PodshipEvent> events;
+  /// listener; events are kept until someone listens. The operation starts
+  /// when [events] or [result] is first read.
+  Stream<PodshipEvent> get events => _run.$1;
 
   /// The result. It completes after the last event, and never throws: a
   /// failure is a result with `ok: false`.
-  final Future<OperationResult> result;
+  Future<OperationResult> get result => _run.$2;
 }
 
 /// What an operation records while it runs.
@@ -129,8 +142,10 @@ class Podship {
   Operation _op(
     String name,
     String? envName,
+    Map<String, Object?> params,
     Future<void> Function(Ctx ctx, OpRecord rec) body, {
     bool history = true,
+    bool lock = true,
   }) {
     final events = StreamController<PodshipEvent>();
     final transcript = StringBuffer();
@@ -155,7 +170,12 @@ class Podship {
       );
       String? error;
       final ctx = _ctx(log);
+      var locked = false;
       try {
+        if (lock && e != null && !dryRun) {
+          await acquireLock(ctx, e, operation: name, actor: actor);
+          locked = true;
+        }
         await body(ctx, rec);
       } catch (x) {
         error =
@@ -166,6 +186,13 @@ class Podship {
                 x is RegistryConflict
             ? '$x'
             : '$x';
+      }
+      if (locked) {
+        try {
+          await releaseLock(ctx, e!);
+        } catch (x) {
+          log.warn('could not release the lock: $x');
+        }
       }
       var result = OperationResult(
         operation: name,
@@ -200,100 +227,209 @@ class Podship {
       return result;
     }
 
-    return Operation(events.stream, run());
+    return Operation._(
+      OperationRequest(
+        operation: name.replaceAll(' ', '.'),
+        project: config.project,
+        env: envName,
+        params: {
+          for (final e in params.entries)
+            if (e.value != null) e.key: e.value,
+        },
+        dryRun: dryRun,
+      ),
+      () => (events.stream, run()),
+    );
   }
 
   // ---------------------------------------------------------------- releases
 
   /// Builds and starts a new release; rolls back if it is not healthy.
+  /// [skipTestsReason] skips the test stage (recorded in history). For an
+  /// environment in `tests.gate` (production by default), a commit must have
+  /// passed its tests here or in another environment; otherwise the caller
+  /// must pass [confirmedUntested] after the user typed the environment name.
   Operation deploy(
     String envName, {
     DeployOptions options = const DeployOptions(),
     String? ref,
-  }) => _op('deploy', envName, (ctx, rec) async {
-    final e = config.env(envName);
-    final source = options.source ?? config.build.source;
-    final git = await GitInfo.read(config.root, ref ?? config.build.ref);
-    if (source == SourceMode.git && git.sha == 'nogit') {
-      throw Aborted(
-        'ref "${git.ref}" not found; use worktree mode outside git',
-      );
-    }
-    if (source == SourceMode.git) {
-      for (final f in composeFilesOf(config, e)) {
-        final r = await Process.run('git', [
-          'cat-file',
-          '-e',
-          '${git.sha}:$f',
-        ], workingDirectory: config.root);
-        if (r.exitCode != 0) {
-          throw Aborted('$f is not in commit ${git.sha}; commit it first');
+    String? skipTestsReason,
+    bool confirmedUntested = false,
+  }) => _op(
+    'deploy',
+    envName,
+    {
+      'ref': ref,
+      'skip_web': options.skipWeb,
+      'skip_backup': options.skipBackup,
+      'public_check': options.publicCheck,
+      'skip_tests_reason': skipTestsReason,
+      if (confirmedUntested) 'confirm_env': envName,
+    },
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final source = options.source ?? config.build.source;
+      final git = await GitInfo.read(config.root, ref ?? config.build.ref);
+      if (source == SourceMode.git && git.sha == 'nogit') {
+        throw Aborted(
+          'ref "${git.ref}" not found; use worktree mode outside git',
+        );
+      }
+      if (source == SourceMode.git) {
+        for (final f in composeFilesOf(config, e)) {
+          final r = await Process.run('git', [
+            'cat-file',
+            '-e',
+            '${git.sha}:$f',
+          ], workingDirectory: config.root);
+          if (r.exitCode != 0) {
+            throw Aborted('$f is not in commit ${git.sha}; commit it first');
+          }
         }
       }
-    }
-    final (:state, :r) = await _load(ctx, e);
-    rec.previousRelease = state.current;
-    final snap = await Directory.systemTemp.createTemp('podship-release-');
-    try {
-      final plan = planDeploy(
-        ctx: ctx,
-        r: r,
-        state: state,
-        git: git,
-        now: DateTime.now(),
-        snapshot: snap.path,
-        options: options,
-      );
-      final id = plan.title.split(' as ').last;
       rec.data['sha'] = git.sha;
-      await ctx.run(plan).catchError((Object x) async {
-        // The recovery may have switched back; report what runs now.
-        rec.release = (await fetchState(_readCtx, e)).current;
-        throw x;
-      });
-      rec.release = dryRun ? state.current : id;
-      rec.data['new_release'] = id;
-    } finally {
-      await snap.delete(recursive: true);
-    }
-  });
-
-  /// Switches to a previous release (code only), or to [to]. With [withDb],
-  /// restores that backup first.
-  Operation rollback(String envName, {String? to, String? withDb}) =>
-      _op('rollback', envName, (ctx, rec) async {
-        final e = config.env(envName);
-        final (:state, :r) = await _load(ctx, e);
-        if (withDb != null && e.backup == null) {
-          throw Aborted('${e.name} has no backup settings');
-        }
-        final plan = planRollback(
+      final skip = skipTestsReason != null;
+      final suites = config.tests.forEnv(e.name);
+      await _testGate(
+        ctx,
+        rec,
+        e,
+        git.sha,
+        skip: skip,
+        reason: skipTestsReason,
+        willRun: !skip && suites.isNotEmpty,
+        confirmed: confirmedUntested,
+      );
+      final run = TestRun();
+      final (:state, :r) = await _load(ctx, e);
+      rec.previousRelease = state.current;
+      final snap = await Directory.systemTemp.createTemp('podship-release-');
+      try {
+        final plan = planDeploy(
           ctx: ctx,
           r: r,
           state: state,
-          to: to,
-          withDb: withDb,
+          git: git,
+          now: DateTime.now(),
+          snapshot: snap.path,
+          options: DeployOptions(
+            source: options.source,
+            skipWeb: options.skipWeb,
+            skipBackup: options.skipBackup,
+            skipHooks: options.skipHooks,
+            publicCheck: options.publicCheck,
+            skipTests: skip || options.skipTests,
+            tests: run,
+          ),
         );
-        rec.previousRelease = state.current;
-        if (withDb != null) rec.data['with_db'] = withDb;
+        final id = plan.title.split(' as ').last;
         try {
           await ctx.run(plan);
+        } catch (x) {
+          // The recovery may have switched back; report what runs now.
           rec.release = dryRun
               ? state.current
-              : plan.steps
-                    .whereType<RemoteStep>()
-                    .firstWhere((s) => s.title.startsWith('Switch to '))
-                    .title
-                    .substring(10);
-        } catch (_) {
-          rec.release = (await fetchState(_readCtx, e)).current;
+              : (await fetchState(_readCtx, e)).current;
           rethrow;
+        } finally {
+          if (run.results.isNotEmpty) {
+            rec.data['tests'] = {
+              'ok': run.ok,
+              'suites': [for (final t in run.results) t.toJson()],
+              'record': ?run.recordPath,
+            };
+          }
         }
-      });
+        rec.release = dryRun ? state.current : id;
+        rec.data['new_release'] = id;
+      } finally {
+        await snap.delete(recursive: true);
+      }
+    },
+  );
+
+  /// Checks the test gate before a deploy or a promotion to [e].
+  Future<void> _testGate(
+    Ctx ctx,
+    OpRecord rec,
+    EnvConfig e,
+    String sha, {
+    required bool skip,
+    required String? reason,
+    required bool willRun,
+    required bool confirmed,
+  }) async {
+    if (skip) {
+      if (reason == null || reason.trim().isEmpty) {
+        throw Aborted('skipping tests needs a reason (--reason)');
+      }
+      rec.data['tests'] = {'skipped': true, 'reason': reason};
+    }
+    if (willRun || !config.tests.gate.contains(e.name)) return;
+    final where = await findPassingTests(ctx, sha);
+    if (where != null) {
+      ctx.log.info(
+        'tests of ${sha.substring(0, 7)} passed in the $where deploy',
+      );
+      rec.data['tests_passed_in'] = where;
+      return;
+    }
+    if (!confirmed) {
+      throw Aborted(
+        '${e.name} only takes commits whose tests passed, and ${sha.substring(0, 7)} has no passing test run. '
+        'Run its tests (deploy it to staging first), or skip them with --skip-tests --reason "…" and type "${e.name}" to confirm.',
+      );
+    }
+    ctx.log.warn(
+      'deploying ${sha.substring(0, 7)} to ${e.name} without passing tests: $reason',
+    );
+    rec.data['untested'] = true;
+  }
+
+  /// Switches to a previous release (code only), or to [to]. With [withDb],
+  /// restores that backup first.
+  Operation rollback(String envName, {String? to, String? withDb}) => _op(
+    'rollback',
+    envName,
+    {
+      'to': to,
+      'with_db': withDb,
+      if (withDb != null) 'confirm_project': config.project,
+    },
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final (:state, :r) = await _load(ctx, e);
+      if (withDb != null && e.backup == null) {
+        throw Aborted('${e.name} has no backup settings');
+      }
+      final plan = planRollback(
+        ctx: ctx,
+        r: r,
+        state: state,
+        to: to,
+        withDb: withDb,
+      );
+      rec.previousRelease = state.current;
+      if (withDb != null) rec.data['with_db'] = withDb;
+      try {
+        await ctx.run(plan);
+        rec.release = dryRun
+            ? state.current
+            : plan.steps
+                  .whereType<RemoteStep>()
+                  .firstWhere((s) => s.title.startsWith('Switch to '))
+                  .title
+                  .substring(10);
+      } catch (_) {
+        rec.release = (await fetchState(_readCtx, e)).current;
+        rethrow;
+      }
+    },
+  );
 
   /// Recreates the containers of the current release.
   Operation restart(String envName, {List<String> services = const []}) =>
-      _op('restart', envName, (ctx, rec) async {
+      _op('restart', envName, {'services': services}, (ctx, rec) async {
         final (:state, :r) = await _load(ctx, config.env(envName));
         rec.release = state.current;
         await ctx.run(
@@ -306,57 +442,87 @@ class Podship {
     String fromEnv,
     String toEnv, {
     String? release,
-  }) => _op('promote', toEnv, (ctx, rec) async {
-    final from = config.env(fromEnv), to = config.env(toEnv);
-    final fromState = await fetchState(ctx, from);
-    final id = release ?? fromState.current;
-    if (id == null) throw Aborted('nothing runs on ${from.name}');
-    final (:state, :r) = await _load(ctx, to);
-    rec.previousRelease = state.current;
-    rec.data['from'] = from.name;
-    if (from.host != to.host && !dryRun) {
-      final a = (await ctx.query(
-        from,
-        "docker info --format '{{.Architecture}}'",
-      )).trim();
-      final b = (await ctx.query(
-        to,
-        "docker info --format '{{.Architecture}}'",
-      )).trim();
-      if (a != b) {
-        final sha =
-            fromState.releases.firstWhere((x) => x.id == id).meta?.sha ?? id;
-        throw Aborted(
-          '${from.name} ($a) and ${to.name} ($b) have different CPU architectures, so images cannot move. '
-          'Deploy the same commit instead: podship deploy --env ${to.name} --ref $sha',
+    String? skipTestsReason,
+    bool confirmedUntested = false,
+  }) => _op(
+    'promote',
+    toEnv,
+    {
+      'from': fromEnv,
+      'release': release,
+      'skip_tests_reason': skipTestsReason,
+      if (confirmedUntested) 'confirm_env': toEnv,
+    },
+    (ctx, rec) async {
+      final from = config.env(fromEnv), to = config.env(toEnv);
+      final fromState = await fetchState(ctx, from);
+      final id = release ?? fromState.current;
+      if (id == null) throw Aborted('nothing runs on ${from.name}');
+      final (:state, :r) = await _load(ctx, to);
+      rec.previousRelease = state.current;
+      rec.data['from'] = from.name;
+      final sha = fromState.releases
+          .where((x) => x.id == id)
+          .firstOrNull
+          ?.meta
+          ?.sha;
+      if (sha != null && sha.length >= 7) {
+        rec.data['sha'] = sha;
+        await _testGate(
+          ctx,
+          rec,
+          to,
+          sha,
+          skip: skipTestsReason != null,
+          reason: skipTestsReason,
+          willRun: false,
+          confirmed: confirmedUntested,
         );
       }
-    }
-    final work = await Directory.systemTemp.createTemp('podship-promote-');
-    try {
-      await ctx.run(
-        await planPromote(
-          ctx: ctx,
-          from: from,
-          fromState: fromState,
-          to: r,
-          toState: state,
-          release: id,
-          workDir: work.path,
-        ),
-      );
-      rec.release = dryRun ? state.current : id;
-    } catch (_) {
-      rec.release = (await fetchState(_readCtx, to)).current;
-      rethrow;
-    } finally {
-      await work.delete(recursive: true);
-    }
-  });
+      if (from.host != to.host && !dryRun) {
+        final a = (await ctx.query(
+          from,
+          "docker info --format '{{.Architecture}}'",
+        )).trim();
+        final b = (await ctx.query(
+          to,
+          "docker info --format '{{.Architecture}}'",
+        )).trim();
+        if (a != b) {
+          final sha =
+              fromState.releases.firstWhere((x) => x.id == id).meta?.sha ?? id;
+          throw Aborted(
+            '${from.name} ($a) and ${to.name} ($b) have different CPU architectures, so images cannot move. '
+            'Deploy the same commit instead: podship deploy --env ${to.name} --ref $sha',
+          );
+        }
+      }
+      final work = await Directory.systemTemp.createTemp('podship-promote-');
+      try {
+        await ctx.run(
+          await planPromote(
+            ctx: ctx,
+            from: from,
+            fromState: fromState,
+            to: r,
+            toState: state,
+            release: id,
+            workDir: work.path,
+          ),
+        );
+        rec.release = dryRun ? state.current : id;
+      } catch (_) {
+        rec.release = (await fetchState(_readCtx, to)).current;
+        rethrow;
+      } finally {
+        await work.delete(recursive: true);
+      }
+    },
+  );
 
   /// Records a setup that runs already as a release, without restarting it.
   Operation adopt(String envName, {String? composeDir}) =>
-      _op('adopt', envName, (ctx, rec) async {
+      _op('adopt', envName, {'compose_dir': composeDir}, (ctx, rec) async {
         final e = config.env(envName);
         final dir = composeDir ?? e.dir;
         final (:state, :r) = await _load(ctx, e);
@@ -380,7 +546,10 @@ class Podship {
       });
 
   /// Registers the environment in the server registry.
-  Operation link(String envName) => _op('link', envName, (ctx, rec) async {
+  Operation link(String envName) => _op('link', envName, const {}, (
+    ctx,
+    rec,
+  ) async {
     final e = config.env(envName);
     final (:state, :r) = await _load(ctx, e);
     final reg = state.registry..put(r.entry);
@@ -406,35 +575,39 @@ class Podship {
   });
 
   /// Removes an environment completely.
-  Operation destroy(String envName, {bool purgeBackups = false}) =>
-      _op('destroy', envName, (ctx, rec) async {
-        final e = config.env(envName);
-        final (:state, :r) = await _load(ctx, e);
-        final macos =
-            !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
-        rec.previousRelease = state.current;
-        await ctx.run(
-          planDestroy(
-            ctx,
-            r,
-            state.registry,
-            state.registryText,
-            purgeBackups: purgeBackups,
-            domainSteps: e.domains.isEmpty || e.proxy.kind == ProxyKind.none
-                ? const []
-                : planDomain(ctx, r, [
-                    for (final d in e.domains) d.host,
-                  ], remove: true).steps,
-            scheduleSteps: e.backup == null
-                ? const []
-                : planSchedule(ctx, r, macos: macos, remove: true).steps,
-          ),
-        );
-      });
+  Operation destroy(String envName, {bool purgeBackups = false}) => _op(
+    'destroy',
+    envName,
+    {'purge_backups': purgeBackups, 'confirm_project': config.project},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final (:state, :r) = await _load(ctx, e);
+      final macos =
+          !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
+      rec.previousRelease = state.current;
+      await ctx.run(
+        planDestroy(
+          ctx,
+          r,
+          state.registry,
+          state.registryText,
+          purgeBackups: purgeBackups,
+          domainSteps: e.domains.isEmpty || e.proxy.kind == ProxyKind.none
+              ? const []
+              : planDomain(ctx, r, [
+                  for (final d in e.domains) d.host,
+                ], remove: true).steps,
+          scheduleSteps: e.backup == null
+              ? const []
+              : planSchedule(ctx, r, macos: macos, remove: true).steps,
+        ),
+      );
+    },
+  );
 
   // ----------------------------------------------------------------- backups
 
-  Operation backupNow(String envName) => _op('backup now', envName, (
+  Operation backupNow(String envName) => _op('backup now', envName, const {}, (
     ctx,
     rec,
   ) async {
@@ -465,7 +638,7 @@ class Podship {
   });
 
   Operation backupDrill(String envName, {String? stamp}) =>
-      _op('backup drill', envName, (ctx, rec) async {
+      _op('backup drill', envName, {'stamp': stamp}, (ctx, rec) async {
         final (:state, :r) = await _load(ctx, config.env(envName));
         if (stamp != null) rec.data['stamp'] = stamp;
         await ctx.run(planDrill(ctx, r, stamp));
@@ -473,16 +646,42 @@ class Podship {
 
   /// Replaces the database with a backup. The caller must have asked the
   /// user to type the project name.
-  Operation backupRestore(String envName, {String? stamp, String? dumpFile}) =>
-      _op('backup restore', envName, (ctx, rec) async {
-        final (:state, :r) = await _load(ctx, config.env(envName));
-        rec.release = state.current;
-        rec.data['stamp'] = stamp ?? dumpFile ?? 'newest';
-        await ctx.run(planRestore(ctx, r, stamp: stamp, dumpFile: dumpFile));
-      });
+  Operation backupRestore(
+    String envName, {
+    String? stamp,
+    String? dumpFile,
+    String? fromEnv,
+    bool volumes = false,
+  }) => _op(
+    'backup restore',
+    envName,
+    {
+      'stamp': stamp,
+      'from': fromEnv,
+      'volumes': volumes,
+      'confirm_project': config.project,
+    },
+    (ctx, rec) async {
+      final (:state, :r) = await _load(ctx, config.env(envName));
+      rec.release = state.current;
+      rec.data['stamp'] = stamp ?? dumpFile ?? 'newest';
+      if (fromEnv != null) rec.data['from'] = fromEnv;
+      if (volumes) rec.data['volumes'] = true;
+      await ctx.run(
+        planRestore(
+          ctx,
+          r,
+          stamp: stamp,
+          dumpFile: dumpFile,
+          from: fromEnv == null ? null : config.env(fromEnv),
+          volumes: volumes,
+        ),
+      );
+    },
+  );
 
   Operation backupSchedule(String envName, {bool remove = false}) =>
-      _op('backup schedule', envName, (ctx, rec) async {
+      _op('backup schedule', envName, {'remove': remove}, (ctx, rec) async {
         final e = config.env(envName);
         final macos =
             !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
@@ -493,17 +692,23 @@ class Podship {
       });
 
   /// Copies the encrypted backups to this machine and checks the newest.
-  Operation backupPull(String envName) =>
-      _op('backup pull', envName, (ctx, rec) async {
-        await ctx.run(planPull(ctx, config.env(envName)));
-      }, history: false);
+  Operation backupPull(String envName) => _op(
+    'backup pull',
+    envName,
+    const {},
+    (ctx, rec) async {
+      await ctx.run(planPull(ctx, config.env(envName)));
+    },
+    history: false,
+    lock: false,
+  );
 
   // ------------------------------------------------------- variables, secrets
 
   Operation envSet(
     String envName,
     Map<String, String> values,
-  ) => _op('env set', envName, (ctx, rec) async {
+  ) => _op('env set', envName, {'values': values}, (ctx, rec) async {
     final e = config.env(envName);
     final l = EnvLayout(e);
     rec.data['names'] = values.keys.toList();
@@ -523,7 +728,7 @@ class Podship {
   });
 
   Operation envUnset(String envName, List<String> names) =>
-      _op('env unset', envName, (ctx, rec) async {
+      _op('env unset', envName, {'names': names}, (ctx, rec) async {
         final e = config.env(envName);
         final l = EnvLayout(e);
         rec.data['names'] = names;
@@ -544,33 +749,43 @@ class Podship {
     String name,
     String value, {
     bool password = false,
-  }) => _op('secret set', envName, (ctx, rec) async {
-    final e = config.env(envName);
-    final l = EnvLayout(e);
-    rec.data['name'] = password ? 'password ${e.runMode}.$name' : name;
-    await ctx.run(
-      Plan('secret set on ${e.name}', [
-        editRemote(
-          ctx,
-          e,
-          password ? l.passwordsFile : l.envFile,
-          'set ${password ? '${e.runMode}.' : ''}$name',
-          (t) {
-            if (password) {
-              return (PasswordsFile(t)..set(e.runMode, name, value)).toString();
-            }
-            return (DotEnv(t)..set(name, value)).toString();
-          },
-        ),
-      ]),
-    );
-  });
+  }) => _op(
+    'secret set',
+    envName,
+    {'name': name, 'value': value, 'password': password},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final l = EnvLayout(e);
+      rec.data['name'] = password ? 'password ${e.runMode}.$name' : name;
+      await ctx.run(
+        Plan('secret set on ${e.name}', [
+          editRemote(
+            ctx,
+            e,
+            password ? l.passwordsFile : l.envFile,
+            'set ${password ? '${e.runMode}.' : ''}$name',
+            (t) {
+              if (password) {
+                return (PasswordsFile(
+                  t,
+                )..set(e.runMode, name, value)).toString();
+              }
+              return (DotEnv(t)..set(name, value)).toString();
+            },
+          ),
+        ]),
+      );
+    },
+  );
 
   Operation secretUnset(
     String envName,
     List<String> names, {
     bool password = false,
-  }) => _op('secret unset', envName, (ctx, rec) async {
+  }) => _op('secret unset', envName, {'names': names, 'password': password}, (
+    ctx,
+    rec,
+  ) async {
     final e = config.env(envName);
     final l = EnvLayout(e);
     rec.data['names'] = names;
@@ -604,7 +819,7 @@ class Podship {
     String envName,
     List<String> names, {
     bool password = false,
-  }) => _op('secret copy', envName, (ctx, rec) async {
+  }) => _op('secret copy', envName, {'from': fromEnv}, (ctx, rec) async {
     final src = config.env(fromEnv), e = config.env(envName);
     final sl = EnvLayout(src), dl = EnvLayout(e);
     rec.data['from'] = src.name;
@@ -644,8 +859,62 @@ class Podship {
     );
   });
 
+  /// Copies every variable of `.env` and every `passwords.yaml` key of the
+  /// run-mode section from [fromEnv] to [envName], except [except]. Values
+  /// pass through memory only. Use it to move an environment to another
+  /// server with the same secrets (the same master key, for example).
+  Operation secretCopyAll(
+    String fromEnv,
+    String envName, {
+    List<String> except = const [],
+  }) => _op('secret copy', envName, {'from': fromEnv}, (ctx, rec) async {
+    final src = config.env(fromEnv), e = config.env(envName);
+    final sl = EnvLayout(src), dl = EnvLayout(e);
+    rec.data['from'] = src.name;
+    rec.data['all'] = true;
+    rec.data['except'] = except;
+    await ctx.run(
+      Plan('secret copy ${src.name} → ${e.name} (all)', [
+        ActionStep(
+          'Copy every variable and password',
+          '${src.name} → ${e.name}, except ${except.isEmpty ? 'none' : except.join(', ')} (values hidden)',
+          () async {
+            final from = DotEnv(await readRemote(ctx, src, sl.envFile));
+            final to = DotEnv(await readRemote(ctx, e, dl.envFile));
+            final names = <String>[];
+            for (final n in from.names) {
+              if (except.contains(n)) continue;
+              to.set(n, from.get(n)!, plain: isPlain(src, from, n));
+              names.add(n);
+            }
+            await writeRemote(ctx, e, dl.envFile, to.toString());
+            final pf = PasswordsFile(
+              await readRemote(ctx, src, sl.passwordsFile),
+            );
+            final pt = PasswordsFile(
+              await readRemote(ctx, e, dl.passwordsFile),
+            );
+            final keys = <String>[];
+            for (final section in pf.sections) {
+              for (final k in pf.keys(section)) {
+                pt.set(section, k, pf.get(section, k)!);
+                keys.add('$section.$k');
+              }
+            }
+            await writeRemote(ctx, e, dl.passwordsFile, pt.toString());
+            rec.data['names'] = names;
+            rec.data['password_keys'] = keys;
+            ctx.log.info(
+              'copied ${names.length} variables and ${keys.length} passwords',
+            );
+          },
+        ),
+      ]),
+    );
+  });
+
   Operation secretInit(String envName, {bool force = false}) =>
-      _op('secret init', envName, (ctx, rec) async {
+      _op('secret init', envName, {'force': force}, (ctx, rec) async {
         await ctx.run(planSecretInit(ctx, config.env(envName), force: force));
       });
 
@@ -660,31 +929,36 @@ class Podship {
     String envName,
     List<String>? hosts, {
     required bool remove,
-  }) => _op(remove ? 'domain remove' : 'domain add', envName, (ctx, rec) async {
-    final e = config.env(envName);
-    final list = hosts == null || hosts.isEmpty
-        ? [for (final d in e.domains) d.host]
-        : hosts;
-    if (list.isEmpty) {
-      throw Aborted('no domains in environments.${e.name}.domains');
-    }
-    final (:state, :r) = await _load(ctx, e);
-    rec.data['hosts'] = list;
-    await ctx.run(planDomain(ctx, r, list, remove: remove));
-    if (!remove) {
-      rec.data['dns'] = {for (final h in list) h: dnsRecord(e, h)};
-      for (final h in list) {
-        ctx.log.info('DNS for $h: ${dnsRecord(e, h)}');
+  }) => _op(
+    remove ? 'domain remove' : 'domain add',
+    envName,
+    {'hosts': hosts},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final list = hosts == null || hosts.isEmpty
+          ? [for (final d in e.domains) d.host]
+          : hosts;
+      if (list.isEmpty) {
+        throw Aborted('no domains in environments.${e.name}.domains');
       }
-    }
-  });
+      final (:state, :r) = await _load(ctx, e);
+      rec.data['hosts'] = list;
+      await ctx.run(planDomain(ctx, r, list, remove: remove));
+      if (!remove) {
+        rec.data['dns'] = {for (final h in list) h: dnsRecord(e, h)};
+        for (final h in list) {
+          ctx.log.info('DNS for $h: ${dnsRecord(e, h)}');
+        }
+      }
+    },
+  );
 
   Operation bootstrap(
     String envName, {
     bool caddy = false,
     bool firewall = true,
     String? user,
-  }) => _op('server bootstrap', envName, (ctx, rec) async {
+  }) => _op('server bootstrap', envName, {'caddy': caddy}, (ctx, rec) async {
     final e = config.env(envName);
     await ctx.run(
       Plan('bootstrap ${e.host}', [
@@ -702,10 +976,9 @@ class Podship {
     );
   });
 
-  Operation dbProvision(String envName) => _op('db provision', envName, (
-    ctx,
-    rec,
-  ) async {
+  Operation dbProvision(
+    String envName,
+  ) => _op('db provision', envName, const {}, (ctx, rec) async {
     final e = config.env(envName);
     if (e.database.mode != DatabaseMode.shared) {
       throw Aborted(
@@ -745,13 +1018,17 @@ class Podship {
 
   /// An empty database; the old one is renamed. The caller must have asked
   /// the user to type the project name.
-  Operation dbWipe(String envName) => _op('db wipe', envName, (ctx, rec) async {
-    final e = config.env(envName);
-    final l = EnvLayout(e);
-    final db = e.database.name;
-    await ctx.run(
-      Plan('db wipe ${e.name}', [
-        RemoteStep('Rename $db and create an empty one', e.host, '''
+  Operation dbWipe(String envName) => _op(
+    'db wipe',
+    envName,
+    {'confirm_project': config.project},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final l = EnvLayout(e);
+      final db = e.database.name;
+      await ctx.run(
+        Plan('db wipe ${e.name}', [
+          RemoteStep('Rename $db and create an empty one', e.host, '''
 ${ctx.header(e)}c=${dbContainerExpr(e)}
 ${shq(l.currentComposeSh)} stop ${shq(e.serverService)}
 docker exec -i "\$c" psql -U ${shq(dbAdmin(e))} -d postgres -v ON_ERROR_STOP=1 \\
@@ -760,9 +1037,10 @@ docker exec -i "\$c" psql -U ${shq(dbAdmin(e))} -d postgres -v ON_ERROR_STOP=1 \
   -c "create database \\"$db\\";"
 ${shq(l.currentComposeSh)} up -d --no-build ${shq(e.serverService)}
 '''),
-      ]),
-    );
-  });
+        ]),
+      );
+    },
+  );
 
   /// Creates, resets or deletes a database role. On create and reset, the
   /// password is in `result.data['password']`, once, and not in history.
@@ -770,7 +1048,7 @@ ${shq(l.currentComposeSh)} up -d --no-build ${shq(e.serverService)}
     String envName,
     String action,
     String role,
-  ) => _op('db user $action', envName, (ctx, rec) async {
+  ) => _op('db user $action', envName, {'role': role}, (ctx, rec) async {
     final e = config.env(envName);
     if (!RegExp(r'^[a-z_][a-z0-9_]{0,62}$').hasMatch(role)) {
       throw Aborted('invalid role name');
@@ -814,7 +1092,7 @@ ${shq(l.currentComposeSh)} up -d --no-build ${shq(e.serverService)}
     String action,
     String who, {
     String? publicKey,
-  }) => _op('access $action', envName, (ctx, rec) async {
+  }) => _op('access $action', envName, {'name': who}, (ctx, rec) async {
     final e = config.env(envName);
     if (!RegExp(r'^[A-Za-z0-9._@-]+$').hasMatch(who)) {
       throw Aborted('invalid name');
@@ -850,6 +1128,26 @@ echo "removed $who"
       ]),
     );
   });
+
+  /// Removes the lock of [envName], for a lock left by a client that died.
+  Operation unlock(String envName) => _op('unlock', envName, const {}, (
+    ctx,
+    rec,
+  ) async {
+    final e = config.env(envName);
+    final held = await readLock(ctx, e);
+    rec.data['was'] = held;
+    if (held == null) {
+      ctx.log.info('${e.name} is not locked');
+      return;
+    }
+    if (!dryRun) await releaseLock(ctx, e);
+    ctx.log.info('removed the lock of ${held['actor']} (${held['operation']})');
+  }, lock: false);
+
+  /// Who holds the lock of [envName], or null.
+  Future<Map<String, Object?>?> lockHolder(String envName) =>
+      readLock(_readCtx, config.env(envName));
 
   // ------------------------------------------------------------------- reads
 

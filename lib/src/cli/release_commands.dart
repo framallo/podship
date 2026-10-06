@@ -9,6 +9,7 @@ import '../ops/context.dart';
 import '../ops/deploy.dart';
 import '../release/layout.dart';
 import '../remote/ssh.dart';
+import '../protocol/protocol.dart';
 import 'base.dart';
 
 class DeployCommand extends PodshipCommand {
@@ -27,6 +28,17 @@ class DeployCommand extends PodshipCommand {
         help: 'No database backup before the switch.',
       )
       ..addFlag('skip-hooks', negatable: false, help: 'No pre/post hooks.')
+      ..addFlag(
+        'skip-tests',
+        negatable: false,
+        help: 'Skip the test stage (needs --reason; recorded in history).',
+      )
+      ..addOption('reason', help: 'Why the tests are skipped.')
+      ..addOption(
+        'confirm',
+        help:
+            'The environment name, to confirm an untested deploy without a terminal.',
+      )
       ..addFlag(
         'public-check',
         defaultsTo: true,
@@ -54,10 +66,26 @@ class DeployCommand extends PodshipCommand {
         )) {
       throw Aborted('cancelled');
     }
+    final skipTests = a['skip-tests'] == true;
+    final reason = a['reason'] as String?;
+    if (skipTests && (reason == null || reason.trim().isEmpty)) {
+      usageException('--skip-tests needs --reason "<why>"');
+    }
+    var confirmedUntested = false;
+    if (skipTests && config.tests.gate.contains(e.name)) {
+      confirmEnvName(
+        e.name,
+        'Deploy to ${e.name} WITHOUT running tests ($reason).',
+        a['confirm'] as String?,
+      );
+      confirmedUntested = true;
+    }
     return runOp(
       api.deploy(
         e.name,
         ref: a['ref'] as String?,
+        skipTestsReason: skipTests ? reason : null,
+        confirmedUntested: confirmedUntested,
         options: DeployOptions(
           source: a['worktree'] == true ? SourceMode.worktree : null,
           skipWeb: a['skip-web'] == true,
@@ -134,10 +162,22 @@ class RestartCommand extends PodshipCommand {
 
 class PromoteCommand extends PodshipCommand {
   PromoteCommand() {
-    argParser.addOption(
-      'release',
-      help: 'The release to promote (default: the one running on <from>).',
-    );
+    argParser
+      ..addOption(
+        'release',
+        help: 'The release to promote (default: the one running on <from>).',
+      )
+      ..addFlag(
+        'skip-tests',
+        negatable: false,
+        help:
+            'Promote a release whose commit has no passing tests (needs --reason).',
+      )
+      ..addOption('reason', help: 'Why the tests are skipped.')
+      ..addOption(
+        'confirm',
+        help: 'The target environment name, to confirm without a terminal.',
+      );
   }
   @override
   String get name => 'promote';
@@ -160,8 +200,26 @@ class PromoteCommand extends PodshipCommand {
         !ctx.confirm('Promote ${rest[0]} to PRODUCTION on ${to.host}?')) {
       throw Aborted('cancelled');
     }
+    final skipTests = argResults!['skip-tests'] == true;
+    final reason = argResults!['reason'] as String?;
+    if (skipTests && (reason == null || reason.trim().isEmpty)) {
+      usageException('--skip-tests needs --reason "<why>"');
+    }
+    if (skipTests && config.tests.gate.contains(to.name)) {
+      confirmEnvName(
+        to.name,
+        'Promote to ${to.name} without passing tests ($reason).',
+        argResults!['confirm'] as String?,
+      );
+    }
     return runOp(
-      api.promote(rest[0], rest[1], release: argResults!['release'] as String?),
+      api.promote(
+        rest[0],
+        rest[1],
+        release: argResults!['release'] as String?,
+        skipTestsReason: skipTests ? reason : null,
+        confirmedUntested: skipTests,
+      ),
     );
   }
 }
@@ -188,6 +246,8 @@ class AdoptCommand extends PodshipCommand {
 }
 
 class StatusCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('status');
   StatusCommand() {
     argParser
       ..addFlag('watch', negatable: false, help: 'Refresh every few seconds.')
@@ -253,6 +313,8 @@ class StatusCommand extends PodshipCommand {
 
 class ReleasesListCommand extends PodshipCommand {
   @override
+  OperationRequest? get consoleRead => request('releases.list');
+  @override
   String get name => 'list';
   @override
   String get description => 'The releases kept on the server, newest first.';
@@ -283,6 +345,11 @@ class ReleasesListCommand extends PodshipCommand {
 }
 
 class HistoryCommand extends PodshipCommand {
+  @override
+  OperationRequest? get consoleRead => request('history', {
+    'limit': int.parse(argResults!['limit'] as String),
+    'all_projects': argResults!['all'] == true,
+  });
   HistoryCommand() {
     argParser
       ..addOption('limit', defaultsTo: '20')
@@ -384,5 +451,27 @@ class LogsCommand extends PodshipCommand {
       stdout.writeln(json ? jsonEncode({'line': line}) : line);
     }
     return 0;
+  }
+}
+
+class UnlockCommand extends PodshipCommand {
+  @override
+  String get name => 'unlock';
+  @override
+  String get description =>
+      'Remove the environment lock left by a client that stopped in the middle of an operation.';
+  @override
+  bool get mutating => true;
+  @override
+  Future<int> execute() async {
+    final e = env;
+    final held = await api.lockHolder(e.name);
+    if (held != null &&
+        !ctx.confirm(
+          'Remove the lock of ${held['actor']} (${held['operation']}, since ${held['started_at']})?',
+        )) {
+      throw Aborted('cancelled');
+    }
+    return runOp(api.unlock(e.name));
   }
 }

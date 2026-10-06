@@ -76,8 +76,42 @@ Plan planDrill(Ctx ctx, ResolvedEnv r, String? stamp) => Plan(
   ],
 );
 
-Plan planRestore(Ctx ctx, ResolvedEnv r, {String? stamp, String? dumpFile}) {
+Plan planRestore(
+  Ctx ctx,
+  ResolvedEnv r, {
+  String? stamp,
+  String? dumpFile,
+  EnvConfig? from,
+  bool volumes = false,
+}) {
   final env = r.env;
+  if (from != null) {
+    // A backup folder of another environment, maybe on another server:
+    // copy it over (through this machine when the servers differ), check
+    // its checksums, and restore it.
+    final fb = _need(from);
+    if (stamp == null) throw Aborted('--from needs a backup stamp');
+    final src = '${fb.dir}/${fb.layout.plain}/$stamp';
+    final dst = '${env.podshipHome}/incoming/${from.composeProject}-$stamp';
+    return Plan(
+      'restore ${env.name} from ${from.name} backup $stamp${volumes ? ' with volumes' : ''}',
+      [
+        LocalStep('Copy backup $stamp from ${from.name} to ${env.name}', [
+          'bash',
+          '-c',
+          'set -o pipefail; ssh ${from.host} ${shq('tar -C ${shq(src)} -cf - .')} | '
+              'ssh ${env.host} ${shq('rm -rf ${shq(dst)} && mkdir -p ${shq(dst)} && chmod 700 ${shq(dst)} && tar -x -C ${shq(dst)}')}',
+        ]),
+        RemoteStep(
+          'Back up, stop, rename the database, restore${volumes ? ' (with volumes)' : ''}, start',
+          env.host,
+          '${ctx.header(env)}${backupSetup(ctx.config, r)}'
+              '${shq('${env.libDir}/restore.sh')} ${shq(backupConfPath(env))} restore '
+              '--confirmed ${shq(ctx.config.project)} --dir ${shq(dst)}${volumes ? ' --volumes' : ''}\n',
+        ),
+      ],
+    );
+  }
   return Plan(
     'restore the ${env.name} database from ${stamp ?? dumpFile ?? 'the newest backup'}',
     [
@@ -104,7 +138,8 @@ Plan planRestore(Ctx ctx, ResolvedEnv r, {String? stamp, String? dumpFile}) {
                 ? '--dump ${shq('${env.podshipHome}/upload.dump')}'
                 : stamp == null
                 ? ''
-                : shq(stamp)}\n',
+                : shq(stamp)}'
+            '${volumes && dumpFile == null ? ' --volumes' : ''}\n',
       ),
     ],
   );
