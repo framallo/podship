@@ -225,3 +225,4 @@ body.phones{background:#D9DADD; padding:var(--s5); display:flex; flex-wrap:wrap;
 .frame .ln .src{display:none;}
 @media (prefers-reduced-motion:no-preference){ .spin{animation:spin 1.2s linear infinite;} }
 @keyframes spin{to{transform:rotate(360deg)}}
+summary{cursor:pointer;padding:4px 0;} details summary::marker{color:var(--ink-2);}

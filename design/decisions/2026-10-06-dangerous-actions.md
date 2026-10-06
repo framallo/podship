@@ -35,7 +35,7 @@ Emergency path (J3) and accident prevention are the same mechanism:
 - When the environment is **healthy**, "Roll back…" is an outlined secondary button in the side panel and an item in each release row's menu.
 - When the health check **fails**, the environment page promotes "Roll back to <previous ok release>" to the one filled button, at the top of the page on desktop and pinned above the bottom navigation on the phone; deploy becomes secondary.
 - The default target is the newest release with status `ok` that is not current. "Choose another release" opens the list.
-- From opening the app on a phone: Overview (production row shows "Unhealthy") → tap the row → tap "Roll back to …" → tap "Roll back production" in the sheet. **4 taps**, no typing. The live view opens on its own.
+- From the phone's home screen: tap the app icon → the overview shows production "Unhealthy" → tap the row → tap "Roll back to …" → tap "Roll back production to …" in the sheet. **4 taps**, no typing. The live view opens on its own.
 
 Locks (a console-server rule; podship itself has none today):
 

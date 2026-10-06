@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New server · podship console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="podship.css">
+</head>
+<body class="sheet">
+<div><p class="board-cap">1 · How to add a server <span></span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Servers <span aria-hidden="true">/</span> <b>New server</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><main class="content"><h1 class="title">New server</h1><ol class="row" style="gap:24px;list-style:none" aria-label="Steps"><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">1</span>How</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">2</span>Configure</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">3</span>Review</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>Provision</li></ol><div style="max-width:880px" class="stack"><div class="radio on" style="padding:16px"><span class="rb"></span><div class="stack-1"><b class="row" style="gap:8px"><i data-lucide="cloud" class="" aria-hidden="true"></i>Create a VPS on Hostinger</b><span class="caption">Buys a VPS with your Hostinger token, sets it up with podship and registers it. Hostinger token saved, ends in …a91f.</span></div></div>
+<div class="radio " style="padding:16px"><span class="rb"></span><div class="stack-1"><b class="row" style="gap:8px"><i data-lucide="terminal" class="" aria-hidden="true"></i>Add a server I already have</b><span class="caption">Use an SSH alias from ~/.ssh/config on the console host, or a host, user and key. podship doctor checks it.</span></div></div>
+<div class="row"><button class="btn">Cancel</button><button class="btn primary right">Continue</button></div></div></main></div></div></section></div>
+<div><p class="board-cap">2 · Configure <span>Data center from the Hostinger API (no Mexico data center returned: the note); plans and prices from the catalog. Prices and data centers are example data.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Servers <span aria-hidden="true">/</span> <b>New server</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><main class="content"><h1 class="title">New server</h1><ol class="row" style="gap:24px;list-style:none" aria-label="Steps"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>How</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">2</span>Configure</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">3</span>Review</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>Provision</li></ol><div style="max-width:880px" class="stack"><div class="panel"><div class="panel-b stack">
+<div class="field"><label class="label">Name</label><div class="input" style="width:320px"><span class="mono">shop-vps</span></div><span class="hint">Used as the SSH alias and in every screen. Lowercase letters, digits and -.</span></div>
+<div class="field"><span class="label">Data center</span><div class="input" style="width:420px">Phoenix, US <span class="caption">· North America</span><span style="margin-left:auto"><i data-lucide="chevron-down" class="" aria-hidden="true"></i></span></div>
+<div class="banner neutral" style="max-width:640px"><i data-lucide="info" class="" aria-hidden="true"></i><span class="caption">Hostinger has no data center in Mexico right now. The nearest is preselected.</span></div></div>
+<div class="field"><span class="label">Plan</span><div class="stack-2" style="max-width:640px"><div class="radio "><span class="rb"></span><div class="stack-1 grow"><b>KVM 1</b><span class="caption">1 vCPU · 4 GB · 50 GB NVMe</span></div><span class="num">US$6.99 <span class="caption">per month</span></span></div><div class="radio on"><span class="rb"></span><div class="stack-1 grow"><b>KVM 2</b><span class="caption">2 vCPU · 8 GB · 100 GB NVMe</span></div><span class="num">US$8.99 <span class="caption">per month</span></span></div><div class="radio "><span class="rb"></span><div class="stack-1 grow"><b>KVM 4</b><span class="caption">4 vCPU · 16 GB · 200 GB NVMe</span></div><span class="num">US$12.99 <span class="caption">per month</span></span></div><div class="radio "><span class="rb"></span><div class="stack-1 grow"><b>KVM 8</b><span class="caption">8 vCPU · 32 GB · 400 GB NVMe</span></div><span class="num">US$25.99 <span class="caption">per month</span></span></div></div><span class="hint">Plans and prices come from your Hostinger catalog.</span></div>
+<div class="field"><span class="label">Operating system</span><div class="input">Ubuntu 24.04 LTS<span class="right" style="margin-left:auto"><i data-lucide="chevron-down" class="" aria-hidden="true"></i></span></div><span class=hint>podship bootstrap supports Debian and Ubuntu.</span></div>
+<div class="field"><span class="label">SSH keys</span><label class="row"><span class="check on"></span>podship console (this console's key) <span class="caption">always added</span></label><label class="row"><span class="check on"></span>federico@mbp <span class="caption mono">ssh-ed25519 …Qx3f</span></label><label class="row"><span class="check"></span>ana-lucia <span class="caption mono">ssh-ed25519 …p0Lw</span></label></div>
+<div class="field"><span class="label">Firewall</span><div class="radio on"><span class="rb"></span><span>SSH only, web through the Cloudflare Tunnel</span></div><div class="radio"><span class="rb"></span><span>SSH, HTTP and HTTPS (for Caddy)</span></div></div>
+<label class="row"><span class="check on"></span>Create a Cloudflare Tunnel for this server <span class="caption">(Cloudflare connected: framallo.dev)</span></label>
+<label class="row"><span class="check"></span>Hostinger weekly backups <span class="caption">podship already backs up your data</span></label>
+</div></div><div class="row"><button class="btn">Back</button><button class="btn primary right">Review</button></div></div></main></div></div></section></div>
+<div><p class="board-cap">3 · Review and buy (tier 1) <span>The price is in the button. Never available through MCP.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Servers <span aria-hidden="true">/</span> <b>New server</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><main class="content"><h1 class="title">New server</h1><ol class="row" style="gap:24px;list-style:none" aria-label="Steps"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>How</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Configure</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">3</span>Review</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>Provision</li></ol><div style="max-width:880px" class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Review</h2></div><div class="panel-b"><dl class="kv" style="grid-template-columns:180px 1fr">
+<dt>Name</dt><dd class="mono">shop-vps</dd><dt>Provider</dt><dd>Hostinger</dd><dt>Plan</dt><dd>KVM 2 · 2 vCPU, 8 GB, 100 GB NVMe</dd><dt>Data center</dt><dd>Phoenix, US</dd><dt>OS</dt><dd>Ubuntu 24.04 LTS</dd>
+<dt>SSH keys</dt><dd>podship console, federico@mbp</dd><dt>Firewall</dt><dd>SSH only (22), web through the tunnel</dd><dt>Cloudflare Tunnel</dt><dd>shop-vps, on framallo.dev</dd><dt>Price</dt><dd><b class="num">US$8.99 per month</b>, billed monthly</dd></dl></div></div>
+<div class="consequence">Hostinger charges the card ending 4242 now. You can stop renewal later; Hostinger's API can't delete a VPS.</div>
+<div class="caption">This runs to the end even if you close the console. About 6 min.</div>
+<div class="row"><button class="btn focus">Back</button><button class="btn primary right">Buy KVM 2 for US$8.99 per month and set it up</button></div></div></main></div></div></section></div>
+<div><p class="board-cap">4 · Provisioning and bootstrap, live <span>Same operation view: Hostinger steps, bootstrap, tunnel, registration.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Servers <span aria-hidden="true">/</span> <b>New server</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<span class="pill run"><i data-lucide="loader-circle" class="" aria-hidden="true"></i>1 operation running</span><div class="avatar" title="Federico Ramallo">FR</div></header><main class="content"><div class="row"><div class="stack-1"><h1 class="title">Create server shop-vps</h1><div class="caption row" style="gap:8px">Started by federico at 14:31 <span class="pill neutral"><i data-lucide="monitor" class="" aria-hidden="true"></i>Console · federico</span></div></div><span class="right"><span class="pill run"><i data-lucide="loader-circle" class="" aria-hidden="true"></i>Running · step 6 of 10</span></span></div><ol class="row" style="gap:24px;list-style:none" aria-label="Steps"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>How</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Configure</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Review</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">4</span>Provision</li></ol><div style="display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start"><div class="panel" style="overflow:hidden"><div class="panel-h"><h2 class="section">Steps</h2></div><div class="steps" aria-live="polite"><div class="step-group">Hostinger</div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Buy the VPS</span><span class="dur">3.4 s</span></div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Wait for Hostinger to set it up</span><span class="dur">1 min 48 s</span></div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Attach SSH keys</span><span class="dur">1.2 s</span></div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Create and apply the firewall</span><span class="dur">2.6 s</span></div><div class="step-group">Bootstrap</div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Wait for SSH</span><span class="dur">14.0 s</span></div><div class="step running"><span class="ic"><i data-lucide="loader-circle" class="spin" aria-hidden="true"></i></span><span>Install Docker, compose, age and zstd</span><span class="dur">48 s</span></div><div class="step pending"><span class="ic"></span><span>Apply podship's firewall rules and folders</span><span class="dur"></span></div><div class="step-group">Tunnel and registration</div><div class="step pending"><span class="ic"></span><span>Create the Cloudflare Tunnel and install cloudflared</span><span class="dur"></span></div><div class="step pending"><span class="ic"></span><span>Add the SSH alias on the console host</span><span class="dur"></span></div><div class="step pending"><span class="ic"></span><span>Register the server</span><span class="dur"></span></div></div></div><div class="log"><div class="log-b" style="min-height:420px"><div class="ln "><span class="ts">14:31:02</span><span class="src">hostinger</span><span>POST /api/vps/v1/virtual-machines item hostingercom-vps-kvm2-usd-1m: order placed</span></div><div class="ln "><span class="ts">14:31:05</span><span class="src">hostinger</span><span>virtual machine 1131870 created, state: initial</span></div><div class="ln okl"><span class="ts">14:32:53</span><span class="src">hostinger</span><span>action setup: success; state: running; IPv4 198.51.100.47</span></div><div class="ln stp"><span class="ts">14:32:55</span><span class="src">podship</span><span>▶ Attach SSH keys</span></div><div class="ln stp"><span class="ts">14:32:58</span><span class="src">podship</span><span>▶ Create and apply the firewall: podship-ssh-only (22/tcp)</span></div><div class="ln stp"><span class="ts">14:33:01</span><span class="src">podship</span><span>▶ Wait for SSH</span></div><div class="ln okl"><span class="ts">14:33:15</span><span class="src">stdout</span><span>ssh root@198.51.100.47: ok</span></div><div class="ln stp"><span class="ts">14:33:16</span><span class="src">podship</span><span>▶ Install Docker, compose, age and zstd</span></div><div class="ln "><span class="ts">14:33:40</span><span class="src">stdout</span><span>Setting up docker-ce (5:28.4.0-1~ubuntu.24.04~noble) ...</span></div><div class="ln "><span class="ts">14:34:02</span><span class="src">stdout</span><span>Setting up age (1.1.1-1ubuntu0.24.04.1) ...</span></div></div></div></div></main></div></div></section></div>
+<div><p class="board-cap">5 · Registered <span>The server page with the next step.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Servers <span aria-hidden="true">/</span> <b>shop-vps</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><main class="content"><div class="row"><div class="stack-1"><h1 class="title mono" style="font-size:24px">shop-vps</h1><span class="muted">Ubuntu 24.04, x86_64, Docker 28.4, compose 2.39 · systemd · /srv/podship · Cloudflare Tunnel shop-vps</span></div><div class="right row"></div></div><div class="banner ok" role="status"><i data-lucide="circle-check" class="i20" aria-hidden="true"></i><div class="grow"><b>shop-vps is ready for projects.</b><div class="caption">From a project folder, run <code>podship launch --env staging</code> with <code>host: shop-vps</code> in podship.yaml.</div></div></div><div class="cols"><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Registry</h2><span class="caption">Ports 20000–20999, 0 in use</span></div><div class="panel-b muted">No environments yet.</div></div></div><div class="stack"><div class="panel"><div class="panel-h"><h2 class="section">Resources</h2><span class="caption right">40 s ago</span></div><div class="panel-b stack">
+<div class="stack-1"><div class="row"><span class="label">CPU</span><span class="right num">load 0.1 on 2 cores</span></div><div style="height:8px;background:var(--container-high);border-radius:4px" role="img" aria-label="CPU load 0.1 on 2 cores"><div style="width:15%;height:8px;border-radius:4px;background:var(--primary)"></div></div></div><div class="stack-1"><div class="row"><span class="label">Memory</span><span class="right num">0.6 of 8 GB used</span></div><div style="height:8px;background:var(--container-high);border-radius:4px" role="img" aria-label="Memory 0.6 of 8 GB used"><div style="width:8%;height:8px;border-radius:4px;background:var(--primary)"></div></div></div><div class="stack-1"><div class="row"><span class="label">Disk</span><span class="right num">3 % used, 94 GB free</span></div><div style="height:8px;background:var(--container-high);border-radius:4px" role="img" aria-label="Disk 3 % used, 94 GB free"><div style="width:3%;height:8px;border-radius:4px;background:var(--primary)"></div></div></div></div></div><div class="panel"><div class="panel-h"><h2 class="section">Provider</h2><a class="btn ghost sm right"><i data-lucide="external-link" class="" aria-hidden="true"></i>Open in hPanel</a></div><div class="panel-b"><dl class="kv" style="grid-template-columns:150px 1fr">
+<dt>Provider</dt><dd>Hostinger · VPS id <span class="mono">1131870</span></dd><dt>Plan</dt><dd>KVM 2 · 2 vCPU, 8 GB, 100 GB NVMe</dd><dt>Data center</dt><dd>Phoenix, US</dd>
+<dt>IPv4</dt><dd class="mono">198.51.100.47</dd><dt>OS template</dt><dd>Ubuntu 24.04 LTS</dd><dt>Subscription</dt><dd>Renews on 6 Nov 2026 · auto-renewal on</dd><dt>Hostinger backups</dt><dd>Off (podship backs up the data)</dd></dl></div></div></div></div></main></div></div></section></div>
+<div><p class="board-cap">6 · Bootstrap failed after purchase <span>Names what exists and what to do; retry is safe.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Servers <span aria-hidden="true">/</span> <b>New server</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><main class="content"><div class="row"><div class="stack-1"><h1 class="title">Create server shop-vps</h1><div class="caption">Started by federico at 14:31</div></div><span class="right"><span class="pill danger"><i data-lucide="circle-x" class="" aria-hidden="true"></i>Failed</span></span></div><div class="banner danger" role="alert"><i data-lucide="circle-x" class="i20" aria-hidden="true"></i><div class="grow"><b>The VPS exists (id 1131870) but bootstrap failed at Install Docker, compose, age and zstd.</b><div class="caption">Ubuntu was still installing updates. Bootstrap is safe to run again.</div></div><button class="btn primary">Retry bootstrap</button></div><div style="display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start"><div class="panel" style="overflow:hidden"><div class="panel-h"><h2 class="section">Steps</h2></div><div class="steps" aria-live="polite"><div class="step-group">Hostinger</div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Buy the VPS</span><span class="dur">3.4 s</span></div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Wait for Hostinger to set it up</span><span class="dur">1 min 48 s</span></div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Attach SSH keys</span><span class="dur">1.2 s</span></div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Create and apply the firewall</span><span class="dur">2.6 s</span></div><div class="step-group">Bootstrap</div><div class="step done"><span class="ic"><i data-lucide="check" class="" aria-hidden="true"></i></span><span>Wait for SSH</span><span class="dur">14.0 s</span></div><div class="step failed"><span class="ic"><i data-lucide="x" class="" aria-hidden="true"></i></span><span>Install Docker, compose, age and zstd</span><span class="dur">1 min 02 s</span></div><div class="step pending"><span class="ic"></span><span>Apply podship's firewall rules and folders</span><span class="dur"></span></div><div class="step-group">Tunnel and registration</div><div class="step pending"><span class="ic"></span><span>Create the Cloudflare Tunnel and install cloudflared</span><span class="dur"></span></div><div class="step pending"><span class="ic"></span><span>Add the SSH alias on the console host</span><span class="dur"></span></div><div class="step pending"><span class="ic"></span><span>Register the server</span><span class="dur"></span></div></div></div><div class="log"><div class="log-b" style="min-height:420px"><div class="ln stp"><span class="ts">14:33:16</span><span class="src">podship</span><span>▶ Install Docker, compose, age and zstd</span></div><div class="ln err hl"><span class="ts">14:33:40</span><span class="src">stderr</span><span>E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 1412 (unattended-upgr)</span></div><div class="ln err"><span class="ts">14:34:18</span><span class="src">podship</span><span>✗ Install Docker, compose, age and zstd failed: exit code 100</span></div></div></div></div></main></div></div></section></div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

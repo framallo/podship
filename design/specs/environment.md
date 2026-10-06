@@ -77,7 +77,7 @@ Depends on state, so there is always exactly one filled button:
 
 ## 10. Acceptance criteria
 
-- Phone: from the overview with production unhealthy, a rollback starts in 4 taps (row, "Roll back to …", "Roll back production") and no typing; measured on a 390 × 844 build.
+- Phone: from the home screen with production unhealthy, a rollback starts in 4 taps (app icon, the production row, "Roll back to …", "Roll back production to …") and no typing; measured on a 390 × 844 build.
 - Desktop: with keyboard only, Tab reaches "Roll back to …", Enter opens the dialog with focus on Cancel; pressing Enter again cancels, it never confirms.
 - No mutating action on production can be started without a dialog (button, palette, row menu).
 - While an operation runs on the environment, every mutating button is disabled and names the running operation.

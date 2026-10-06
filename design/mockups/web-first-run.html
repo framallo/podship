@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>First-run setup · podship console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="podship.css">
+</head>
+<body class="sheet">
+<div><p class="board-cap">1 · Owner <span>Opened from the link with the one-time code printed in the terminal.</span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">1</span>Owner</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">2</span>Remote access</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">3</span>Providers</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<p class="caption">Step 1 of 4: Owner</p><h1 class="title">Create the owner</h1><p class="muted">The owner can do everything and invites other people later.</p>
+<div class="field"><label class="label">Name</label><div class="input">Federico Ramallo</div></div>
+<div class="field"><label class="label">Email</label><div class="input">federico@densitylabs.io</div></div>
+<div class="field"><span class="label">How you'll sign in</span><div class="radio on"><span class="rb"></span><div class="stack-1"><span>Passkey on this device</span></div></div>
+<div class="radio" style="opacity:.6"><span class="rb"></span><div class="stack-1"><span>Email codes (needs a mail sender)</span><span class="caption">No mail sender is configured. Add one in Settings later.</span></div></div></div>
+<div class="row"><button class="btn primary right">Create owner and continue</button></div></div></div></div></section></div>
+<div><p class="board-cap">2 · Remote access <span>Cloudflare Tunnel and hostname; "Stay on this computer only" is the secondary path.</span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Owner</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">2</span>Remote access</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">3</span>Providers</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<p class="caption">Step 2 of 4: Remote access</p><h1 class="title">Reach the console from your phone</h1><p class="muted">The console runs on this computer. A Cloudflare Tunnel gives it a hostname with HTTPS without opening ports.</p>
+<div class="field"><label class="label">Cloudflare API token</label><div class="input "><span style="letter-spacing:2px">••••••••••••••••••••••••••••••••</span></div><span class="hint">Needs Cloudflare Tunnel: Edit and Zone DNS: Edit on one zone.</span></div>
+<div class="field"><span class="label">Zone</span><div class="input">framallo.dev<span class="right" style="margin-left:auto"><i data-lucide="chevron-down" class="" aria-hidden="true"></i></span></div></div>
+<div class="field"><label class="label">Hostname</label><div class="input"><span class="mono">console.framallo.dev</span></div></div>
+<div class="row"><button class="btn">Stay on this computer only</button><button class="btn primary right">Connect and continue</button></div>
+<p class="caption">Without a tunnel the phone can't reach the console. You can connect one later in Settings.</p></div></div></div></section></div>
+<div><p class="board-cap">3 · Token missing a permission <span>Error summary at the top and at the field; says how to fix it.</span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Owner</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">2</span>Remote access</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">3</span>Providers</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<p class="caption">Step 2 of 4: Remote access</p><h1 class="title">Reach the console from your phone</h1><div class="banner danger" role="alert"><i data-lucide="circle-x" class="i20" aria-hidden="true"></i><div class="grow"><b>1 problem to fix</b><div class="caption">Cloudflare API token: missing DNS permission.</div></div></div><p class="muted">The console runs on this computer. A Cloudflare Tunnel gives it a hostname with HTTPS without opening ports.</p>
+<div class="field"><label class="label">Cloudflare API token</label><div class="input err"><span style="letter-spacing:2px">••••••••••••••••••••••••••••••••</span></div><div class="err-text"><i data-lucide="circle-x" class="" aria-hidden="true"></i>This token can't edit DNS for framallo.dev. Create a token with Zone, DNS, Edit on that zone.</div></div>
+<div class="field"><span class="label">Zone</span><div class="input">framallo.dev<span class="right" style="margin-left:auto"><i data-lucide="chevron-down" class="" aria-hidden="true"></i></span></div></div>
+<div class="field"><label class="label">Hostname</label><div class="input"><span class="mono">console.framallo.dev</span></div></div>
+<div class="row"><button class="btn">Stay on this computer only</button><button class="btn primary right">Connect and continue</button></div>
+<p class="caption">Without a tunnel the phone can't reach the console. You can connect one later in Settings.</p></div></div></div></section></div>
+<div><p class="board-cap">4 · Provider token tested <span>Stored encrypted on this computer, never shown again.</span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Owner</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Remote access</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">3</span>Providers</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<p class="caption">Step 3 of 4: Providers</p><h1 class="title">Connect a server provider</h1><p class="muted">With a provider token, the console can create and set up servers for you. It's stored on this computer, encrypted, and never shown again.</p>
+<div class="field"><label class="label">Hostinger API token</label><div class="row"><div class="input grow"><span style="letter-spacing:2px">••••••••••••••••••••••••</span></div><button class="btn">Test</button></div>
+<div class="row t-ok" style="gap:6px;font-size:13px"><i data-lucide="circle-check" class="" aria-hidden="true"></i>Works. 14 data centers available.</div></div>
+<div class="caption">More providers later. Only Hostinger is supported in this version.</div>
+<div class="row"><button class="btn">Skip</button><button class="btn primary right">Save and continue</button></div></div></div></div></section></div>
+<div><p class="board-cap">5 · First server <span>Existing SSH alias, or create a VPS.</span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Owner</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Remote access</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Providers</li><li class="row" style="gap:8px;font-weight:600"><span class="pill run" style="padding:0 8px">4</span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<p class="caption">Step 4 of 4: First server</p><h1 class="title">Add your first server</h1><div class="radio on" style="padding:16px"><span class="rb"></span><div class="stack-1"><b class="row" style="gap:8px"><i data-lucide="terminal" class="" aria-hidden="true"></i>Add a server I already have</b><span class="caption">Pick an SSH alias from ~/.ssh/config on this computer.</span></div></div>
+<div class="field" style="margin-left:32px"><span class="label">SSH alias</span><div class="input" style="width:320px"><span class="mono">caza-vps</span><span style="margin-left:auto"><i data-lucide="chevron-down" class="" aria-hidden="true"></i></span></div><span class="hint">Found 3 aliases: caza-vps, agentes.local, github.com</span></div>
+<div class="radio " style="padding:16px"><span class="rb"></span><div class="stack-1"><b class="row" style="gap:8px"><i data-lucide="cloud" class="" aria-hidden="true"></i>Create a VPS on Hostinger</b><span class="caption">Opens the new-server flow.</span></div></div>
+<div class="row"><button class="btn">Do this later</button><button class="btn primary right">Add server</button></div></div></div></div></section></div>
+<div><p class="board-cap">6 · Done <span>What was set up.</span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Owner</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Remote access</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>Providers</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill ok" style="padding:0 8px"><i data-lucide="check" class="" aria-hidden="true"></i></span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<h1 class="title">podship console is ready</h1><div class="stack-2">
+<div class="row"><i data-lucide="circle-check" class="t-ok" aria-hidden="true"></i>Owner: Federico Ramallo, passkey</div>
+<div class="row"><i data-lucide="circle-check" class="t-ok" aria-hidden="true"></i>Remote access: https://console.framallo.dev</div>
+<div class="row"><i data-lucide="circle-check" class="t-ok" aria-hidden="true"></i>Provider: Hostinger, token ends in …a91f</div>
+<div class="row"><i data-lucide="circle-check" class="t-ok" aria-hidden="true"></i>Server: caza-vps, podship doctor passed 9 of 9 checks, 1 project found</div></div>
+<div class="row"><button class="btn primary right">Open the overview</button></div></div></div></div></section></div>
+<div><p class="board-cap">7 · Setup link already used <span></span></p>
+<section class="board" data-theme="light"><div style="min-height:900px;background:var(--page);display:flex;flex-direction:column;align-items:center;padding:48px 24px;gap:24px">
+<div class="brand" style="padding:0"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship console</div>
+<ol class="row" style="gap:24px;list-style:none"><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">1</span>Owner</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">2</span>Remote access</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">3</span>Providers</li><li class="row" style="gap:8px;color:var(--ink-2)"><span class="pill neutral" style="padding:0 8px">4</span>First server</li></ol>
+<div class="panel" style="width:640px"><div class="panel-b stack" style="padding:32px">
+<h1 class="title">Setup is done</h1><p class="muted">This setup link was already used. Sign in instead.</p><div class="row"><button class="btn primary">Sign in</button></div></div></div></div></section></div>
+<script>lucide.createIcons();</script>
+</body>
+</html>

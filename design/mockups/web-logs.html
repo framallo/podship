@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logs · podship console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="podship.css">
+</head>
+<body class="sheet">
+<div><p class="board-cap">1 · Following, all services <span>Errors in danger with their label; secrets masked by the console server.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab " role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab on" role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="row wrap"><div class="input" style="width:200px"><i data-lucide="boxes" class="" aria-hidden="true"></i><span>All services</span><i data-lucide="chevron-down" class="" aria-hidden="true"></i></div>
+<span class="seg"><span class="on">Last 15 min</span><span>Last hour</span><span>Since the current release</span><span>Custom…</span></span>
+<div class="input" style="width:260px"><i data-lucide="search" class="" aria-hidden="true"></i><span class="muted">Search logs</span></div>
+<span class="right row"><button class="btn sm " aria-pressed="true"><i data-lucide="pause" class="" aria-hidden="true"></i>Following</button><button class="btn sm" aria-pressed="true">Timestamps</button><button class="btn icon sm" aria-label="Download logs"><i data-lucide="download" class="" aria-hidden="true"></i></button></span></div><div class="log"><div class="log-b" style="min-height:520px"><div class="ln "><span class="ts">10:51:02</span><span class="src">server</span><span>INFO  POST /ticket.upload 200 812ms</span></div><div class="ln "><span class="ts">10:51:04</span><span class="src">server</span><span>INFO  GET /cfdi.list 200 41ms</span></div><div class="ln "><span class="ts">10:51:09</span><span class="src">pacewright</span><span>run 7731 portal=facturagas attempt 1 started</span></div><div class="ln wrn"><span class="ts">10:51:12</span><span class="src">server</span><span>WARN  slow query 1.4s: SELECT * FROM ticket WHERE status = $1</span></div><div class="ln err"><span class="ts">10:51:15</span><span class="src">server</span><span>ERROR TimeoutException after 0:00:20.000000: upload to storage did not finish</span></div><div class="ln err"><span class="ts">10:51:15</span><span class="src">server</span><span>      #0 TicketService.store (package:cazafacturas_server/src/tickets/ticket_service.dart:142)</span></div><div class="ln "><span class="ts">10:51:18</span><span class="src">postgres</span><span>LOG:  checkpoint complete: wrote 412 buffers (2.5%)</span></div><div class="ln "><span class="ts">10:51:22</span><span class="src">server</span><span>INFO  POST /ticket.upload 200 1204ms</span></div><div class="ln okl"><span class="ts">10:51:30</span><span class="src">pacewright</span><span>run 7731 portal=facturagas finished ok in 21s</span></div><div class="ln err"><span class="ts">10:51:41</span><span class="src">server</span><span>ERROR TimeoutException after 0:00:20.000000: upload to storage did not finish</span></div><div class="ln "><span class="ts">10:51:44</span><span class="src">server</span><span>INFO  GET /health 200 3ms</span></div><div class="ln "><span class="ts">10:51:50</span><span class="src">server</span><span>INFO  POST /me.get 200 18ms</span></div></div></div></main></div></div></section></div>
+<div><p class="board-cap">2 · Paused, filtered and searched <span>Scrolling up paused following; search highlights 4 matches.</span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab " role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab on" role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="row wrap"><div class="input" style="width:200px"><i data-lucide="boxes" class="" aria-hidden="true"></i><span>server</span><i data-lucide="chevron-down" class="" aria-hidden="true"></i></div>
+<span class="seg"><span class="on">Last 15 min</span><span>Last hour</span><span>Since the current release</span><span>Custom…</span></span>
+<div class="input" style="width:260px"><i data-lucide="search" class="" aria-hidden="true"></i><span class="">Timeout</span><span class='caption right' style='margin-left:auto'>4 matches</span></div>
+<span class="right row"><button class="btn sm " aria-pressed="false"><i data-lucide="play" class="" aria-hidden="true"></i>Follow</button><button class="btn sm" aria-pressed="true">Timestamps</button><button class="btn icon sm" aria-label="Download logs"><i data-lucide="download" class="" aria-hidden="true"></i></button></span></div><div class="log"><div class="log-b" style="min-height:520px"><div class="ln "><span class="ts">10:51:02</span><span class="src">server</span><span>INFO  POST /ticket.upload 200 812ms</span></div><div class="ln "><span class="ts">10:51:04</span><span class="src">server</span><span>INFO  GET /cfdi.list 200 41ms</span></div><div class="ln wrn"><span class="ts">10:51:12</span><span class="src">server</span><span>WARN  slow query 1.4s: SELECT * FROM ticket WHERE status = $1</span></div><div class="ln err"><span class="ts">10:51:15</span><span class="src">server</span><span>ERROR <mark>Timeout</mark>Exception after 0:00:20.000000: upload to storage did not finish</span></div><div class="ln err"><span class="ts">10:51:15</span><span class="src">server</span><span>      #0 TicketService.store (package:cazafacturas_server/src/tickets/ticket_service.dart:142)</span></div><div class="ln "><span class="ts">10:51:22</span><span class="src">server</span><span>INFO  POST /ticket.upload 200 1204ms</span></div><div class="ln err"><span class="ts">10:51:41</span><span class="src">server</span><span>ERROR <mark>Timeout</mark>Exception after 0:00:20.000000: upload to storage did not finish</span></div><div class="ln "><span class="ts">10:51:44</span><span class="src">server</span><span>INFO  GET /health 200 3ms</span></div><div class="ln "><span class="ts">10:51:50</span><span class="src">server</span><span>INFO  POST /me.get 200 18ms</span></div></div><div class="banner neutral" style="margin:8px 12px;font-family:IBM Plex Sans;font-size:13px"><i data-lucide="pause" class="" aria-hidden="true"></i><span class="grow">Paused. 38 new lines.</span><button class="btn sm">Jump to latest</button></div></div></main></div></div></section></div>
+<div><p class="board-cap">3 · No lines in range <span></span></p>
+<section class="board" data-theme="light"><div class="app"><nav class="sidebar" aria-label="Main">
+<div class="brand"><span class="mark"><i data-lucide="anchor" class="" aria-hidden="true"></i></span>podship</div>
+<a class="nav-item "><i data-lucide="layout-dashboard" class="i20" aria-hidden="true"></i>Overview</a>
+<div class="nav-group">Projects</div>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>cazafacturas</a>
+<a class="nav-item nav-sub active"><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<a class="nav-item "><i data-lucide="folder" class="i20" aria-hidden="true"></i>shop</a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">production</span></a>
+<a class="nav-item nav-sub "><span class="mono" style="font-size:13px">staging</span></a>
+<div class="nav-group">Servers</div>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">caza-vps</span></a>
+<a class="nav-item "><i data-lucide="server" class="i20" aria-hidden="true"></i><span class="mono" style="font-size:13px">agentes.local</span></a>
+<div style="flex:1"></div>
+<a class="nav-item "><i data-lucide="history" class="i20" aria-hidden="true"></i>History</a>
+<a class="nav-item "><i data-lucide="settings" class="i20" aria-hidden="true"></i>Settings</a>
+</nav><div class="main"><header class="topbar"><div class="crumbs">Projects <span aria-hidden="true">/</span> cazafacturas <span aria-hidden="true">/</span> <b>production</b></div>
+<div class="search"><i data-lucide="search" class="" aria-hidden="true"></i><span>Search or run a command</span><span class="kbd">⌘ K</span></div>
+<div class="avatar" title="Federico Ramallo">FR</div></header><div class="envband prod" role="note" aria-label="Environment production on caza-vps, release 20261006-170512-a0dc2b0"><i data-lucide="lock" class="" aria-hidden="true"></i><span class="mono">production</span><span aria-hidden="true">·</span><span class="mono">caza-vps</span><span aria-hidden="true">·</span><span>release <span class="id">20261006-170512-a0dc2b0</span></span></div><main class="content"><div class="row"><h1 class="title"><span>cazafacturas</span> <span class="muted">/</span> <span class="mono" style="font-size:22px">production</span></h1><span class="health"><span class="dot ok"></span>Healthy</span><div class="right row"><button class="btn"><i data-lucide="rotate-ccw" class="" aria-hidden="true"></i>Roll back…</button><button class="btn"><i data-lucide="refresh-cw" class="" aria-hidden="true"></i>Restart</button><button class="btn primary"><i data-lucide="upload" class="" aria-hidden="true"></i>Deploy main to production</button></div></div><div class="tabs" role="tablist"><span class="tab " role="tab">Releases</span><span class="tab " role="tab">Backups</span><span class="tab " role="tab">Variables</span><span class="tab " role="tab">Domains</span><span class="tab on" role="tab">Logs</span><span class="tab " role="tab">Database</span></div><div class="row wrap"><div class="input" style="width:200px"><i data-lucide="boxes" class="" aria-hidden="true"></i><span>server</span><i data-lucide="chevron-down" class="" aria-hidden="true"></i></div>
+<span class="seg"><span class="on">Last 15 min</span><span>Last hour</span><span>Since the current release</span><span>Custom…</span></span>
+<div class="input" style="width:260px"><i data-lucide="search" class="" aria-hidden="true"></i><span class="muted">Search logs</span></div>
+<span class="right row"><button class="btn sm " aria-pressed="false"><i data-lucide="play" class="" aria-hidden="true"></i>Follow</button><button class="btn sm" aria-pressed="true">Timestamps</button><button class="btn icon sm" aria-label="Download logs"><i data-lucide="download" class="" aria-hidden="true"></i></button></span></div><div class="panel"><div class="panel-b stack" style="padding:32px"><h2 class="section">No log lines</h2><p class="muted">No log lines from server between 10:00 and 10:15. Widen the range or pick another service.</p><div><button class="btn">Show the last hour</button></div></div></div></main></div></div></section></div>
+<script>lucide.createIcons();</script>
+<style>mark{background:var(--warn-c);color:inherit;outline:1px solid var(--warn)}</style></body>
+</html>
