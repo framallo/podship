@@ -66,6 +66,8 @@ class EnvStatus {
     this.diskTotalKb,
     this.releasesKb,
     this.logTables = const {},
+    this.dns = const [],
+    this.dnsNote,
   });
 
   factory EnvStatus.parse({
@@ -142,6 +144,35 @@ class EnvStatus {
   /// Serverpod's log tables: name → {rows, bytes}.
   final Map<String, Map<String, int>> logTables;
 
+  /// Where each domain's DNS points, from the Cloudflare API (`state`:
+  /// ok, missing, other_tunnel, elsewhere).
+  final List<Map<String, Object?>> dns;
+
+  /// Why [dns] is empty (no token, not Cloudflare, an API error).
+  final String? dnsNote;
+
+  /// Whether a domain points somewhere other than this environment.
+  bool get dnsDrift => dns.any((d) => d['state'] != 'ok');
+
+  EnvStatus withDns(List<Map<String, Object?>> d, {String? note}) => EnvStatus(
+    project: project,
+    env: env,
+    host: host,
+    dir: dir,
+    current: current,
+    releases: releases,
+    ports: ports,
+    containers: containers,
+    healthUrl: healthUrl,
+    healthy: healthy,
+    diskFreeKb: diskFreeKb,
+    diskTotalKb: diskTotalKb,
+    releasesKb: releasesKb,
+    logTables: logTables,
+    dns: d,
+    dnsNote: note,
+  );
+
   EnvStatus withLogTables(Map<String, Map<String, int>> t) => EnvStatus(
     project: project,
     env: env,
@@ -157,10 +188,14 @@ class EnvStatus {
     diskTotalKb: diskTotalKb,
     releasesKb: releasesKb,
     logTables: t,
+    dns: dns,
+    dnsNote: dnsNote,
   );
 
   Map<String, Object?> toJson() => {
     'log_tables': logTables,
+    'dns': dns,
+    'dns_note': ?dnsNote,
     'project': project,
     'env': env,
     'host': host,

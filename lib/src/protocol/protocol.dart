@@ -69,6 +69,8 @@ class OperationSpec {
     this.destructive = false,
     this.needsEnv = true,
     this.confirmation,
+    this.approval,
+    this.planOperation,
   });
 
   /// The stable name, like `deploy` or `backup.restore`.
@@ -84,6 +86,20 @@ class OperationSpec {
   /// The parameter that must hold a typed confirmation (the project or
   /// environment name), when the operation needs one.
   final String? confirmation;
+
+  /// `owner`: the operation changes DNS, tunnels, Access or SES. It runs
+  /// only with the `plan_id` of a plan the owner approved; an MCP client
+  /// may only call [planOperation]. `owner_if_cloudflare`: the same, when
+  /// the `provider` param is `cloudflare`.
+  final String? approval;
+
+  /// The read operation that returns the plan to approve.
+  final String? planOperation;
+
+  /// Whether [params] make this operation need the owner's approval.
+  bool needsApproval(Map<String, Object?> params) =>
+      approval == 'owner' ||
+      (approval == 'owner_if_cloudflare' && params['provider'] == 'cloudflare');
 
   /// A JSON schema for the parameters (an MCP tool's `inputSchema`).
   Map<String, Object?> inputSchema() => {
@@ -113,6 +129,8 @@ class OperationSpec {
     'mutating': mutating,
     'destructive': destructive,
     'confirmation': ?confirmation,
+    'approval': ?approval,
+    'plan_operation': ?planOperation,
     'input_schema': inputSchema(),
   };
 }
@@ -126,6 +144,22 @@ const _confirmEnv = ParamSpec(
   'confirm_env',
   'string',
   'The environment name, typed by the user, to confirm an untested deploy.',
+);
+const _planId = ParamSpec(
+  'plan_id',
+  'string',
+  'The id of the plan the owner approved; the operation refuses to run when the fresh plan differs.',
+);
+const _hosts = ParamSpec(
+  'hosts',
+  'string[]',
+  'Only these hosts (default: every domain of the environment).',
+);
+const _provider = ParamSpec(
+  'provider',
+  'string',
+  'cloudflare: also manage DNS records and Access apps through the Cloudflare API.',
+  values: ['cloudflare'],
 );
 const _confirmProject = ParamSpec(
   'confirm_project',
@@ -279,14 +313,156 @@ const operations = <OperationSpec>[
   ),
   OperationSpec(
     'domain.add',
-    'Route the domains of the environment.',
-    params: [ParamSpec('hosts', 'string[]', 'Only these hosts.')],
+    'Route the domains of the environment (with provider cloudflare: also DNS and Access).',
+    approval: 'owner_if_cloudflare',
+    planOperation: 'domain.plan',
+    params: [_hosts, _provider, _planId],
   ),
   OperationSpec(
     'domain.remove',
-    'Remove domain routes.',
+    'Remove domain routes (with provider cloudflare: also the DNS records that point here).',
     destructive: true,
-    params: [ParamSpec('hosts', 'string[]', 'Only these hosts.')],
+    approval: 'owner_if_cloudflare',
+    planOperation: 'domain.plan',
+    params: [_hosts, _provider, _planId],
+  ),
+  OperationSpec(
+    'domain.plan',
+    'The plan of domain.add (or with remove, domain.remove): routes, DNS, Access, with before and after.',
+    mutating: false,
+    params: [
+      _hosts,
+      _provider,
+      ParamSpec('remove', 'boolean', 'Plan the removal.'),
+    ],
+  ),
+  OperationSpec(
+    'dns.plan',
+    'The DNS records the domains need, against Cloudflare (create/update/delete with before and after).',
+    mutating: false,
+    params: [_hosts, ParamSpec('remove', 'boolean', 'Plan the removal.')],
+  ),
+  OperationSpec(
+    'dns.apply',
+    'Create, update or delete the DNS records of the domains in Cloudflare.',
+    approval: 'owner',
+    planOperation: 'dns.plan',
+    params: [
+      _hosts,
+      ParamSpec('remove', 'boolean', 'Remove the records that point here.'),
+      _planId,
+    ],
+  ),
+  OperationSpec(
+    'dns.list',
+    'DNS records of the domains (or of a whole zone) in Cloudflare.',
+    mutating: false,
+    params: [ParamSpec('zone', 'string', 'A whole zone, like example.com.')],
+  ),
+  OperationSpec(
+    'dns.drift',
+    'Where each domain points, against the environment\'s tunnel.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'tunnel.list',
+    'Cloudflare Tunnels of the account, with status and how each is managed.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'tunnel.plan',
+    'The plan of a tunnel route (or with remove, unroute).',
+    mutating: false,
+    params: [_hosts, ParamSpec('remove', 'boolean', 'Plan the removal.')],
+  ),
+  OperationSpec(
+    'tunnel.route',
+    'Route hostnames through the environment\'s tunnel (API for remotely-managed tunnels, config.yml for local ones).',
+    approval: 'owner',
+    planOperation: 'tunnel.plan',
+    params: [_hosts, _planId],
+  ),
+  OperationSpec(
+    'tunnel.unroute',
+    'Remove hostnames from the environment\'s tunnel.',
+    destructive: true,
+    approval: 'owner',
+    planOperation: 'tunnel.plan',
+    params: [_hosts, _planId],
+  ),
+  OperationSpec(
+    'tunnel.create',
+    'Create a remotely-managed Cloudflare Tunnel.',
+    approval: 'owner',
+    params: [ParamSpec('name', 'string', 'The tunnel name.', required: true)],
+  ),
+  OperationSpec(
+    'email.status',
+    'Whether the sender can send through SES: identity, DKIM, sandbox, quota.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'email.plan',
+    'What email.setup would change: SES identity, DKIM records, MAIL FROM.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'email.setup',
+    'Create the SES identity, its DKIM records and the MAIL FROM domain.',
+    approval: 'owner',
+    planOperation: 'email.plan',
+    params: [_planId],
+  ),
+  OperationSpec(
+    'email.test',
+    'Send a test email from the environment\'s sender.',
+    approval: 'owner',
+    params: [
+      ParamSpec(
+        'to',
+        'string',
+        'The recipient (default: success@simulator.amazonses.com).',
+      ),
+    ],
+  ),
+  OperationSpec(
+    'app.plan',
+    'The whole app setup as one plan: registry and ports, tunnel route, DNS, Access, TLS, SES.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'app.setup',
+    'Apply the app setup plan, then check DNS (DoH) and the public health URL.',
+    approval: 'owner',
+    planOperation: 'app.plan',
+    params: [_planId],
+  ),
+  OperationSpec(
+    'app.teardown.plan',
+    'What app.teardown would remove.',
+    mutating: false,
+    params: [
+      ParamSpec(
+        'email',
+        'boolean',
+        'Also the SES identity this environment created.',
+      ),
+    ],
+  ),
+  OperationSpec(
+    'app.teardown',
+    'Remove the DNS records, tunnel routes and Access apps of the environment (and with email, its SES identity).',
+    destructive: true,
+    approval: 'owner',
+    planOperation: 'app.teardown.plan',
+    params: [
+      ParamSpec(
+        'email',
+        'boolean',
+        'Also the SES identity this environment created.',
+      ),
+      _planId,
+    ],
   ),
   OperationSpec(
     'server.bootstrap',
@@ -432,6 +608,7 @@ class OperationRequest {
     this.dryRun = false,
     String? id,
     this.protocol = protocolVersion,
+    this.origin,
   }) : id = id ?? newRequestId();
 
   factory OperationRequest.fromJson(Map<String, Object?> j) => OperationRequest(
@@ -442,6 +619,7 @@ class OperationRequest {
     env: j['env'] as String?,
     params: (j['params'] as Map?)?.cast<String, Object?>() ?? const {},
     dryRun: j['dry_run'] == true,
+    origin: j['origin'] as String?,
   );
 
   final int protocol;
@@ -452,6 +630,10 @@ class OperationRequest {
   final Map<String, Object?> params;
   final bool dryRun;
 
+  /// Who asks: `cli`, `console` or `mcp`. A console sets it; an MCP
+  /// request may only plan operations that need the owner's approval.
+  final String? origin;
+
   Map<String, Object?> toJson() => {
     'protocol': protocol,
     'id': id,
@@ -460,6 +642,7 @@ class OperationRequest {
     'env': ?env,
     'params': params,
     'dry_run': dryRun,
+    'origin': ?origin,
   };
 }
 
@@ -526,12 +709,7 @@ Stream<Map<String, Object?>> dispatch(
   List<String> l(String k) => [
     for (final x in (p[k] as List? ?? const [])) '$x',
   ];
-  final api = Podship(
-    podship.config,
-    sshOptions: podship.sshOptions,
-    dryRun: req.dryRun,
-    actor: podship.actor,
-  );
+  final api = podship.copyWith(dryRun: req.dryRun);
 
   // Typed confirmations must match.
   if (spec.confirmation == 'confirm_project' &&
@@ -552,6 +730,28 @@ Stream<Map<String, Object?>> dispatch(
       'rollback with_db needs confirm_project = "${podship.config.project}"',
     );
     return;
+  }
+  // DNS, tunnel and SES changes: the owner approves a plan id.
+  if (spec.needsApproval(p) && !req.dryRun) {
+    final planOp = spec.planOperation;
+    if (req.origin == 'mcp') {
+      yield _resultJson(
+        req,
+        false,
+        '${spec.name} needs the owner\'s approval: MCP clients may only plan'
+        '${planOp == null ? '' : ' (call $planOp, or ${spec.name} with dry_run)'}; '
+        'the owner approves the plan in the console',
+      );
+      return;
+    }
+    if (planOp != null && s('plan_id') == null) {
+      yield _resultJson(
+        req,
+        false,
+        '${spec.name} needs plan_id: get the plan with $planOp and have the owner approve it',
+      );
+      return;
+    }
   }
   final skipReason = s('skip_tests_reason');
   final confirmedUntested = skipReason != null && s('confirm_env') == env;
@@ -622,9 +822,79 @@ Stream<Map<String, Object?>> dispatch(
       case 'secret.unset':
         op = api.secretUnset(env!, l('names'), password: b('password'));
       case 'domain.add':
-        op = api.domainAdd(env!, hosts: l('hosts'));
+        op = api.domainAdd(
+          env!,
+          hosts: l('hosts'),
+          provider: s('provider'),
+          planId: s('plan_id'),
+        );
       case 'domain.remove':
-        op = api.domainRemove(env!, hosts: l('hosts'));
+        op = api.domainRemove(
+          env!,
+          hosts: l('hosts'),
+          provider: s('provider'),
+          planId: s('plan_id'),
+        );
+      case 'domain.plan':
+        value = (await api.domainPlan(
+          env!,
+          hosts: l('hosts'),
+          remove: b('remove'),
+          provider: s('provider'),
+        )).toJson();
+      case 'dns.plan':
+        value = (await api.dnsPlan(
+          env!,
+          hosts: l('hosts'),
+          remove: b('remove'),
+        )).toJson();
+      case 'dns.apply':
+        op = api.dnsApply(
+          env!,
+          hosts: l('hosts'),
+          remove: b('remove'),
+          planId: s('plan_id'),
+        );
+      case 'dns.list':
+        value = [
+          for (final r in await api.dnsRecords(env!, zone: s('zone')))
+            r.toJson(),
+        ];
+      case 'dns.drift':
+        value = [for (final d in await api.dnsDrift(env!)) d.toJson()];
+      case 'tunnel.list':
+        value = [for (final t in await api.tunnels(env!)) t.toJson()];
+      case 'tunnel.plan':
+        value = (await api.tunnelPlan(
+          env!,
+          hosts: l('hosts'),
+          remove: b('remove'),
+        )).toJson();
+      case 'tunnel.route':
+        op = api.tunnelRoute(env!, hosts: l('hosts'), planId: s('plan_id'));
+      case 'tunnel.unroute':
+        op = api.tunnelUnroute(env!, hosts: l('hosts'), planId: s('plan_id'));
+      case 'tunnel.create':
+        op = api.tunnelCreate(env!, s('name')!);
+      case 'email.status':
+        value = (await api.emailStatus(env!)).toJson();
+      case 'email.plan':
+        value = (await api.emailPlan(env!)).toJson();
+      case 'email.setup':
+        op = api.emailSetup(env!, planId: s('plan_id'));
+      case 'email.test':
+        op = api.emailTest(
+          env!,
+          to: s('to') ?? 'success@simulator.amazonses.com',
+        );
+      case 'app.plan':
+        value = (await api.appPlan(env!)).toJson();
+      case 'app.setup':
+        op = api.appSetup(env!, planId: s('plan_id'));
+      case 'app.teardown.plan':
+        value = (await api.teardownPlan(env!, email: b('email'))).toJson();
+      case 'app.teardown':
+        op = api.appTeardown(env!, planId: s('plan_id'), email: b('email'));
       case 'server.bootstrap':
         op = api.bootstrap(env!, caddy: b('caddy'));
       case 'server.create':

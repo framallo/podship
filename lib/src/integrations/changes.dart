@@ -95,6 +95,27 @@ class PlanCheck {
 /// A plan of changes.
 class ChangeSet {
   ChangeSet(this.title, this.changes, {this.checks = const []});
+
+  /// A plan read back from JSON (from a console): it renders and has the
+  /// same id, but cannot be applied here.
+  factory ChangeSet.fromJson(Map j) => ChangeSet(
+    '${j['title'] ?? ''}',
+    [
+      for (final c in (j['changes'] as List? ?? const []).cast<Map>())
+        Change(
+          kind: ChangeKind.values.byName('${c['kind']}'),
+          resource: '${c['resource']}',
+          key: '${c['key']}',
+          before: (c['before'] as Map?)?.cast<String, Object?>(),
+          after: (c['after'] as Map?)?.cast<String, Object?>(),
+          note: c['note'] as String?,
+        ),
+    ],
+    checks: [
+      for (final c in (j['checks'] as List? ?? const []).cast<Map>())
+        PlanCheck('${c['name']}', c['ok'] == true, '${c['detail']}'),
+    ],
+  );
   final String title;
   final List<Change> changes;
   final List<PlanCheck> checks;

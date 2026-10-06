@@ -19,6 +19,14 @@ export 'src/remote/ssh.dart' show Ssh;
 export 'src/util/log.dart' show Log;
 export 'src/cli/runner.dart' show PodshipRunner;
 export 'src/config/config.dart';
+export 'src/integrations/changes.dart';
+export 'src/integrations/cloudflare.dart';
+export 'src/integrations/doh.dart';
+export 'src/integrations/http.dart';
+export 'src/integrations/planner.dart' show DnsDrift, ownerMark;
+export 'src/integrations/secrets.dart';
+export 'src/integrations/ses.dart';
+export 'src/ops/app_ops.dart' show Integrations;
 export 'src/ops/context.dart' show Aborted;
 export 'src/release/layout.dart' show ReleaseMeta;
 export 'src/server/registry.dart'

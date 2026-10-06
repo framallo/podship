@@ -143,32 +143,6 @@ class DestroyCommand extends PodshipCommand {
   }
 }
 
-class DomainAddCommand extends PodshipCommand {
-  DomainAddCommand(this._remove);
-  final bool _remove;
-  @override
-  String get name => _remove ? 'remove' : 'add';
-  @override
-  String get description => _remove
-      ? 'Remove the routes of a domain from the proxy.'
-      : 'Route a domain from podship.yaml to this environment (Cloudflare Tunnel or Caddy with TLS).';
-  @override
-  String get invocation => '$exe domain $name [HOST…] [--env <env>]';
-  @override
-  bool get mutating => true;
-  @override
-  bool get destructive => _remove;
-  @override
-  Future<int> execute() async {
-    final e = _remove ? guardedEnv : env;
-    return runOp(
-      _remove
-          ? api.domainRemove(e.name, hosts: argResults!.rest)
-          : api.domainAdd(e.name, hosts: argResults!.rest),
-    );
-  }
-}
-
 class DomainListCommand extends PodshipCommand {
   @override
   OperationRequest? get consoleRead => request('domain.list');

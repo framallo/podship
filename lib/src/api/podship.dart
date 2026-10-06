@@ -21,6 +21,11 @@ import '../ops/db_ops.dart';
 import '../ops/context.dart';
 import '../ops/deploy.dart';
 import '../ops/domain_ops.dart';
+import '../ops/app_ops.dart';
+import '../integrations/changes.dart';
+import '../integrations/cloudflare.dart';
+import '../integrations/planner.dart';
+import '../integrations/ses.dart';
 import '../ops/release_ops.dart';
 import '../ops/resolve.dart';
 import '../ops/scripts.dart';
@@ -90,7 +95,32 @@ class Podship {
     this.dryRun = false,
     this.verbose = false,
     String? actor,
-  }) : actor = actor ?? defaultActor();
+    Integrations? integrations,
+    Ssh? ssh,
+  }) : actor = actor ?? defaultActor(),
+       _integrations = integrations,
+       _sshOverride = ssh;
+
+  final Integrations? _integrations;
+  final Ssh? _sshOverride;
+
+  /// Cloudflare, SES and DoH: credentials from the secret store (a console
+  /// passes its own).
+  Integrations get integrations =>
+      _integrations ?? (_defaultIntegrations ??= Integrations());
+  static Integrations? _defaultIntegrations;
+
+  /// The same library with another dry-run setting (for a console's
+  /// dispatch).
+  Podship copyWith({bool? dryRun, String? actor}) => Podship(
+    config,
+    sshOptions: sshOptions,
+    dryRun: dryRun ?? this.dryRun,
+    verbose: verbose,
+    actor: actor ?? this.actor,
+    integrations: _integrations,
+    ssh: _sshOverride,
+  );
 
   final PodshipConfig config;
 
@@ -114,7 +144,8 @@ class Podship {
     return '${Platform.environment['USER'] ?? 'unknown'}@${Platform.localHostname}';
   }
 
-  Ssh get _ssh => Ssh(extraOptions: sshOptions, verbose: verbose);
+  Ssh get _ssh =>
+      _sshOverride ?? Ssh(extraOptions: sshOptions, verbose: verbose);
 
   Ctx _ctx(Log log, {bool? dry}) => Ctx(
     config: config,
@@ -1025,38 +1056,378 @@ class Podship {
 
   // ------------------------------------------------------- domains, server, db
 
-  Operation domainAdd(String envName, {List<String>? hosts}) =>
-      _domain(envName, hosts, remove: false);
-  Operation domainRemove(String envName, {List<String>? hosts}) =>
-      _domain(envName, hosts, remove: true);
+  /// Routes the domains of [envName]. With [provider] `cloudflare` (or
+  /// `dns.provider: cloudflare`), also creates the DNS records and Access
+  /// apps through the Cloudflare API, as one plan ([planId] binds the
+  /// approval to it).
+  Operation domainAdd(
+    String envName, {
+    List<String>? hosts,
+    String? provider,
+    String? planId,
+  }) => _domain(
+    envName,
+    hosts,
+    remove: false,
+    provider: provider,
+    planId: planId,
+  );
+  Operation domainRemove(
+    String envName, {
+    List<String>? hosts,
+    String? provider,
+    String? planId,
+  }) =>
+      _domain(envName, hosts, remove: true, provider: provider, planId: planId);
+
+  bool _cloudflareDomains(EnvConfig e, String? provider) =>
+      provider == 'cloudflare' ||
+      (provider == null &&
+          (e.dns.provider == DnsProvider.cloudflare || e.proxy.remoteManaged));
 
   Operation _domain(
     String envName,
     List<String>? hosts, {
     required bool remove,
-  }) => _op(
-    remove ? 'domain remove' : 'domain add',
-    envName,
-    {'hosts': hosts},
-    (ctx, rec) async {
-      final e = config.env(envName);
-      final list = hosts == null || hosts.isEmpty
-          ? [for (final d in e.domains) d.host]
-          : hosts;
-      if (list.isEmpty) {
-        throw Aborted('no domains in environments.${e.name}.domains');
-      }
-      final (:state, :r) = await _load(ctx, e);
-      rec.data['hosts'] = list;
-      await ctx.run(planDomain(ctx, r, list, remove: remove));
-      if (!remove) {
-        rec.data['dns'] = {for (final h in list) h: dnsRecord(e, h)};
-        for (final h in list) {
-          ctx.log.info('DNS for $h: ${dnsRecord(e, h)}');
+    String? provider,
+    String? planId,
+  }) {
+    final e = config.env(envName);
+    if (_cloudflareDomains(e, provider)) {
+      return _changes(
+        remove ? 'domain remove' : 'domain add',
+        envName,
+        {'hosts': hosts, 'provider': 'cloudflare'},
+        (p) => planDomainChanges(p, hosts, remove: remove),
+        planId: planId,
+        forceCloudflare: provider == 'cloudflare',
+      );
+    }
+    return _op(
+      remove ? 'domain remove' : 'domain add',
+      envName,
+      {'hosts': hosts},
+      (ctx, rec) async {
+        final list = hosts == null || hosts.isEmpty
+            ? [for (final d in e.domains) d.host]
+            : hosts;
+        if (list.isEmpty) {
+          throw Aborted('no domains in environments.${e.name}.domains');
         }
-      }
-    },
+        final (:state, :r) = await _load(ctx, e);
+        rec.data['hosts'] = list;
+        await ctx.run(planDomain(ctx, r, list, remove: remove));
+        if (!remove) {
+          rec.data['dns'] = {for (final h in list) h: dnsRecord(e, h)};
+          for (final h in list) {
+            ctx.log.info('DNS for $h: ${dnsRecord(e, h)}');
+          }
+        }
+      },
+    );
+  }
+
+  // ------------------------------------------ Cloudflare, SES, app setup
+
+  EnvPlanning _planning(
+    Ctx ctx,
+    String envName, {
+    bool forceCloudflare = false,
+  }) => EnvPlanning(
+    ctx,
+    config.env(envName),
+    integrations,
+    forceCloudflare: forceCloudflare,
   );
+
+  /// Runs a change plan as an operation: plans (read-only), emits the
+  /// plan, and unless this is a dry run, applies it. With [planId], the
+  /// fresh plan must have that id (what the owner approved); otherwise
+  /// nothing runs. A failed change undoes the ones before it.
+  Operation _changes(
+    String name,
+    String envName,
+    Map<String, Object?> params,
+    Future<ChangeSet> Function(EnvPlanning p) plan, {
+    String? planId,
+    bool forceCloudflare = false,
+    Future<void> Function(EnvPlanning p, OpRecord rec)? after,
+  }) => _op(name, envName, {...params, 'plan_id': planId}, (ctx, rec) async {
+    final p = _planning(ctx, envName, forceCloudflare: forceCloudflare);
+    final set = await plan(p);
+    rec.data['plan'] = set.toJson();
+    ctx.log.emit(
+      PlanReady(set.title, [
+        for (final c in set.pending) '${c.symbol} ${c.resource} ${c.key}',
+      ], set.render()),
+    );
+    if (dryRun) {
+      ctx.log.info('(plan only: nothing was changed; plan ${set.id})');
+      return;
+    }
+    if (planId != null && planId != set.id) {
+      throw Aborted(
+        'the plan changed since it was approved (approved $planId, now ${set.id}); '
+        'review the new plan and approve it',
+      );
+    }
+    if (set.isEmpty) {
+      ctx.log.ok('nothing to change');
+    } else {
+      try {
+        final report = await applyChanges(set, ctx.log);
+        rec.data['applied'] = report.toJson();
+        ctx.log.ok(
+          'applied ${report.applied.length} change(s) of plan ${set.id}',
+        );
+      } on ApplyFailed catch (x) {
+        rec.data['failed'] = {
+          'change': x.change.toJson(),
+          'undone': x.undone,
+          'undo_failures': x.undoFailures,
+        };
+        rethrow;
+      }
+    }
+    if (after != null) await after(p, rec);
+  });
+
+  /// The DNS plan of [envName]'s domains (records only). A read: nothing
+  /// changes.
+  Future<ChangeSet> dnsPlan(
+    String envName, {
+    List<String>? hosts,
+    bool remove = false,
+  }) async {
+    final p = _planning(_readCtx, envName, forceCloudflare: true);
+    final list = p.hostsOr(hosts);
+    final (changes, checks) = await p.dns(list, remove: remove);
+    return ChangeSet(
+      'DNS of ${config.project}/$envName',
+      changes,
+      checks: [
+        ...checks,
+        ...(remove ? const <PlanCheck>[] : await p.tls(list)),
+      ],
+    );
+  }
+
+  /// Creates, updates or deletes the DNS records of [envName]'s domains.
+  Operation dnsApply(
+    String envName, {
+    List<String>? hosts,
+    bool remove = false,
+    String? planId,
+  }) => _changes(
+    'dns apply',
+    envName,
+    {'hosts': hosts, 'remove': remove},
+    (p) async {
+      final list = p.hostsOr(hosts);
+      final (changes, checks) = await p.dns(list, remove: remove);
+      return ChangeSet(
+        'DNS of ${config.project}/$envName',
+        changes,
+        checks: checks,
+      );
+    },
+    planId: planId,
+    forceCloudflare: true,
+  );
+
+  /// The DNS records of [envName]'s domains (or of a whole [zone]).
+  Future<List<CfDnsRecord>> dnsRecords(String envName, {String? zone}) async {
+    final p = _planning(_readCtx, envName, forceCloudflare: true);
+    final ro = p.cf.ro;
+    if (zone != null) {
+      final z = await ro.zoneFor(zone, zoneName: zone);
+      return ro.dnsRecords(z.id);
+    }
+    return [
+      for (final h in p.hostsOr(null))
+        ...await ro.dnsRecords((await p.cf.zone(h)).id, name: h),
+    ];
+  }
+
+  /// Where each domain of [envName] points, against its tunnel.
+  Future<List<DnsDrift>> dnsDrift(String envName) =>
+      _planning(_readCtx, envName, forceCloudflare: true).cf.drift();
+
+  /// The tunnels of the Cloudflare account of [envName].
+  Future<List<CfTunnel>> tunnels(String envName, {String? accountId}) async {
+    final p = _planning(_readCtx, envName, forceCloudflare: true);
+    return p.cf.ro.tunnels(accountId ?? await p.cf.accountId());
+  }
+
+  /// The plan of a tunnel route change for [hosts].
+  Future<ChangeSet> tunnelPlan(
+    String envName, {
+    List<String>? hosts,
+    bool remove = false,
+  }) async {
+    final p = _planning(_readCtx, envName);
+    final list = p.hostsOr(hosts);
+    return ChangeSet(
+      '${remove ? 'unroute' : 'route'} ${list.join(', ')} (${config.project}/$envName)',
+      await p.routes(list, remove: remove),
+    );
+  }
+
+  /// Routes [hosts] through the environment's tunnel: through the API for a
+  /// remotely-managed tunnel, or its config.yml for a local one.
+  Operation tunnelRoute(
+    String envName, {
+    List<String>? hosts,
+    String? planId,
+  }) => _changes('tunnel route', envName, {'hosts': hosts}, (p) async {
+    final list = p.hostsOr(hosts);
+    return ChangeSet('route ${list.join(', ')}', await p.routes(list));
+  }, planId: planId);
+
+  Operation tunnelUnroute(
+    String envName, {
+    List<String>? hosts,
+    String? planId,
+  }) => _changes('tunnel unroute', envName, {'hosts': hosts}, (p) async {
+    final list = p.hostsOr(hosts);
+    return ChangeSet(
+      'unroute ${list.join(', ')}',
+      await p.routes(list, remove: true),
+    );
+  }, planId: planId);
+
+  /// The domain plan (routes, DNS, Access) of [envName].
+  Future<ChangeSet> domainPlan(
+    String envName, {
+    List<String>? hosts,
+    bool remove = false,
+    String? provider,
+  }) => planDomainChanges(
+    _planning(_readCtx, envName, forceCloudflare: provider == 'cloudflare'),
+    hosts,
+    remove: remove,
+  );
+
+  /// Whether the environment's sender can send through SES.
+  Future<SendCheck> emailStatus(String envName) async {
+    final e = config.env(envName);
+    final m =
+        e.email ??
+        (throw ConfigException('environments.$envName.email is not set'));
+    return checkSender(integrations.ses(m.region).readOnly(), m.from);
+  }
+
+  Future<ChangeSet> emailPlan(String envName) =>
+      _planning(_readCtx, envName).email().plan();
+
+  /// Creates what the sender needs: the SES identity, its DKIM records,
+  /// the MAIL FROM domain and its records.
+  Operation emailSetup(String envName, {String? planId}) => _changes(
+    'email setup',
+    envName,
+    const {},
+    (p) => p.email().plan(),
+    planId: planId,
+  );
+
+  /// Sends a test email. In the SES sandbox only verified addresses
+  /// receive mail; the default recipient is SES's mailbox simulator.
+  Operation emailTest(
+    String envName, {
+    String to = 'success@simulator.amazonses.com',
+  }) => _op('email test', envName, {'to': to}, (ctx, rec) async {
+    final m =
+        config.env(envName).email ??
+        (throw ConfigException('environments.$envName.email is not set'));
+    if (dryRun) {
+      ctx.log.info(
+        'would send a test email from ${m.from} to $to through SES ${m.region}',
+      );
+      return;
+    }
+    final id = await integrations
+        .ses(m.region)
+        .send(
+          from: m.from,
+          to: [to],
+          subject: 'podship test from ${config.project}/$envName',
+          text:
+              'This is a test email sent by podship for ${config.project}/$envName '
+              'through Amazon SES (${m.region}).',
+        );
+    rec.data['message_id'] = id;
+    rec.data['to'] = to;
+    ctx.log.ok('sent: message $id to $to');
+  }, lock: false);
+
+  /// The whole app setup of [envName] as one plan.
+  Future<ChangeSet> appPlan(String envName) =>
+      planAppSetup(_planning(_readCtx, envName));
+
+  /// The teardown plan of [envName].
+  Future<ChangeSet> teardownPlan(String envName, {bool email = false}) =>
+      planAppTeardown(_planning(_readCtx, envName), email: email);
+
+  /// Sets up the app of [envName] with one plan and one approval: server
+  /// registry and ports, tunnel route, DNS, Access, TLS check, SES sender
+  /// (identity, DKIM, MAIL FROM), then checks DNS over DoH and the public
+  /// health URL. Every change is in the history with its undo.
+  Operation appSetup(String envName, {String? planId, bool checks = true}) =>
+      _changes(
+        'app setup',
+        envName,
+        const {},
+        planAppSetup,
+        planId: planId,
+        after: (p, rec) async {
+          if (!checks) return;
+          final out = await postApplyChecks(p, await p.resolved());
+          rec.data['checks'] = [for (final c in out) c.toJson()];
+          for (final c in out) {
+            c.ok
+                ? p.ctx.log.ok('${c.name}: ${c.detail}')
+                : p.ctx.log.warn('${c.name}: ${c.detail}');
+          }
+        },
+      );
+
+  /// Undoes [appSetup] for what points to this environment: DNS records,
+  /// tunnel routes, Access apps, and with [email] the SES identity it made.
+  Operation appTeardown(String envName, {String? planId, bool email = false}) =>
+      _changes(
+        'app teardown',
+        envName,
+        {'email': email},
+        (p) => planAppTeardown(p, email: email),
+        planId: planId,
+      );
+
+  /// Creates a remotely-managed tunnel in the account of [envName].
+  Operation tunnelCreate(
+    String envName,
+    String name,
+  ) => _op('tunnel create', envName, {'name': name}, (ctx, rec) async {
+    final p = _planning(ctx, envName, forceCloudflare: true);
+    final acc = await p.cf.accountId();
+    final existing = (await p.cf.ro.tunnels(acc)).where((t) => t.name == name);
+    if (existing.isNotEmpty) {
+      rec.data['tunnel'] = existing.first.toJson();
+      ctx.log.ok('tunnel $name exists: ${existing.first.id}');
+      return;
+    }
+    ctx.log.emit(
+      PlanReady('create tunnel $name', [
+        '+ tunnel $name',
+      ], 'Plan: create tunnel $name (remotely managed) in account $acc\n'),
+    );
+    if (dryRun) return;
+    final t = await p.cf.cf.createTunnel(acc, name);
+    rec.data['tunnel'] = t.toJson();
+    ctx.log.ok(
+      'created tunnel $name: ${t.id}. Set proxy.tunnel_id: ${t.id}, then install '
+      'the connector on the server (the token is in the Cloudflare dashboard).',
+    );
+  });
 
   Operation bootstrap(
     String envName, {
@@ -1258,7 +1629,7 @@ echo "removed $who"
       );
       return;
     }
-    final token = TokenStore().read('provider:$provider');
+    final token = TokenStore().readStored('provider:$provider');
     if (token == null) {
       throw Aborted(
         'no $provider token: run `podship provider login $provider`',
@@ -1313,7 +1684,7 @@ echo "removed $who"
         ctx.log.info('would delete $provider server $id');
         return;
       }
-      final token = TokenStore().read('provider:$provider');
+      final token = TokenStore().readStored('provider:$provider');
       if (token == null) {
         throw Aborted(
           'no $provider token: run `podship provider login $provider`',
@@ -1461,7 +1832,27 @@ du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
             },
       };
     } catch (_) {}
-    return st.withLogTables(logs);
+    return _withDrift(e, st.withLogTables(logs));
+  }
+
+  /// Adds where each domain's DNS points (Cloudflare API; best effort).
+  Future<EnvStatus> _withDrift(EnvConfig e, EnvStatus st) async {
+    if (e.domains.isEmpty) return st;
+    if (e.dns.provider != DnsProvider.cloudflare && !e.proxy.remoteManaged) {
+      return st.withDns(
+        const [],
+        note: 'not checked (dns.provider is not cloudflare)',
+      );
+    }
+    if (integrations.cloudflare() == null) {
+      return st.withDns(const [], note: 'not checked: no Cloudflare token');
+    }
+    try {
+      final d = await dnsDrift(e.name).timeout(const Duration(seconds: 20));
+      return st.withDns([for (final x in d) x.toJson()]);
+    } catch (x) {
+      return st.withDns(const [], note: 'not checked: $x');
+    }
   }
 
   Future<List<ReleaseInfo>> releases(String envName) async => (await fetchState(

@@ -308,6 +308,14 @@ class StatusCommand extends PodshipCommand {
     stdout.writeln(
       'disk: ${gb(s.diskFreeKb)} free of ${gb(s.diskTotalKb)}; releases use ${gb(s.releasesKb)}',
     );
+    for (final d in s.dns) {
+      final ok = d['state'] == 'ok';
+      stdout.writeln(
+        'dns ${d['host']}: ${ok ? 'ok' : 'DRIFT (${d['state']})'} → ${d['actual']}'
+        '${ok ? '' : '; expected ${d['expected']}'}',
+      );
+    }
+    if (s.dnsNote != null) stdout.writeln('dns: ${s.dnsNote}');
     for (final t in s.logTables.entries) {
       stdout.writeln(
         '${t.key}: ${t.value['rows']} rows, ${(t.value['bytes']! / 1048576).toStringAsFixed(1)} MB',

@@ -9,6 +9,7 @@ import 'console_commands.dart';
 import 'console_install.dart';
 import 'provider_commands.dart';
 import 'db_commands.dart';
+import 'integration_commands.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
 import 'secret_commands.dart';
@@ -68,15 +69,44 @@ class PodshipRunner extends CommandRunner<int> {
       AdoptCommand(),
       StatusCommand(),
       LogsCommand(),
-      TunnelCommand(),
+      GroupCommand(
+        'tunnel',
+        'Cloudflare Tunnels: list, route and unroute hostnames, create; forward a local port.',
+        [
+          TunnelListCommand(),
+          TunnelRouteCommand(false),
+          TunnelRouteCommand(true),
+          TunnelCreateCommand(),
+          TunnelForwardCommand(),
+        ],
+      ),
+      GroupCommand(
+        'dns',
+        'DNS records in Cloudflare: plan, apply (after approval), list.',
+        [DnsPlanCommand(), DnsApplyCommand(), DnsListCommand()],
+      ),
+      GroupCommand('email', 'The app\'s email sender in Amazon SES.', [
+        EmailStatusCommand(),
+        EmailSetupCommand(),
+        EmailTestCommand(),
+      ]),
+      GroupCommand(
+        'app',
+        'Set up or tear down an app: routes, DNS, TLS, email, as one plan.',
+        [AppSetupCommand(), AppTeardownCommand()],
+      ),
       HistoryCommand(),
       LoadtestCommand(),
       ScaleCommand(),
       UnlockCommand(),
       GroupCommand(
         'provider',
-        'Server providers (Vultr, Hostinger): tokens and offers.',
-        [ProviderLoginCommand(), ProviderOffersCommand()],
+        'Providers: server providers (Vultr, Hostinger), Cloudflare and AWS: credentials, checks and offers.',
+        [
+          ProviderLoginCommand(),
+          ProviderCheckCommand(),
+          ProviderOffersCommand(),
+        ],
       ),
       GroupCommand('console', 'The podship console: install it on a machine.', [
         ConsoleInstallCommand(),
@@ -136,8 +166,12 @@ class PodshipRunner extends CommandRunner<int> {
       ]),
       GroupCommand(
         'domain',
-        'Domains, routed through a Cloudflare Tunnel or Caddy (TLS).',
-        [DomainListCommand(), DomainAddCommand(false), DomainAddCommand(true)],
+        'Domains, routed through a Cloudflare Tunnel or Caddy (TLS); DNS through Cloudflare.',
+        [
+          DomainListCommand(),
+          DomainChangeCommand(false),
+          DomainChangeCommand(true),
+        ],
       ),
       GroupCommand(
         'server',
@@ -167,11 +201,27 @@ class PodshipRunner extends CommandRunner<int> {
 
   @override
   Future<int?> run(Iterable<String> args) async {
-    final r = parse(args);
+    final r = parse(compatArgs(args.toList()));
     if (r['version'] == true) {
       print('podship $podshipVersion'); // ignore: avoid_print
       return 0;
     }
     return runCommand(r);
   }
+}
+
+/// `podship tunnel --service …` (the port forward, before `tunnel` had
+/// subcommands) still works: it means `podship tunnel forward …`.
+List<String> compatArgs(List<String> args) {
+  final i = args.indexOf('tunnel');
+  if (i < 0) return args;
+  const subs = {'list', 'route', 'unroute', 'create', 'forward', 'help'};
+  final next = i + 1 < args.length ? args[i + 1] : null;
+  if (next != null &&
+      (subs.contains(next) || next == '--help' || next == '-h')) {
+    return args;
+  }
+  if (next != null && !next.startsWith('-')) return args;
+  if (next == null) return args;
+  return [...args.sublist(0, i + 1), 'forward', ...args.sublist(i + 1)];
 }

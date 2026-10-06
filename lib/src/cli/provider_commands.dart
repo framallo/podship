@@ -6,6 +6,9 @@ import 'dart:io';
 import '../ops/backup_ops.dart';
 import '../ops/context.dart';
 import '../protocol/tokens.dart';
+import '../integrations/cloudflare.dart';
+import '../integrations/secrets.dart';
+import '../integrations/ses.dart';
 import '../providers/providers.dart';
 import 'base.dart';
 
@@ -16,23 +19,41 @@ class ProviderLoginCommand extends PodshipCommand {
   String get description =>
       'Store a provider API token in the secret store (read from stdin or a hidden prompt).';
   @override
-  String get invocation => '$exe provider login <vultr|hostinger>';
+  String get invocation =>
+      '$exe provider login <vultr|hostinger|cloudflare|aws>';
   @override
   bool get takesEnv => false;
   @override
   Future<int> execute() async {
     if (argResults!.rest.length != 1) usageException('give the provider');
     final provider = argResults!.rest.single;
-    String token;
-    if (stdin.hasTerminal) {
-      stdout.write('$provider API token (hidden): ');
+    if (!const ['vultr', 'hostinger', 'cloudflare', 'aws'].contains(provider)) {
+      usageException('unknown provider "$provider"');
+    }
+    String hidden(String prompt) {
+      stdout.write('$prompt (hidden): ');
       stdin.echoMode = false;
       try {
-        token = (stdin.readLineSync(encoding: utf8) ?? '').trim();
+        return (stdin.readLineSync(encoding: utf8) ?? '').trim();
       } finally {
         stdin.echoMode = true;
         stdout.writeln();
       }
+    }
+
+    String token;
+    if (provider == 'aws') {
+      // Two values: the access key id and the secret. Without a terminal,
+      // two lines on stdin.
+      final lines = stdin.hasTerminal
+          ? [hidden('AWS access key id'), hidden('AWS secret access key')]
+          : (await utf8.decodeStream(stdin)).trim().split('\n');
+      if (lines.length < 2 || lines.any((l) => l.trim().isEmpty)) {
+        throw Aborted('give the access key id and the secret access key');
+      }
+      token = AwsCredentials(lines[0].trim(), lines[1].trim()).toJson();
+    } else if (stdin.hasTerminal) {
+      token = hidden('$provider API token');
     } else {
       token = (await utf8.decodeStream(stdin)).trim();
     }
@@ -62,7 +83,7 @@ class ProviderOffersCommand extends PodshipCommand {
     if (argResults!.rest.length != 1) usageException('give the provider');
     registerBuiltInProviders();
     final provider = argResults!.rest.single;
-    final token = TokenStore().read('provider:$provider') ?? '';
+    final token = TokenStore().readStored('provider:$provider') ?? '';
     if (token.isEmpty && provider != 'vultr') {
       throw Aborted(
         'no $provider token: run `podship provider login $provider`',
@@ -195,5 +216,84 @@ class ServerDestroyCommand extends PodshipCommand {
     );
     configOrEmpty;
     return runOp(api.serverDestroy(a['provider'] as String, a['id'] as String));
+  }
+}
+
+class ProviderCheckCommand extends PodshipCommand {
+  ProviderCheckCommand() {
+    argParser.addOption(
+      'region',
+      defaultsTo: 'us-east-1',
+      help: 'The SES region (aws).',
+    );
+  }
+  @override
+  String get name => 'check';
+  @override
+  String get description =>
+      'Check stored credentials with read-only calls: the Cloudflare token and the zones it reads; the SES account of a region.';
+  @override
+  String get invocation =>
+      '$exe provider check <cloudflare|aws> [--region us-west-1]';
+  @override
+  bool get takesEnv => false;
+  @override
+  Future<int> execute() async {
+    if (argResults!.rest.length != 1) usageException('give cloudflare or aws');
+    final secrets = SystemSecrets();
+    switch (argResults!.rest.single) {
+      case 'cloudflare':
+        final t =
+            secrets.read(cloudflareTokenKey) ??
+            (throw Aborted(
+              'no Cloudflare token: run `podship provider login cloudflare`',
+            ));
+        final cf = CloudflareApi(t).readOnly();
+        final status = await cf.verifyToken();
+        final zones = await cf.zones();
+        if (json) {
+          printJson({
+            'status': status,
+            'zones': [for (final z in zones) z.toJson()],
+          });
+        } else {
+          stdout.writeln('token: $status');
+          for (final z in zones) {
+            stdout.writeln(
+              '  zone ${z.name} (${z.status}), account ${z.accountId}',
+            );
+          }
+          if (zones.isEmpty) {
+            stdout.writeln(
+              '  the token reads no zone: add Zone Read for your zones',
+            );
+          }
+        }
+        return status == 'active' ? 0 : 1;
+      case 'aws':
+        final c =
+            secrets.read(awsCredentialsKey) ??
+            (throw Aborted(
+              'no AWS credentials: run `podship provider login aws`',
+            ));
+        final creds = AwsCredentials.fromJson(c);
+        final region = argResults!['region'] as String;
+        final a = await SesApi(creds, region: region).readOnly().account();
+        if (json) {
+          printJson({
+            'key': creds.hint,
+            'region': region,
+            'account': a.toJson(),
+          });
+        } else {
+          stdout.writeln(
+            'key ${creds.hint}, SES $region: ${a.production ? 'production' : 'SANDBOX'}, '
+            'sending ${a.sendingEnabled ? 'enabled' : 'PAUSED'}, ${a.max24h.toInt()}/24 h',
+          );
+        }
+        return 0;
+      default:
+        usageException('give cloudflare or aws');
+    }
   }
 }
