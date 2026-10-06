@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# podship restore script. Installed on the server at /usr/local/lib/podship/.
+# podship restore script. Installed on the server in <podship_home>/lib.
 #
 #   restore.sh CONF drill [STAMP]
 #       Restores the dump into a THROWAWAY postgres container (no network, no

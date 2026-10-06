@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# podship backup script. Installed on the server at /usr/local/lib/podship/.
+# podship backup script. Installed on the server in <podship_home>/lib.
 #
 #   backup.sh CONF                        take a backup, encrypt a copy, prune
 #   backup.sh CONF --test-retention DIR   print what retention keeps in DIR
@@ -160,11 +160,17 @@ esac
 PG=$(db_container)
 [[ -n "$PG" ]] || fail "no running container for service $DB_SERVICE of project $PROJECT"
 
-STAMP=$(TZ=$TZ_LOCAL date +%Y-%m-%dT%H%M)
 mkdir -p "$DEST/$LAYOUT_PLAIN" "$DEST/$LAYOUT_ENC"
 chmod 700 "$DEST" "$DEST/$LAYOUT_PLAIN" "$DEST/$LAYOUT_ENC"
-OUT="$DEST/$LAYOUT_PLAIN/$STAMP"
-[[ -e "$OUT" ]] && fail "$OUT already exists (one backup per minute)"
+# One backup per minute: if this minute is taken (a restore right after a
+# backup), wait for the next one.
+for _ in $(seq 15); do
+  STAMP=$(TZ=$TZ_LOCAL date +%Y-%m-%dT%H%M)
+  OUT="$DEST/$LAYOUT_PLAIN/$STAMP"
+  [[ -e "$OUT" || -e "$DEST/$LAYOUT_ENC/$STAMP.tar.age" ]] || break
+  sleep 5
+done
+[[ -e "$OUT" ]] && fail "$OUT already exists"
 TMP=$(mktemp -d "$DEST/.in-progress-$STAMP.XXXX")
 VTMP=""
 trap 'rm -rf -- "$TMP" "$LOCK" ${VTMP:+"$VTMP"}' EXIT
