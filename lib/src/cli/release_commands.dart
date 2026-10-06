@@ -608,10 +608,11 @@ class ScaleCommand extends PodshipCommand {
   Future<int> execute() async {
     final e = guardedEnv;
     final n = int.parse(argResults!['replicas'] as String);
-    if (n < 2)
+    if (n < 2) {
       usageException(
         '--replicas must be 2 or more; for 1, set serverpod.replicas: 1 and deploy',
       );
+    }
     return runOp(api.scale(e.name, n));
   }
 }

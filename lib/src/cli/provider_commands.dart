@@ -63,10 +63,11 @@ class ProviderOffersCommand extends PodshipCommand {
     registerBuiltInProviders();
     final provider = argResults!.rest.single;
     final token = TokenStore().read('provider:$provider') ?? '';
-    if (token.isEmpty && provider != 'vultr')
+    if (token.isEmpty && provider != 'vultr') {
       throw Aborted(
         'no $provider token: run `podship provider login $provider`',
       );
+    }
     final country = (argResults!['country'] as String?)?.toUpperCase();
     final offers = [
       for (final o in await providerFor(provider, token).offers())

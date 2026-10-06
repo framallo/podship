@@ -391,6 +391,8 @@ class Podship {
     },
   );
 
+  static String _short(String sha) => sha.length > 7 ? sha.substring(0, 7) : sha;
+
   /// The git commit of release [id], from its metadata.
   static String? _shaOf(EnvState state, String? id) {
     if (id == null) return null;
@@ -415,23 +417,24 @@ class Podship {
       }
       rec.data['tests'] = {'skipped': true, 'reason': reason};
     }
-    if (willRun || !config.tests.gate.contains(e.name)) return;
+    // Projects without test suites have no gate.
+    if (willRun || config.tests.suites.isEmpty || !config.tests.gate.contains(e.name)) return;
     final where = await findPassingTests(ctx, sha);
     if (where != null) {
       ctx.log.info(
-        'tests of ${sha.substring(0, 7)} passed in the $where deploy',
+        'tests of ${_short(sha)} passed in the $where deploy',
       );
       rec.data['tests_passed_in'] = where;
       return;
     }
     if (!confirmed) {
       throw Aborted(
-        '${e.name} only takes commits whose tests passed, and ${sha.substring(0, 7)} has no passing test run. '
+        '${e.name} only takes commits whose tests passed, and ${_short(sha)} has no passing test run. '
         'Run its tests (deploy it to staging first), or skip them with --skip-tests --reason "…" and type "${e.name}" to confirm.',
       );
     }
     ctx.log.warn(
-      'deploying ${sha.substring(0, 7)} to ${e.name} without passing tests: $reason',
+      'deploying ${_short(sha)} to ${e.name} without passing tests: $reason',
     );
     rec.data['untested'] = true;
   }
@@ -1253,10 +1256,11 @@ echo "removed $who"
       return;
     }
     final token = TokenStore().read('provider:$provider');
-    if (token == null)
+    if (token == null) {
       throw Aborted(
         'no $provider token: run `podship provider login $provider`',
       );
+    }
     final p = providerFor(provider, token);
     ctx.log.emit(
       StepStarted(1, 3, 'Create ${spec.name} in ${spec.region} (${spec.plan})'),
@@ -1307,10 +1311,11 @@ echo "removed $who"
         return;
       }
       final token = TokenStore().read('provider:$provider');
-      if (token == null)
+      if (token == null) {
         throw Aborted(
           'no $provider token: run `podship provider login $provider`',
         );
+      }
       rec.data['result'] = await providerFor(provider, token).destroy(id);
       ctx.log.info('${rec.data['result']}');
     },

@@ -46,8 +46,9 @@ class HostingerProvider extends ServerProvider {
             )
             .toList()
           ..sort((a, b) => '${b['name']}'.compareTo('${a['name']}'));
-    if (ubuntu.isEmpty)
+    if (ubuntu.isEmpty) {
       throw ProviderException('no Ubuntu LTS template at Hostinger');
+    }
     return ubuntu.first['id'] as int;
   }
 

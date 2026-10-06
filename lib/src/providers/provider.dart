@@ -140,10 +140,11 @@ abstract class ServerProvider {
     while (true) {
       final s = await get(id);
       if (s.ready) return s;
-      if (DateTime.now().isAfter(end))
+      if (DateTime.now().isAfter(end)) {
         throw ProviderException(
           'server $id is not ready after ${timeout.inMinutes} min (status ${s.status})',
         );
+      }
       await Future<void>.delayed(const Duration(seconds: 10));
     }
   }

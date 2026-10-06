@@ -6,6 +6,7 @@ import '../api/podship.dart' show podshipVersion;
 import 'backup_commands.dart';
 import 'base.dart';
 import 'console_commands.dart';
+import 'console_install.dart';
 import 'provider_commands.dart';
 import 'db_commands.dart';
 import 'project_commands.dart';
@@ -77,6 +78,9 @@ class PodshipRunner extends CommandRunner<int> {
         'Server providers (Vultr, Hostinger): tokens and offers.',
         [ProviderLoginCommand(), ProviderOffersCommand()],
       ),
+      GroupCommand('console', 'The podship console: install it on a machine.', [
+        ConsoleInstallCommand(),
+      ]),
       LoginCommand(),
       LogoutCommand(),
       WhoamiCommand(),
