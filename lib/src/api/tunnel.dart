@@ -168,18 +168,56 @@ ${restartService(t.service)}sleep 3
   /// Creates the DNS record with the zone's origin certificate, when there
   /// is one. Returns `created`, `exists`, or the record to add by hand.
   Future<String> _routeDns(TunnelTarget t, String hostname) async {
-    String? cert;
-    for (final e in t.originCerts.entries) {
-      if (hostname == e.key || hostname.endsWith('.${e.key}')) cert = e.value;
-    }
+    final cert = originCertFor(t.originCerts, hostname);
     if (cert == null) return t.cname(hostname);
     final r = await ssh.captureResult(
       t.host,
       '${_header(t)}cloudflared tunnel --origincert ${shq(cert)} route dns ${shq(t.tunnelId)} ${shq(hostname)} 2>&1',
     );
     final out = '${r.stdout}${r.stderr}';
-    if (r.exitCode == 0) return out.contains('already') ? 'exists' : 'created';
-    log.warn('route dns for $hostname failed: ${out.trim().split('\n').last}');
-    return t.cname(hostname);
+    if (r.exitCode != 0) {
+      log.warn(
+        'route dns for $hostname failed: ${out.trim().split('\n').last}',
+      );
+      return t.cname(hostname);
+    }
+    final made = routeDnsName(out);
+    if (made != null && made != hostname.toLowerCase()) {
+      // cloudflared appends the cert's zone to a name outside it.
+      log.error(
+        'cloudflared created $made instead of $hostname: the origin cert is '
+        'not for the zone of $hostname. Delete $made in Cloudflare, fix '
+        'proxy.origin_certs, or use dns.provider: cloudflare.',
+      );
+      return t.cname(hostname);
+    }
+    return out.contains('already') ? 'exists' : 'created';
   }
+}
+
+/// The origin certificate for [hostname]: the longest zone key it equals
+/// or ends with, or null (never a cert for another zone).
+String? originCertFor(Map<String, String> certs, String hostname) {
+  final h = hostname.toLowerCase();
+  String? best;
+  var bestLen = -1;
+  for (final e in certs.entries) {
+    final z = e.key.toLowerCase();
+    if ((h == z || h.endsWith('.$z')) && z.length > bestLen) {
+      best = e.value;
+      bestLen = z.length;
+    }
+  }
+  return best;
+}
+
+/// The record name in the output of `cloudflared tunnel route dns`
+/// ("Added CNAME x.example.com which will route to this tunnel"), or null.
+String? routeDnsName(String output) {
+  final m =
+      RegExp(
+        r'(?:Added CNAME|CNAME record for) (\S+?)\.? ',
+      ).firstMatch(output) ??
+      RegExp(r'(\S+?)\.? is already configured to route').firstMatch(output);
+  return m?.group(1)?.toLowerCase();
 }

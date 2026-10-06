@@ -30,6 +30,13 @@ class TokenStore {
   String? read(String console) {
     final env = Platform.environment['PODSHIP_TOKEN'];
     if (env != null && env.isNotEmpty) return env;
+    return readStored(console);
+  }
+
+  /// The stored value of [key], without the `PODSHIP_TOKEN` override (for
+  /// provider credentials, which a console token must never replace).
+  String? readStored(String key) {
+    final console = key;
     if (_mac) {
       final r = Process.runSync('security', [
         'find-generic-password',

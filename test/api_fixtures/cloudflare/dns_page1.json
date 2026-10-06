@@ -1,0 +1,1 @@
+{"success":true,"errors":[],"messages":[],"result":[{"id":"r1","name":"a.example.com","type":"A","content":"203.0.113.1","proxied":true,"ttl":1}],"result_info":{"page":1,"per_page":50,"total_pages":2,"count":1,"total_count":2}}

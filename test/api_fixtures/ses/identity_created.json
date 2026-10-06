@@ -1,0 +1,1 @@
+{"DkimAttributes":{"CurrentSigningKeyLength":"RSA_2048_BIT","NextSigningKeyLength":"RSA_2048_BIT","SigningAttributesOrigin":"AWS_SES","SigningEnabled":true,"Status":"NOT_STARTED","Tokens":["k1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","k2bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","k3cccccccccccccccccccccccccccccc"]},"IdentityType":"DOMAIN","VerifiedForSendingStatus":false}

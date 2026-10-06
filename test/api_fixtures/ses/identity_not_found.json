@@ -1,0 +1,1 @@
+{"status":404,"headers":{"x-amzn-ErrorType":"NotFoundException:http://internal.amazon.com/coral/com.amazonaws.sesv2/"},"body":{"message":"Email identity does not exist."}}

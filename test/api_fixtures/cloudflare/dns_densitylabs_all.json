@@ -1,0 +1,6 @@
+{"success":true,"errors":[],"messages":[],"result":[
+{"id":"dl1","name":"boceto.densitylabs.io","type":"CNAME","content":"24fb406b-0000-4000-8000-0000laptop000.cfargotunnel.com","proxied":true,"ttl":1,"comment":null},
+{"id":"dl2","name":"boceto-mockups.densitylabs.io","type":"CNAME","content":"24fb406b-0000-4000-8000-0000laptop000.cfargotunnel.com","proxied":true,"ttl":1,"comment":null},
+{"id":"dl3","name":"bocetos.densitylabs.io","type":"CNAME","content":"24fb406b-0000-4000-8000-0000laptop000.cfargotunnel.com","proxied":true,"ttl":1,"comment":"Single Redirect rule sends it to boceto (path and query kept)"},
+{"id":"dl4","name":"presente-staging.densitylabs.io","type":"CNAME","content":"24fb406b-0000-4000-8000-0000laptop000.cfargotunnel.com","proxied":true,"ttl":1,"comment":null}
+],"result_info":{"page":1,"per_page":50,"total_pages":1,"count":4,"total_count":4}}

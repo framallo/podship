@@ -142,7 +142,7 @@ void writeReleaseMeta({
       if (allServices([t]).contains(env.serverService)) files[i],
   ];
   final extras = OverrideExtras(
-    serverEnv: sp.environment,
+    serverEnv: {...sp.environment, ...?env.email?.environment},
     stopGraceSeconds: sp.stopGraceSeconds,
     replicas: sp.replicas,
     redis: sp.needsRedis,

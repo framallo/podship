@@ -390,9 +390,104 @@ class DomainRoute {
 }
 
 class DomainConfig {
-  DomainConfig({required this.host, required this.routes});
+  DomainConfig({required this.host, required this.routes, this.access});
   final String host;
   final List<DomainRoute> routes;
+
+  /// A Cloudflare Access app in front of the host, when set.
+  final AccessConfig? access;
+}
+
+/// Who may pass a Cloudflare Access app.
+class AccessConfig {
+  AccessConfig({
+    this.emails = const [],
+    this.emailDomains = const [],
+    this.sessionDuration = '24h',
+  });
+  final List<String> emails;
+  final List<String> emailDomains;
+  final String sessionDuration;
+}
+
+/// How DNS records are managed.
+enum DnsProvider { none, cloudflare }
+
+/// `dns:` of an environment.
+class DnsConfig {
+  DnsConfig({
+    this.provider = DnsProvider.none,
+    this.zone,
+    this.accountId,
+    this.ipv4,
+    this.ipv6,
+    this.proxied,
+  });
+
+  /// `none`: podship prints the records to create. `cloudflare`: podship
+  /// creates them through the API (after a plan and an approval).
+  final DnsProvider provider;
+
+  /// The zone (default: the longest zone in the account that the host
+  /// ends with).
+  final String? zone;
+
+  /// The Cloudflare account (default: the zone's account).
+  final String? accountId;
+
+  /// With Caddy, the server's addresses for A and AAAA records.
+  final String? ipv4;
+  final String? ipv6;
+
+  /// With Caddy: proxy A/AAAA records through Cloudflare (default false,
+  /// so Caddy's ACME challenge reaches the server).
+  final bool? proxied;
+}
+
+/// `email:` of an environment: the sender of the app.
+class EmailConfig {
+  EmailConfig({
+    required this.from,
+    required this.region,
+    this.provider = 'ses',
+    this.identity,
+    this.mailFrom,
+    this.envNames = const {},
+  });
+
+  /// `Name <hola@app.example>` or an address.
+  final String from;
+
+  /// The SES region, like us-west-1.
+  final String region;
+  final String provider;
+
+  /// The SES identity to create when none can send (default: the from
+  /// address's domain).
+  final String? identity;
+
+  /// A custom MAIL FROM subdomain, like bounce.app.example.
+  final String? mailFrom;
+
+  /// Variable names for the app (`from`, `region`, `provider`).
+  final Map<String, String> envNames;
+
+  /// The address part of [from].
+  String get address {
+    final m = RegExp(r'<([^>]+)>').firstMatch(from);
+    return (m?.group(1) ?? from).trim();
+  }
+
+  /// The domain of the from address.
+  String get domain => address.substring(address.lastIndexOf('@') + 1);
+
+  /// The variables podship gives the server container at deploy. No
+  /// credentials: the app's own sending keys stay in its secrets.
+  Map<String, String> get environment => {
+    envNames['from'] ?? 'EMAIL_FROM': from,
+    envNames['region'] ?? 'SES_REGION': region,
+    envNames['provider'] ?? 'EMAIL_PROVIDER': provider,
+  };
 }
 
 /// The reverse proxy in front of an environment.
@@ -405,8 +500,19 @@ class ProxyConfig {
     this.service,
     this.tunnelId,
     this.originCerts = const {},
+    this.managed,
   });
   final ProxyKind kind;
+
+  /// For a Cloudflare Tunnel: `remote` (ingress managed through the
+  /// Cloudflare API) or `local` (a config.yml on the host). Default: local
+  /// when [config] is set, else remote.
+  final String? managed;
+
+  /// Whether the tunnel's ingress is managed through the API.
+  bool get remoteManaged =>
+      kind == ProxyKind.cloudflareTunnel &&
+      (managed == 'remote' || (managed == null && config == null));
 
   /// Cloudflare origin certificates on the server, by zone, for
   /// `cloudflared tunnel route dns`.
@@ -602,7 +708,10 @@ class EnvConfig {
     this.transport,
     ServerpodSettings? serverpod,
     this.egress,
-  }) : serverpod = serverpod ?? ServerpodSettings(),
+    DnsConfig? dns,
+    this.email,
+  }) : dns = dns ?? DnsConfig(),
+       serverpod = serverpod ?? ServerpodSettings(),
        secrets = secrets ?? SecretsConfig(),
        database = database ?? DatabaseConfig(),
        proxy = proxy ?? ProxyConfig();
@@ -662,6 +771,12 @@ class EnvConfig {
 
   /// An outbound proxy for some containers (see [EgressConfig]).
   final EgressConfig? egress;
+
+  /// How DNS records are managed (Cloudflare API, or printed).
+  final DnsConfig dns;
+
+  /// The app's email sender (SES), when set.
+  final EmailConfig? email;
 
   bool get isProduction => name == 'production';
   String get registryPath => '$podshipHome/registry.yaml';
@@ -792,7 +907,13 @@ class PodshipConfig {
       throw ConfigException('environments: define at least one');
     }
     for (final name in em.keys) {
-      envs[name] = _parseEnv(name, em.map(name), project, serverPackage);
+      envs[name] = _parseEnv(
+        name,
+        em.map(name),
+        project,
+        serverPackage,
+        r.map('cloudflare').optStr('account_id'),
+      );
     }
     _checkIsolation(envs.values.toList());
 
@@ -859,8 +980,9 @@ class PodshipConfig {
     String name,
     _Reader e,
     String project,
-    String serverPackage,
-  ) {
+    String serverPackage, [
+    String? cloudflareAccount,
+  ]) {
     if (!RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(name)) {
       throw ConfigException('environment name "$name" is not valid');
     }
@@ -999,7 +1121,55 @@ class PodshipConfig {
         service: px.optStr('service'),
         tunnelId: px.optStr('tunnel_id'),
         originCerts: px.strMap('origin_certs'),
+        managed: switch (px.optStr('managed')) {
+          null || 'remote' || 'local' => px.optStr('managed'),
+          final m => throw ConfigException(
+            'environments.$name.proxy.managed: unknown "$m" (remote or local)',
+          ),
+        },
       ),
+      dns: () {
+        final d = e.map('dns');
+        return DnsConfig(
+          provider: switch (d.str('provider', 'none')) {
+            'none' => DnsProvider.none,
+            'cloudflare' => DnsProvider.cloudflare,
+            final x => throw ConfigException(
+              'environments.$name.dns.provider: unknown "$x" (cloudflare or none)',
+            ),
+          },
+          zone: d.optStr('zone'),
+          accountId: d.optStr('account_id') ?? cloudflareAccount,
+          ipv4: d.optStr('ipv4'),
+          ipv6: d.optStr('ipv6'),
+          proxied: d.has('proxied') ? d.boolean('proxied', false) : null,
+        );
+      }(),
+      email: () {
+        if (!e.has('email')) return null;
+        final m = e.map('email');
+        final provider = m.str('provider', 'ses');
+        if (provider != 'ses') {
+          throw ConfigException(
+            'environments.$name.email.provider: unknown "$provider" (ses)',
+          );
+        }
+        final from = m.str('from');
+        final addr = RegExp(r'<([^>]+)>').firstMatch(from)?.group(1) ?? from;
+        if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(addr.trim())) {
+          throw ConfigException(
+            'environments.$name.email.from: "$from" has no valid address',
+          );
+        }
+        return EmailConfig(
+          from: from,
+          region: m.str('region'),
+          provider: provider,
+          identity: m.optStr('identity'),
+          mailFrom: m.optStr('mail_from'),
+          envNames: m.strMap('env'),
+        );
+      }(),
       domains: [
         for (final dm in e.maps('domains'))
           DomainConfig(
@@ -1008,6 +1178,13 @@ class PodshipConfig {
               for (final rt in dm.maps('routes'))
                 DomainRoute(path: rt.optStr('path'), port: rt.str('port')),
             ],
+            access: dm.has('access')
+                ? AccessConfig(
+                    emails: dm.map('access').strs('emails'),
+                    emailDomains: dm.map('access').strs('email_domains'),
+                    sessionDuration: dm.map('access').str('session', '24h'),
+                  )
+                : null,
           ),
       ],
       remotePath: e.optStr('remote_path'),

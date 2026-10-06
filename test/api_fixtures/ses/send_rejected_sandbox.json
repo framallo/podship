@@ -1,0 +1,1 @@
+{"status":400,"headers":{"x-amzn-ErrorType":"MessageRejected:http://internal.amazon.com/coral/com.amazonaws.sesv2/"},"body":{"message":"Email address is not verified. The following identities failed the check in region US-WEST-1: someone@gmail.com"}}
