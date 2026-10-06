@@ -8,6 +8,7 @@ import '../config/config.dart';
 import '../ops/context.dart';
 import '../ops/resolve.dart';
 import '../ops/state.dart';
+import '../plan/plan.dart';
 import '../remote/ssh.dart';
 import '../util/log.dart';
 
@@ -125,6 +126,9 @@ abstract class PodshipCommand extends Command<int> {
       return 2;
     } on RemoteException catch (e) {
       log.error('$e');
+      return 1;
+    } on StepFailed catch (e) {
+      log.error('failed: $e');
       return 1;
     }
   }

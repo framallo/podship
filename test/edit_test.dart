@@ -30,7 +30,14 @@ void main() {
       expect(f.unset('NOPE'), isFalse);
     });
     test('quoting round-trips', () {
-      for (final v in ['plain', 'with space', "q'uote", 'back\\slash "dq"', r'$HOME', 'a+b/c=']) {
+      for (final v in [
+        'plain',
+        'with space',
+        "q'uote",
+        'back\\slash "dq"',
+        r'$HOME',
+        'a+b/c=',
+      ]) {
         final f = DotEnv('')..set('V', v);
         expect(DotEnv(f.toString()).get('V'), v, reason: f.toString());
       }
@@ -54,6 +61,12 @@ void main() {
     test('starts from an empty file', () {
       final f = PasswordsFile('')..set('production', 'k', 'v');
       expect(PasswordsFile(f.toString()).get('production', 'k'), 'v');
+    });
+    test('starts from a file with only a comment, in block style', () {
+      final f = PasswordsFile('# c\n')
+        ..set('production', 'a', '1')
+        ..set('production', 'b', 'x y');
+      expect(f.toString(), '# c\nproduction:\n  a: "1"\n  b: x y\n');
     });
     test('unset', () {
       final f = PasswordsFile('production:\n  a: 1\n  b: 2\n');

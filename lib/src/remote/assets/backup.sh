@@ -30,7 +30,7 @@ shift
 source "$CONF"
 
 : "${PROJECT:?}" "${DEST:?}" "${DB_NAME:?}"
-LAYOUT_PLAIN="${LAYOUT_PLAIN:-plain}"
+LAYOUT_PLAIN="${LAYOUT_PLAIN:-daily}"
 LAYOUT_ENC="${LAYOUT_ENC:-encrypted}"
 DUMP_NAME="${DUMP_NAME:-db.dump}"
 COUNTS_NAME="${COUNTS_NAME:-counts.txt}"

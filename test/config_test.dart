@@ -30,7 +30,7 @@ void main() {
       expect(s.backup!.unit, 'podship-backup-demo-staging');
       expect(s.backup!.dir, '/srv/backups/demo-staging');
       expect(s.backup!.schedule, '');
-      expect(s.backup!.layout.plain, 'plain');
+      expect(s.backup!.layout.plain, 'daily');
       expect(s.migrations, MigrationMode.onStart);
       expect(s.keepReleases, 5);
       expect(s.podshipHome, '/srv/podship');
@@ -46,16 +46,33 @@ void main() {
 
     test('requires the host and an absolute dir', () {
       expect(
-        () => PodshipConfig.parse('project: x\nenvironments:\n  a:\n    dir: /x\n    health: {url: u}\n'),
-        throwsA(isA<ConfigException>().having((e) => e.message, 'message', contains('host'))),
+        () => PodshipConfig.parse(
+          'project: x\nenvironments:\n  a:\n    dir: /x\n    health: {url: u}\n',
+        ),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            contains('host'),
+          ),
+        ),
       );
       expect(
-        () => PodshipConfig.parse('project: x\nenvironments:\n  a:\n    host: h\n    dir: x\n    health: {url: u}\n'),
-        throwsA(isA<ConfigException>().having((e) => e.message, 'message', contains('absolute'))),
+        () => PodshipConfig.parse(
+          'project: x\nenvironments:\n  a:\n    host: h\n    dir: x\n    health: {url: u}\n',
+        ),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            contains('absolute'),
+          ),
+        ),
       );
     });
 
-    String twoEnvs(String a, String b) => '''
+    String twoEnvs(String a, String b) =>
+        '''
 project: x
 environments:
   production:
@@ -70,11 +87,19 @@ $b
 
     test('refuses two environments on one host that share a port', () {
       expect(
-        () => PodshipConfig.parse(twoEnvs(
-          '    dir: /a\n    ports: {web: 9000}',
-          '    dir: /b\n    ports: {web: 9000}',
-        )),
-        throwsA(isA<ConfigException>().having((e) => e.message, 'm', contains('port 9000'))),
+        () => PodshipConfig.parse(
+          twoEnvs(
+            '    dir: /a\n    ports: {web: 9000}',
+            '    dir: /b\n    ports: {web: 9000}',
+          ),
+        ),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'm',
+            contains('port 9000'),
+          ),
+        ),
       );
     });
 
@@ -84,10 +109,12 @@ $b
         throwsA(isA<ConfigException>()),
       );
       expect(
-        () => PodshipConfig.parse(twoEnvs(
-          '    dir: /a\n    compose_project: same',
-          '    dir: /b\n    compose_project: same',
-        )),
+        () => PodshipConfig.parse(
+          twoEnvs(
+            '    dir: /a\n    compose_project: same',
+            '    dir: /b\n    compose_project: same',
+          ),
+        ),
         throwsA(isA<ConfigException>()),
       );
     });
@@ -110,17 +137,27 @@ environments:
   production: {host: a, dir: /a, health: {url: u}, domains: [{host: d.com, routes: [{port: 1}]}]}
   staging: {host: b, dir: /b, health: {url: u}, domains: [{host: d.com, routes: [{port: 2}]}]}
 '''),
-        throwsA(isA<ConfigException>().having((e) => e.message, 'm', contains('d.com'))),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'm',
+            contains('d.com'),
+          ),
+        ),
       );
     });
 
     test('validates enums', () {
       expect(
-        () => PodshipConfig.parse('project: x\nbuild: {source: zip}\nenvironments:\n  a: {host: h, dir: /a, health: {url: u}}\n'),
+        () => PodshipConfig.parse(
+          'project: x\nbuild: {source: zip}\nenvironments:\n  a: {host: h, dir: /a, health: {url: u}}\n',
+        ),
         throwsA(isA<ConfigException>()),
       );
       expect(
-        () => PodshipConfig.parse('project: x\nenvironments:\n  a: {host: h, dir: /a, health: {url: u}, migrations: later}\n'),
+        () => PodshipConfig.parse(
+          'project: x\nenvironments:\n  a: {host: h, dir: /a, health: {url: u}, migrations: later}\n',
+        ),
         throwsA(isA<ConfigException>()),
       );
     });

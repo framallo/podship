@@ -1,12 +1,13 @@
 // Edits Serverpod `passwords.yaml` files, keeping comments.
 
+import 'dart:convert';
+
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
 class PasswordsFile {
-  PasswordsFile(String text)
-    : _editor = YamlEditor(text.trim().isEmpty ? '{}' : text);
-  final YamlEditor _editor;
+  PasswordsFile(String text) : _editor = YamlEditor(text);
+  YamlEditor _editor;
 
   YamlMap get _root {
     final v = _editor.parseAt([]);
@@ -29,8 +30,16 @@ class PasswordsFile {
   }
 
   void set(String section, String key, String value) {
-    if (_root[section] is! YamlMap) {
-      _editor.update([section], <String, String>{key: value});
+    final root = _editor.parseAt([]);
+    if (root is! YamlMap || root[section] is! YamlMap) {
+      // Append a block-style section; yaml_edit cannot add to an empty
+      // document and would write flow style.
+      if (root is YamlMap && root.containsKey(section))
+        _editor.remove([section]);
+      final text = _editor.toString().trimRight();
+      _editor = YamlEditor(
+        '${text.isEmpty ? '' : '$text\n'}$section:\n  $key: ${jsonEncode(value)}\n',
+      );
     } else {
       _editor.update([section, key], value);
     }

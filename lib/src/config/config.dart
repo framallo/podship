@@ -246,7 +246,7 @@ class BackupVolume {
 /// File and folder names inside the backup directory.
 class BackupLayout {
   BackupLayout({
-    this.plain = 'plain',
+    this.plain = 'daily',
     this.encrypted = 'encrypted',
     this.dump = 'db.dump',
     this.counts = 'counts.txt',
@@ -607,7 +607,7 @@ class PodshipConfig {
             ),
         ],
         layout: BackupLayout(
-          plain: l.str('plain', 'plain'),
+          plain: l.str('plain', 'daily'),
           encrypted: l.str('encrypted', 'encrypted'),
           dump: l.str('dump', 'db.dump'),
           counts: l.str('counts', 'counts.txt'),

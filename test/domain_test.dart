@@ -15,7 +15,10 @@ ingress:
 
 void main() {
   test('adds rules before the catch-all, paths first', () {
-    final out = editTunnelConfig(tunnel, 'new.com', [ResolvedRoute(null, 20000), ResolvedRoute('^/api/', 20001)]);
+    final out = editTunnelConfig(tunnel, 'new.com', [
+      ResolvedRoute(null, 20000),
+      ResolvedRoute('^/api/', 20001),
+    ]);
     final rules = tunnelRules(out);
     expect(rules, [
       'a.com → http://localhost:8087',
@@ -28,9 +31,14 @@ void main() {
   });
 
   test('replaces the rules of a host in place of the old ones', () {
-    final out = editTunnelConfig(tunnel, 'old.com', [ResolvedRoute(null, 20000)]);
+    final out = editTunnelConfig(tunnel, 'old.com', [
+      ResolvedRoute(null, 20000),
+    ]);
     expect(tunnelRules(out), contains('old.com → http://localhost:20000'));
-    expect(tunnelRules(out), isNot(contains('old.com → http://localhost:8082')));
+    expect(
+      tunnelRules(out),
+      isNot(contains('old.com → http://localhost:8082')),
+    );
     expect(tunnelRules(out).last, '* → http_status:404');
   });
 
@@ -41,7 +49,10 @@ void main() {
 
   test('writes a Caddy site with path routes first', () {
     final s = caddySite('demo/staging', {
-      'staging.example.com': [ResolvedRoute('^/(api|v1)/', 20001), ResolvedRoute(null, 20000)],
+      'staging.example.com': [
+        ResolvedRoute('^/(api|v1)/', 20001),
+        ResolvedRoute(null, 20000),
+      ],
     });
     expect(s, contains('staging.example.com {'));
     expect(s, contains('@r0 path_regexp ^/(api|v1)/'));

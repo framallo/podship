@@ -39,10 +39,8 @@ class Ssh {
   final List<String> extraOptions;
   final bool verbose;
 
-  static String get _controlPath {
-    final dir = Platform.environment['TMPDIR'] ?? '/tmp';
-    return '$dir/podship-ssh-%C';
-  }
+  // Unix socket paths are short (104 bytes on macOS), so not TMPDIR.
+  static const _controlPath = '/tmp/podship-%C';
 
   List<String> options({bool tty = false}) => [
     '-o',

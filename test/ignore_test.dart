@@ -6,7 +6,8 @@ import 'package:test/test.dart';
 
 void main() {
   group('globToRegex', () {
-    bool m(String glob, String path) => RegExp('^${globToRegex(glob)}\$').hasMatch(path);
+    bool m(String glob, String path) =>
+        RegExp('^${globToRegex(glob)}\$').hasMatch(path);
     test('star stays in one segment', () {
       expect(m('*.dart', 'a.dart'), isTrue);
       expect(m('*.dart', 'lib/a.dart'), isFalse);
@@ -58,15 +59,18 @@ void main() {
       expect(rules.includes('keep.log'), isTrue);
       expect(rules.includes('a.txt'), isTrue);
     });
-    test('an excluded directory excludes its files, and a later rule includes them again', () {
-      final rules = FileRules([
-        IgnoreRule.parse('web/app', base: 'server')!,
-        IgnoreRule.parse('!server/web/app/**')!,
-      ]);
-      expect(rules.includes('server/web/app/main.dart.js'), isTrue);
-      final only = FileRules([IgnoreRule.parse('web/app', base: 'server')!]);
-      expect(only.includes('server/web/app/main.dart.js'), isFalse);
-    });
+    test(
+      'an excluded directory excludes its files, and a later rule includes them again',
+      () {
+        final rules = FileRules([
+          IgnoreRule.parse('web/app', base: 'server')!,
+          IgnoreRule.parse('!server/web/app/**')!,
+        ]);
+        expect(rules.includes('server/web/app/main.dart.js'), isTrue);
+        final only = FileRules([IgnoreRule.parse('web/app', base: 'server')!]);
+        expect(only.includes('server/web/app/main.dart.js'), isFalse);
+      },
+    );
     test('secrets never ship, whatever the rules say', () {
       final rules = FileRules([IgnoreRule.parse('!**')!]);
       expect(rules.includes('.env'), isFalse);
@@ -89,25 +93,38 @@ void main() {
       f.writeAsStringSync(text);
     }
 
-    test('applies nested .gitignore, .podshipignore and extra rules in order', () {
-      file('.gitignore', 'build/\n*.log\n');
-      file('server/.gitignore', 'web/app\nconfig/passwords.yaml\n');
-      file('server/.podshipignore', 'test/\n');
-      file('server/bin/main.dart');
-      file('server/config/production.yaml');
-      file('server/config/passwords.yaml');
-      file('server/web/app/index.html');
-      file('server/test/a_test.dart');
-      file('server/build/out');
-      file('debug.log');
-      file('docker-compose.yml');
-      final got = selectFiles(root.path, extraRules: ['!server/web/app/**', 'docker-compose.yml']);
-      expect(got, containsAll(['server/bin/main.dart', 'server/config/production.yaml', 'server/web/app/index.html']));
-      expect(got, isNot(contains('server/config/passwords.yaml')));
-      expect(got, isNot(contains('server/test/a_test.dart')));
-      expect(got, isNot(contains('server/build/out')));
-      expect(got, isNot(contains('debug.log')));
-      expect(got, isNot(contains('docker-compose.yml')));
-    });
+    test(
+      'applies nested .gitignore, .podshipignore and extra rules in order',
+      () {
+        file('.gitignore', 'build/\n*.log\n');
+        file('server/.gitignore', 'web/app\nconfig/passwords.yaml\n');
+        file('server/.podshipignore', 'test/\n');
+        file('server/bin/main.dart');
+        file('server/config/production.yaml');
+        file('server/config/passwords.yaml');
+        file('server/web/app/index.html');
+        file('server/test/a_test.dart');
+        file('server/build/out');
+        file('debug.log');
+        file('docker-compose.yml');
+        final got = selectFiles(
+          root.path,
+          extraRules: ['!server/web/app/**', 'docker-compose.yml'],
+        );
+        expect(
+          got,
+          containsAll([
+            'server/bin/main.dart',
+            'server/config/production.yaml',
+            'server/web/app/index.html',
+          ]),
+        );
+        expect(got, isNot(contains('server/config/passwords.yaml')));
+        expect(got, isNot(contains('server/test/a_test.dart')));
+        expect(got, isNot(contains('server/build/out')));
+        expect(got, isNot(contains('debug.log')));
+        expect(got, isNot(contains('docker-compose.yml')));
+      },
+    );
   });
 }
