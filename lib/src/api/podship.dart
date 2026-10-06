@@ -34,6 +34,7 @@ import '../remote/ssh.dart';
 import '../server/registry.dart';
 import '../util/log.dart';
 import 'events.dart';
+import 'github.dart';
 import 'history.dart';
 import 'lock.dart';
 import 'render.dart';
@@ -323,6 +324,10 @@ class Podship {
           ),
         );
         final id = plan.title.split(' as ').last;
+        final gh = GitHub(config, ctx.log);
+        final deployment = dryRun
+            ? null
+            : await gh.startDeployment(e, git.sha, id);
         try {
           await ctx.run(plan);
         } catch (x) {
@@ -330,6 +335,20 @@ class Podship {
           rec.release = dryRun
               ? state.current
               : (await fetchState(_readCtx, e)).current;
+          if (!dryRun) {
+            await gh.finishDeployment(
+              e,
+              deployment,
+              ok: false,
+              description: '$x',
+            );
+            await gh.commitStatus(
+              e,
+              git.sha,
+              ok: false,
+              description: 'deploy to ${e.name} failed',
+            );
+          }
           rethrow;
         } finally {
           if (run.results.isNotEmpty) {
@@ -342,11 +361,36 @@ class Podship {
         }
         rec.release = dryRun ? state.current : id;
         rec.data['new_release'] = id;
+        if (!dryRun) {
+          await gh.finishDeployment(e, deployment, ok: true, description: id);
+          await gh.commitStatus(
+            e,
+            git.sha,
+            ok: true,
+            description: 'running on ${e.name} as $id',
+          );
+          await gh.tag(e, git.sha, id);
+          final url = await gh.release(
+            e,
+            git.sha,
+            id,
+            _shaOf(state, state.current),
+            tests: rec.data['tests'] as Map<String, Object?>?,
+          );
+          if (url != null) rec.data['github_release'] = url;
+        }
       } finally {
         await snap.delete(recursive: true);
       }
     },
   );
+
+  /// The git commit of release [id], from its metadata.
+  static String? _shaOf(EnvState state, String? id) {
+    if (id == null) return null;
+    final sha = state.releases.where((r) => r.id == id).firstOrNull?.meta?.sha;
+    return sha == null || sha.length < 7 || sha == 'nogit' ? null : sha;
+  }
 
   /// Checks the test gate before a deploy or a promotion to [e].
   Future<void> _testGate(
@@ -420,6 +464,30 @@ class Podship {
                   .firstWhere((s) => s.title.startsWith('Switch to '))
                   .title
                   .substring(10);
+        if (!dryRun && rec.release != null) {
+          final gh = GitHub(config, ctx.log);
+          final fromSha = _shaOf(state, state.current);
+          final toSha = _shaOf(state, rec.release);
+          if (fromSha != null) {
+            await gh.markInactive(e, fromSha);
+            await gh.noteRollback(e, fromSha, rec.release!);
+          }
+          if (toSha != null) {
+            final d = await gh.startDeployment(e, toSha, rec.release!);
+            await gh.finishDeployment(
+              e,
+              d,
+              ok: true,
+              description: 'rollback to ${rec.release}',
+            );
+            await gh.commitStatus(
+              e,
+              toSha,
+              ok: true,
+              description: 'running on ${e.name} as ${rec.release} (rollback)',
+            );
+          }
+        }
       } catch (_) {
         rec.release = (await fetchState(_readCtx, e)).current;
         rethrow;
@@ -511,6 +579,31 @@ class Podship {
           ),
         );
         rec.release = dryRun ? state.current : id;
+        final psha = _shaOf(fromState, id);
+        if (!dryRun && psha != null) {
+          final gh = GitHub(config, ctx.log);
+          final d = await gh.startDeployment(to, psha, id);
+          await gh.finishDeployment(
+            to,
+            d,
+            ok: true,
+            description: 'promoted from ${from.name}',
+          );
+          await gh.commitStatus(
+            to,
+            psha,
+            ok: true,
+            description: 'running on ${to.name} as $id',
+          );
+          await gh.tag(to, psha, id);
+          final url = await gh.release(
+            to,
+            psha,
+            id,
+            _shaOf(state, state.current),
+          );
+          if (url != null) rec.data['github_release'] = url;
+        }
       } catch (_) {
         rec.release = (await fetchState(_readCtx, to)).current;
         rethrow;
@@ -1181,6 +1274,63 @@ du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
     _readCtx,
     config.env(envName),
   )).releases.reversed.toList();
+
+  /// What runs where: every environment's current release, its commit,
+  /// and the previous releases with who made them and when. Environments
+  /// whose server does not answer have an `error`.
+  Future<List<Map<String, Object?>>> overview() async {
+    final out = <Map<String, Object?>>[];
+    for (final e in config.environments.values) {
+      try {
+        final st = await fetchState(_readCtx, e);
+        out.add({
+          'env': e.name,
+          'host': e.host,
+          'current': st.current,
+          'current_sha': _shaOf(st, st.current),
+          'releases': [
+            for (final r in st.releases.reversed) r.toJson(current: st.current),
+          ],
+        });
+      } catch (x) {
+        out.add({'env': e.name, 'host': e.host, 'error': '$x'});
+      }
+    }
+    return out;
+  }
+
+  /// Which environments run a release that contains commit [sha] (by git
+  /// ancestry, in the local repository).
+  Future<List<Map<String, Object?>>> releasesContaining(String sha) async {
+    final full = await Process.run('git', [
+      'rev-parse',
+      sha,
+    ], workingDirectory: config.root);
+    if (full.exitCode != 0) throw Aborted('unknown commit $sha');
+    final target = (full.stdout as String).trim();
+    final out = <Map<String, Object?>>[];
+    for (final o in await overview()) {
+      final cur = o['current_sha'] as String?;
+      bool? contains;
+      if (cur != null) {
+        final r = await Process.run('git', [
+          'merge-base',
+          '--is-ancestor',
+          target,
+          cur,
+        ], workingDirectory: config.root);
+        contains = r.exitCode == 0 ? true : (r.exitCode == 1 ? false : null);
+      }
+      out.add({
+        'env': o['env'],
+        'current': o['current'],
+        'current_sha': cur,
+        'contains': contains,
+        if (o['error'] != null) 'error': o['error'],
+      });
+    }
+    return out;
+  }
 
   Future<String?> currentRelease(String envName) async =>
       (await fetchState(_readCtx, config.env(envName))).current;

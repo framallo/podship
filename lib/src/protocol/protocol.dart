@@ -359,6 +359,21 @@ const operations = <OperationSpec>[
     'Releases kept on the server.',
     mutating: false,
   ),
+  OperationSpec(
+    'releases.overview',
+    'What runs where: every environment, its current release and commit, and its releases.',
+    mutating: false,
+    needsEnv: false,
+  ),
+  OperationSpec(
+    'releases.containing',
+    'Which environments run a release that contains a commit.',
+    mutating: false,
+    needsEnv: false,
+    params: [
+      ParamSpec('sha', 'string', 'A commit (sha or ref).', required: true),
+    ],
+  ),
   OperationSpec('backup.list', 'Backups on the server.', mutating: false),
   OperationSpec(
     'history',
@@ -618,6 +633,10 @@ Stream<Map<String, Object?>> dispatch(
         value = [
           for (final r in await api.releases(env)) r.toJson(current: cur),
         ];
+      case 'releases.overview':
+        value = await api.overview();
+      case 'releases.containing':
+        value = await api.releasesContaining(s('sha')!);
       case 'backup.list':
         value = [for (final x in await api.backups(env!)) x.toJson()];
       case 'history':

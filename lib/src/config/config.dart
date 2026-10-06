@@ -86,6 +86,36 @@ enum SourceMode {
   worktree,
 }
 
+class GitHubConfig {
+  GitHubConfig({
+    required this.repo,
+    this.tags = true,
+    this.deployments = true,
+    this.statuses = true,
+    this.releases = const ['production'],
+    this.releaseTag = 'v{date}-{n}',
+  });
+
+  /// `owner/name`.
+  final String repo;
+
+  /// Push `podship/<env>/<release>` tags.
+  final bool tags;
+
+  /// Create GitHub Deployments with status updates.
+  final bool deployments;
+
+  /// Set a `podship/deploy/<env>` commit status.
+  final bool statuses;
+
+  /// Environments whose deploys create a GitHub Release.
+  final List<String> releases;
+
+  /// The release tag scheme: `{date}` is YYYY.MM.DD, `{n}` counts releases
+  /// of that day from 1.
+  final String releaseTag;
+}
+
 /// One test suite that runs during a deploy.
 class TestSuite {
   TestSuite({
@@ -536,7 +566,11 @@ class PodshipConfig {
     TestsConfig? tests,
     this.consoleUrl,
     this.transport = 'ssh',
+    this.github,
   }) : tests = tests ?? TestsConfig();
+
+  /// GitHub on every release, when set.
+  final GitHubConfig? github;
 
   /// The podship console of this project, if there is one.
   final String? consoleUrl;
@@ -681,7 +715,19 @@ class PodshipConfig {
     if (!const ['ssh', 'console'].contains(transport)) {
       throw ConfigException('transport must be ssh or console');
     }
+    final gh = r.map('github');
+    final github = r.has('github')
+        ? GitHubConfig(
+            repo: gh.str('repo'),
+            tags: gh.boolean('tags', true),
+            deployments: gh.boolean('deployments', true),
+            statuses: gh.boolean('statuses', true),
+            releases: gh.strs('releases', const ['production']),
+            releaseTag: gh.str('release_tag', 'v{date}-{n}'),
+          )
+        : null;
     return PodshipConfig(
+      github: github,
       consoleUrl: r.map('console').optStr('url'),
       transport: transport,
       tests: tests,

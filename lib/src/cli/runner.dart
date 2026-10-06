@@ -76,6 +76,8 @@ class PodshipRunner extends CommandRunner<int> {
       DestroyCommand(),
       GroupCommand('releases', 'Releases kept on the server.', [
         ReleasesListCommand(),
+        ReleasesOverviewCommand(),
+        ReleasesContainingCommand(),
         HistoryCommand(),
       ]),
       GroupCommand(

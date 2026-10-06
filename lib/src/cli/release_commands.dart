@@ -475,3 +475,71 @@ class UnlockCommand extends PodshipCommand {
     return runOp(api.unlock(e.name));
   }
 }
+
+class ReleasesOverviewCommand extends PodshipCommand {
+  @override
+  String get name => 'overview';
+  @override
+  String get description =>
+      'What runs where: every environment, its current release and commit.';
+  @override
+  bool get takesEnv => false;
+  @override
+  OperationRequest? get consoleRead =>
+      OperationRequest(operation: 'releases.overview', project: config.project);
+  @override
+  Future<int> execute() async {
+    final list = await api.overview();
+    if (json) {
+      printJson(list);
+      return 0;
+    }
+    for (final o in list) {
+      final sha = o['current_sha'] as String?;
+      stdout.writeln(
+        '${'${o['env']}'.padRight(12)} ${'${o['host']}'.padRight(24)} '
+        '${o['error'] != null ? 'ERROR ${o['error']}' : '${o['current'] ?? '(none)'}  ${sha == null ? '' : sha.substring(0, 7)}'}',
+      );
+    }
+    return 0;
+  }
+}
+
+class ReleasesContainingCommand extends PodshipCommand {
+  @override
+  String get name => 'containing';
+  @override
+  String get description =>
+      'Which environments run a release that contains a commit.';
+  @override
+  String get invocation => '$exe releases containing <sha>';
+  @override
+  bool get takesEnv => false;
+  @override
+  OperationRequest? get consoleRead => argResults!.rest.length == 1
+      ? OperationRequest(
+          operation: 'releases.containing',
+          project: config.project,
+          params: {'sha': argResults!.rest.single},
+        )
+      : null;
+  @override
+  Future<int> execute() async {
+    if (argResults!.rest.length != 1) usageException('give one commit');
+    final list = await api.releasesContaining(argResults!.rest.single);
+    if (json) {
+      printJson(list);
+      return 0;
+    }
+    for (final o in list) {
+      stdout.writeln(
+        '${'${o['env']}'.padRight(12)} ${switch (o['contains']) {
+          true => 'yes',
+          false => 'no ',
+          _ => '?  ',
+        }}  ${o['current'] ?? '(none)'}',
+      );
+    }
+    return 0;
+  }
+}
