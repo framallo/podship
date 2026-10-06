@@ -243,7 +243,9 @@ class GitHub {
     b.writeln(commits.isEmpty ? '- (none)' : commits.take(200).join('\n'));
     if (tests != null) {
       b.writeln('\n## Tests\n');
-      if (tests['skipped'] == true) {
+      if (tests['passed_in'] != null) {
+        b.writeln('Passed in the ${tests['passed_in']} deploy of this commit.');
+      } else if (tests['skipped'] == true) {
         b.writeln('Skipped: ${tests['reason']}');
       } else {
         for (final s in (tests['suites'] as List? ?? const [])) {

@@ -303,8 +303,13 @@ class ProxyConfig {
     this.config,
     this.service,
     this.tunnelId,
+    this.originCerts = const {},
   });
   final ProxyKind kind;
+
+  /// Cloudflare origin certificates on the server, by zone, for
+  /// `cloudflared tunnel route dns`.
+  final Map<String, String> originCerts;
 
   /// The proxy's config file on the server. For Caddy, the site file that
   /// podship owns.
@@ -883,6 +888,7 @@ class PodshipConfig {
         config: px.optStr('config'),
         service: px.optStr('service'),
         tunnelId: px.optStr('tunnel_id'),
+        originCerts: px.strMap('origin_certs'),
       ),
       domains: [
         for (final dm in e.maps('domains'))

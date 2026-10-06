@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:podship/podship.dart';
 import 'package:podship/src/ops/tests.dart';
-import 'package:podship/src/protocol/protocol.dart';
 import 'package:test/test.dart';
 
 import 'fixtures.dart';

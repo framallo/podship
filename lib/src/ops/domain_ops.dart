@@ -1,18 +1,17 @@
 // domain: routes from a hostname to an environment's loopback ports,
 // through a Cloudflare Tunnel or Caddy (automatic TLS with Let's Encrypt).
 
-import 'dart:convert';
 
 import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
 import '../config/config.dart';
 import '../plan/plan.dart';
+import '../api/tunnel.dart';
 import '../remote/ssh.dart';
 import 'context.dart';
 import 'resolve.dart';
 import 'scripts.dart';
-import 'secrets.dart';
 
 /// Replaces the ingress rules of [host] in a cloudflared config with
 /// [routes] (empty removes the host). New rules go before the catch-all.
@@ -23,6 +22,14 @@ String editTunnelConfig(String text, String host, List<ResolvedRoute> routes) {
   if (ingress is! YamlList) {
     throw ConfigException('the tunnel config has no ingress list');
   }
+  // Nothing to do when the host already has exactly these rules.
+  final ordered0 = [...routes.where((r) => r.path != null), ...routes.where((r) => r.path == null)];
+  final current = [
+    for (final r in ingress)
+      if (r is YamlMap && r['hostname'] == host) '${r['path'] ?? ''}|${r['service']}',
+  ];
+  final wanted = [for (final r in ordered0) '${r.path ?? ''}|http://localhost:${r.port}'];
+  if (current.join(',') == wanted.join(',')) return text;
   // Remove the host's rules, from the end so indexes stay valid.
   for (var i = ingress.length - 1; i >= 0; i--) {
     final r = ingress[i];
@@ -139,28 +146,16 @@ Plan planDomain(
                         for (final x in r.domains[h]!) '${x.path ?? '/'} → ${x.port}'].join(', ')}'}; '
                 'back up, validate, write, restart $svc (only when something changed)',
             () async {
-              final before = await readRemote(ctx, env, cfg);
-              var after = before;
-              for (final h in hosts) {
-                after = editTunnelConfig(
-                  after,
-                  h,
-                  remove ? const [] : r.domains[h]!,
-                );
-              }
-              if (after == before) {
-                ctx.log.info('no change');
-                return;
-              }
-              await ctx.query(env, '''
-cp ${shq(cfg)} ${shq(cfg)}.bak.$stamp
-new=${shq('$cfg.podship-new')}
-cat > "\$new"
-cloudflared tunnel --config "\$new" ingress validate
-mv -f "\$new" ${shq(cfg)}
-${restartService(svc)}sleep 3
-''', stdin: utf8.encode(after));
-              ctx.log.info('restarted $svc');
+              await TunnelRoutes(ctx.ssh, ctx.log).apply(
+                tunnelTarget(env),
+                [
+                  for (final h in hosts)
+                    RouteChange(h, remove ? const [] : r.domains[h]!),
+                ],
+                owner:
+                    '{"tool":"podship","project":"${ctx.config.project}","env":"${env.name}"}',
+                dns: !remove,
+              );
             },
           ),
         ],
@@ -188,3 +183,18 @@ systemctl reload ${shq(svc)}
       );
   }
 }
+
+/// The cloudflared of [env], as a [TunnelTarget].
+TunnelTarget tunnelTarget(EnvConfig env) => TunnelTarget(
+  host: env.host,
+  config:
+      env.proxy.config ??
+      (throw ConfigException(
+        'environments.${env.name}.proxy.config is required',
+      )),
+  service: env.proxy.service ?? 'cloudflared',
+  tunnelId: env.proxy.tunnelId ?? '<tunnel-id>',
+  podshipHome: env.podshipHome,
+  remotePath: env.remotePath,
+  originCerts: env.proxy.originCerts,
+);

@@ -375,7 +375,11 @@ class Podship {
             git.sha,
             id,
             _shaOf(state, state.current),
-            tests: rec.data['tests'] as Map<String, Object?>?,
+            tests:
+                (rec.data['tests'] as Map<String, Object?>?) ??
+                (rec.data['tests_passed_in'] == null
+                    ? null
+                    : {'passed_in': rec.data['tests_passed_in']}),
           );
           if (url != null) rec.data['github_release'] = url;
         }
