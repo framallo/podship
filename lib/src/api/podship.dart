@@ -1317,6 +1317,80 @@ echo "removed $who"
     lock: false,
   );
 
+  /// Changes the number of server containers of the current release
+  /// (monolith + serverless replicas behind podship's load balancer).
+  Operation scale(String envName, int replicas) =>
+      _op('scale', envName, {'replicas': replicas}, (ctx, rec) async {
+        final e = config.env(envName);
+        final l = EnvLayout(e);
+        final (:state, :r) = await _load(ctx, e);
+        rec.release = state.current;
+        rec.data['replicas'] = replicas;
+        await ctx.run(
+          Plan('scale ${e.name} to $replicas server containers', [
+            RemoteStep(
+              'Scale ${e.serverService}-replica to ${replicas - 1}',
+              e.host,
+              '''
+${ctx.header(e)}grep -q '"${e.serverService}-replica"' ${shq('${l.current}/.podship/override.yml')} || { echo "the current release has no replicas: set serverpod.replicas in podship.yaml and deploy" >&2; exit 1; }
+${shq(l.currentComposeSh)} up -d --no-build --no-recreate --scale ${shq('${e.serverService}-replica=${replicas - 1}')}
+${shq(l.currentComposeSh)} restart podship-lb
+''',
+            ),
+            HealthStep(
+              'Health check',
+              e.host,
+              r.healthUrls,
+              attempts: e.health.attempts,
+              intervalSeconds: e.health.intervalSeconds,
+            ),
+          ]),
+        );
+      });
+
+  /// Load test: k6 in a container on the environment's server sends [vus]
+  /// virtual users at [path] on the [port] port for [duration] (like
+  /// `30s`), and prints latency and errors. On production it competes with
+  /// real users: run it on staging first.
+  Operation loadtest(
+    String envName, {
+    String path = '/health',
+    int vus = 10,
+    String duration = '30s',
+    String port = 'web',
+  }) => _op(
+    'loadtest',
+    envName,
+    {'path': path, 'vus': vus, 'duration': duration, 'port': port},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final (:state, :r) = await _load(ctx, e);
+      final p =
+          r.ports[port] ?? (throw Aborted('no port "$port" in ${e.name}'));
+      final script = [
+        "import http from 'k6/http';",
+        "import { check } from 'k6';",
+        "export const options = { vus: $vus, duration: '$duration', thresholds: { http_req_failed: ['rate<0.01'] } };",
+        'export default function () {',
+        "  const res = http.get(__ENV.TARGET + '$path');",
+        "  check(res, { 'status is 2xx': (r) => r.status >= 200 && r.status < 300 });",
+        '}',
+      ].join('\n');
+      final remote =
+          'if [ "\$(uname -s)" = Darwin ]; then net=""; target="http://host.docker.internal:$p"; '
+          'else net="--network host"; target="http://127.0.0.1:$p"; fi\n'
+          '${writeFile('/tmp/podship-k6.js', script)}'
+          'docker run --rm -i \$net -e TARGET="\$target" -v /tmp/podship-k6.js:/k6.js:ro grafana/k6:latest run --quiet /k6.js\n'
+          'rm -f /tmp/podship-k6.js\n';
+      await ctx.run(
+        Plan('load test ${e.name}: $vus users on $path for $duration', [
+          RemoteStep('k6 against port $p$path', e.host, ctx.header(e) + remote),
+        ]),
+      );
+    },
+    lock: false,
+  );
+
   /// Removes the lock of [envName], for a lock left by a client that died.
   Operation unlock(String envName) => _op('unlock', envName, const {}, (
     ctx,
@@ -1353,7 +1427,7 @@ if curl -fs -o /dev/null --max-time 5 ${shq(r.healthUrl)}; then echo "HEALTH ok"
 df -Pk ${shq(e.dir)} 2>/dev/null | tail -1 | awk '{print "DISK " \$4 " " \$2}'
 du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
 ''');
-    return EnvStatus.parse(
+    final st = EnvStatus.parse(
       project: config.project,
       env: e.name,
       host: e.host,
@@ -1363,6 +1437,23 @@ du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
       healthUrl: r.healthUrl,
       output: out,
     );
+    var logs = <String, Map<String, int>>{};
+    try {
+      final out = await sql(
+        ctx,
+        e,
+        "select relname, coalesce(n_live_tup, 0), pg_total_relation_size(relid) from pg_stat_user_tables where relname in ('serverpod_session_log', 'serverpod_log', 'serverpod_query_log', 'serverpod_message_log') order by 1;",
+      );
+      logs = {
+        for (final l in const LineSplitter().convert(out))
+          if (l.split(' | ').length == 3)
+            l.split(' | ')[0]: {
+              'rows': int.parse(l.split(' | ')[1]),
+              'bytes': int.parse(l.split(' | ')[2]),
+            },
+      };
+    } catch (_) {}
+    return st.withLogTables(logs);
   }
 
   Future<List<ReleaseInfo>> releases(String envName) async => (await fetchState(

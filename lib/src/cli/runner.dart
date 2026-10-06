@@ -69,6 +69,8 @@ class PodshipRunner extends CommandRunner<int> {
       LogsCommand(),
       TunnelCommand(),
       HistoryCommand(),
+      LoadtestCommand(),
+      ScaleCommand(),
       UnlockCommand(),
       GroupCommand(
         'provider',

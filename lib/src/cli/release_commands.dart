@@ -308,6 +308,11 @@ class StatusCommand extends PodshipCommand {
     stdout.writeln(
       'disk: ${gb(s.diskFreeKb)} free of ${gb(s.diskTotalKb)}; releases use ${gb(s.releasesKb)}',
     );
+    for (final t in s.logTables.entries) {
+      stdout.writeln(
+        '${t.key}: ${t.value['rows']} rows, ${(t.value['bytes']! / 1048576).toStringAsFixed(1)} MB',
+      );
+    }
   }
 }
 
@@ -541,5 +546,72 @@ class ReleasesContainingCommand extends PodshipCommand {
       );
     }
     return 0;
+  }
+}
+
+class LoadtestCommand extends PodshipCommand {
+  LoadtestCommand() {
+    argParser
+      ..addOption('path', defaultsTo: '/health')
+      ..addOption('users', defaultsTo: '10', help: 'Virtual users.')
+      ..addOption('duration', defaultsTo: '30s')
+      ..addOption('port', defaultsTo: 'web', help: 'A port name from ports:.');
+  }
+  @override
+  String get name => 'loadtest';
+  @override
+  String get description =>
+      'Load test an environment with k6, from its own server. Prints latency and errors.';
+  @override
+  bool get mutating => true;
+  @override
+  bool get destructive => true;
+  @override
+  Future<int> execute() async {
+    final e = guardedEnv;
+    if (e.isProduction &&
+        !ctx.confirm('Load test PRODUCTION (real users share it)?')) {
+      throw Aborted('cancelled');
+    }
+    final a = argResults!;
+    return runOp(
+      api.loadtest(
+        e.name,
+        path: a['path'] as String,
+        vus: int.parse(a['users'] as String),
+        duration: a['duration'] as String,
+        port: a['port'] as String,
+      ),
+    );
+  }
+}
+
+class ScaleCommand extends PodshipCommand {
+  ScaleCommand() {
+    argParser.addOption(
+      'replicas',
+      mandatory: true,
+      help:
+          'Server containers in total (at least 2 for a release made with serverpod.replicas > 1).',
+    );
+  }
+  @override
+  String get name => 'scale';
+  @override
+  String get description =>
+      'Change the number of server containers of the current release. The release must have been deployed with serverpod.replicas > 1 (load balancer and Redis); to go from 1 to more, set serverpod.replicas and deploy.';
+  @override
+  bool get mutating => true;
+  @override
+  bool get destructive => true;
+  @override
+  Future<int> execute() async {
+    final e = guardedEnv;
+    final n = int.parse(argResults!['replicas'] as String);
+    if (n < 2)
+      usageException(
+        '--replicas must be 2 or more; for 1, set serverpod.replicas: 1 and deploy',
+      );
+    return runOp(api.scale(e.name, n));
   }
 }

@@ -65,6 +65,7 @@ class EnvStatus {
     this.diskFreeKb,
     this.diskTotalKb,
     this.releasesKb,
+    this.logTables = const {},
   });
 
   factory EnvStatus.parse({
@@ -138,7 +139,28 @@ class EnvStatus {
   final int? diskTotalKb;
   final int? releasesKb;
 
+  /// Serverpod's log tables: name → {rows, bytes}.
+  final Map<String, Map<String, int>> logTables;
+
+  EnvStatus withLogTables(Map<String, Map<String, int>> t) => EnvStatus(
+    project: project,
+    env: env,
+    host: host,
+    dir: dir,
+    current: current,
+    releases: releases,
+    ports: ports,
+    containers: containers,
+    healthUrl: healthUrl,
+    healthy: healthy,
+    diskFreeKb: diskFreeKb,
+    diskTotalKb: diskTotalKb,
+    releasesKb: releasesKb,
+    logTables: t,
+  );
+
   Map<String, Object?> toJson() => {
+    'log_tables': logTables,
     'project': project,
     'env': env,
     'host': host,

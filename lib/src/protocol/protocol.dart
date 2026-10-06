@@ -640,6 +640,15 @@ Stream<Map<String, Object?>> dispatch(
         );
       case 'server.destroy':
         op = api.serverDestroy(s('provider')!, s('id')!);
+      case 'scale':
+        op = api.scale(env!, (p['replicas'] as num).toInt());
+      case 'loadtest':
+        op = api.loadtest(
+          env!,
+          path: s('path') ?? '/health',
+          vus: (p['vus'] as num? ?? 10).toInt(),
+          duration: s('duration') ?? '30s',
+        );
       case 'status':
         value = (await api.status(env!)).toJson();
       case 'releases.list':
