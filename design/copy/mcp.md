@@ -16,10 +16,9 @@
 | mcp.tokens.create | Create an MCP token | Crear un token de MCP | |
 | mcp.tokens.client | Last client: {client} | Último cliente: {client} | from MCP handshake |
 | mcp.tokens.approvalLocked | Production changes need your approval. This can't be turned off for MCP tokens. | Los cambios en production necesitan tu aprobación. No se puede desactivar para tokens de MCP. | |
-| mcp.tokens.roleLimit | MCP tokens can be deployer or viewer, never owner. | Los tokens de MCP pueden ser de despliegue o de solo lectura, nunca propietarios. | |
+| mcp.tokens.roleLimit | MCP tokens can be deployer or viewer, never owner. | Los tokens de MCP pueden tener el rol Puede desplegar o Solo lectura, nunca Propietario. | |
 | approval.banner | {client} asks to {action} {project} {env}{target}. Reason it gave: {reason} | {client} pide {action} {project} {env}{target}. Motivo que dio: {reason} | agent text shown verbatim, untranslated |
 | approval.expires | Expires in {minutes} min | Vence en {minutes} min | |
 | approval.deny | Deny | Rechazar | left |
 | approval.review | Review and approve | Revisar y aprobar | opens tier-1 dialog |
 | approval.denied | Denied. {client} was told. | Rechazado. Se le avisó a {client}. | |
-| origin.mcp | MCP · {client} · {person} (token {name}) | MCP · {client} · {person} (token {name}) | |

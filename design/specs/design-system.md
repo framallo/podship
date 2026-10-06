@@ -63,6 +63,12 @@ Tiers: primitives (`_palette.dart`, never imported by screens) → semantic (`Ps
 | `CodeText` | Commands, DNS records | in-house on `SelectableText` | copy button with announcement |
 | `Skeleton` | Loading with known layout | in-house | no shimmer under reduced motion |
 | `EmptyState`, `ErrorState`, `OfflineBanner`, `StaleMarker` | Empty, error, offline, stale | in-house | empty says why and the next action; error says what happened and what to do; offline/stale show the time of the last data and "Retry now" |
+| `StepIndicator` | Wizards: new server, first-run setup | in-house | text "Step 2 of 4: Remote access" is the accessible name; done steps marked with icon and word |
+| `ApprovalRequest` | An agent (MCP) asks for a production change | in-house banner + `ConfirmDialog` | shown on every page until answered or expired; Deny left, "Review and approve" opens the tier-1 dialog with origin MCP |
+| `OneTimeSecretField` | Tokens, CI keys, private keys shown once | in-house on `NakedTextField` (read-only) + `PsButton` copy | warning in text; closing asks nothing more; never re-openable |
+| `StoredSecretField` | Provider and Cloudflare tokens after saving | in-house | shows "Saved, ends in …a91f" with Replace and Remove; the value never returns to the client |
+| `ProviderPanel` | Hostinger VPS facts on the server page | in-house on `DefinitionList` | "Added over SSH (no provider)" variant |
+| `OriginLabel` | Console, CLI, CI, MCP, CLI over SSH, Scheduled | in-house (a neutral `StatusPill`) | one icon per origin; full text in semantics |
 | `ForbiddenNotice` | 403 | in-house | "You don't have permission to …. Ask the owner." never a sign-in loop |
 
 ## Tests

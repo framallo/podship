@@ -21,7 +21,7 @@ A product surface: **Flutter on its own design system, backed by a Serverpod ser
 | `copy/` | `glossary.md`, `common.md`, one copy table per screen group (key, en, es, notes) |
 | `mockups/` | the viewer's files: `mockups.json`, `podship.css` (tokens), the brand board, 10 desktop pages, 2 phone flows |
 | `comentarios/` | the reviewer's comments, written by the viewer (`index.md`) |
-| `audits/` | empty until the first build is reviewed |
+| `audits/` | empty: the review of these mockups (heuristics, platform, accessibility, taste) is in the 2026-10-06 hand-off; the first audit file comes with the first built screens |
 
 ## Locked count (what this round delivers)
 

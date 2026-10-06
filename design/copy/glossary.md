@@ -29,7 +29,7 @@ Purpose: the console's words in both locales, decided once. Status: draft 2026-1
 | step | paso | One step of an operation's plan | | |
 | test stage, test suite | etapa de pruebas, suite de pruebas | Tests run before build | | |
 | skip tests | omitir las pruebas | Deploy without the test stage, with a reason | saltar | |
-| owner, deployer, viewer | propietario, quien despliega, solo lectura | Console roles | admin | Role names in es: "Propietario", "Despliega", "Solo lectura" |
+| owner, deployer, viewer | propietario, puede desplegar, solo lectura | Console roles | admin | Role names in es: "Propietario", "Puede desplegar", "Solo lectura" |
 | SSH access | acceso SSH | Keys marked `podship:<name>` on a server | | |
 | CI deploy key | llave de despliegue para CI | `ci setup` key | token | |
 

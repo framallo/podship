@@ -41,3 +41,10 @@ Status: draft 2026-10-06. Keys map to ARB keys (`common.retry` → `commonRetry`
 | pill.blocked | Blocked by tests | Bloqueado por pruebas | |
 | confirm.typeHint | Type {target} to confirm | Escribe {target} para confirmar | tier 2 |
 | confirm.runsToEnd | This runs to the end even if you close the console. | Se ejecuta hasta el final aunque cierres la consola. | |
+| origin.console | Console · {person} | Consola · {person} | operation header, running indicator, history |
+| origin.cli | CLI · {person} on {machine} | CLI · {person} en {machine} | through `podship login` |
+| origin.ci | CI · token {name} | CI · token {name} | |
+| origin.mcp | MCP · {client} · {person} (token {name}) | MCP · {client} · {person} (token {name}) | client from the MCP handshake |
+| origin.ssh | CLI over SSH · {user} | CLI por SSH · {user} | rows read from history.log, not live |
+| origin.scheduled | Scheduled | Programado | backup timers |
+| history.notRecorded | Not recorded (run from the CLI over SSH) | No registrado (se ejecutó con la CLI por SSH) | duration and outcome of SSH rows |

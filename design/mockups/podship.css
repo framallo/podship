@@ -226,3 +226,6 @@ body.phones{background:#D9DADD; padding:var(--s5); display:flex; flex-wrap:wrap;
 @media (prefers-reduced-motion:no-preference){ .spin{animation:spin 1.2s linear infinite;} }
 @keyframes spin{to{transform:rotate(360deg)}}
 summary{cursor:pointer;padding:4px 0;} details summary::marker{color:var(--ink-2);}
+.t td.id,.t td.num,.t td.r{white-space:nowrap;}
+/* Viewer: frames grow with their content; no scroll inside a frame. */
+.frame{height:auto!important; min-height:844px;}

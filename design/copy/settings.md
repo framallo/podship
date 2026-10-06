@@ -9,7 +9,7 @@
 | settings.preferences | Preferences | Preferencias | |
 | people.invite | Invite a person | Invitar a una persona | |
 | people.role.owner | Owner | Propietario | |
-| people.role.deployer | Deployer | Despliega | |
+| people.role.deployer | Deployer | Puede desplegar | |
 | people.role.viewer | Viewer | Solo lectura | |
 | people.scope | {role} on {scope} | {role} en {scope} | scope = project or project/env |
 | people.separate | Console roles and SSH access are separate: a role doesn't give an SSH login, and an SSH key doesn't give a console sign-in. | Los roles de la consola y el acceso SSH son independientes: un rol no da acceso por SSH y una llave SSH no da acceso a la consola. | |

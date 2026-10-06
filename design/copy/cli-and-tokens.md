@@ -33,10 +33,6 @@
 | ci.tokens.title | CI tokens for {project} | Tokens de CI para {project} | |
 | ci.tokens.create | Create a CI token | Crear un token de CI | |
 | ci.tokens.snippet | Add these secrets to your CI: PODSHIP_URL and PODSHIP_TOKEN. Then run podship deploy --env {env} --yes. | Agrega estos secretos a tu CI: PODSHIP_URL y PODSHIP_TOKEN. Luego ejecuta podship deploy --env {env} --yes. | |
-| origin.console | Console · {person} | Consola · {person} | |
-| origin.cli | CLI · {person} on {machine} | CLI · {person} en {machine} | |
-| origin.ci | CI · token {name} | CI · token {name} | |
-| origin.ssh | CLI over SSH · {user} | CLI por SSH · {user} | |
 | lock.held | {operation} running · held by {person} from {origin} since {time} ({duration}) | {operation} en curso · la tiene {person} desde {origin} desde las {time} ({duration}) | |
 | lock.quiet | No events for {duration}. Last event: {time}. | Sin eventos desde hace {duration}. Último evento: {time}. | |
 | lock.force | Force release… | Liberar a la fuerza… | owner only |

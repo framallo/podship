@@ -74,6 +74,7 @@ Depends on state, so there is always exactly one filled button:
 - Disabled buttons keep focusability on web/desktop with their reason as tooltip and as visible text below the actions (WCAG 1.4.1, 4.1.2).
 - Timeline rows: one node each, "Release 20261005-221844-9c41e07, healthy, deployed by federico, 5 October 22:18 UTC. Actions available."
 - Phone targets 48 dp; the primary button is pinned above the bottom nav with 16 dp margins.
+- Phone confirm sheet: the buttons are stacked full width (confirm above, Cancel below, Cancel focused first), the platform pattern for bottom sheets on iOS and Android; this is the one place the "dismissive on the left" rule becomes "dismissive at the bottom".
 
 ## 10. Acceptance criteria
 
