@@ -132,8 +132,9 @@ class DbUserCommand extends PodshipCommand {
     }
     if (argResults!.rest.length != 1) usageException('give one NAME');
     final role = argResults!.rest.single;
-    if (!RegExp(r'^[a-z_][a-z0-9_]{0,62}$').hasMatch(role))
+    if (!RegExp(r'^[a-z_][a-z0-9_]{0,62}$').hasMatch(role)) {
       usageException('invalid role name');
+    }
     final pw = randomSecret(24).replaceAll(RegExp(r'[^A-Za-z0-9]'), 'x');
     final db = e.database.name;
     final q = switch (_action) {

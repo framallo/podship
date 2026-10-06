@@ -84,7 +84,7 @@ void main() {
 
   test('the backup settings file has the layout and no secret values', () {
     final conf = backupConf(config, prod);
-    expect(conf, contains("PROJECT=demo"));
+    expect(conf, contains('PROJECT=demo'));
     expect(conf, contains("VOLUMES='worker|demo_worker|q.db|'"));
     expect(conf, contains("DRILL_TABLES='user* ticket'"));
     expect(
@@ -205,7 +205,7 @@ services:
       expect(
         s,
         contains(
-          "-p demo --project-directory /srv/demo/releases/R --env-file /srv/demo/releases/R/.env -f /srv/demo/releases/R/docker-compose.yml -f /srv/demo/releases/R/.podship/override.yml",
+          '-p demo --project-directory /srv/demo/releases/R --env-file /srv/demo/releases/R/.env -f /srv/demo/releases/R/docker-compose.yml -f /srv/demo/releases/R/.podship/override.yml',
         ),
       );
     });

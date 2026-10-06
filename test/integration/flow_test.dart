@@ -104,8 +104,9 @@ void main() {
 
     Future<void> git(List<String> args) async {
       final r = await Process.run('git', args, workingDirectory: dir.path);
-      if (r.exitCode != 0)
+      if (r.exitCode != 0) {
         throw Exception('git ${args.join(' ')}: ${r.stderr}');
+      }
     }
 
     Future<void> commit(String version, {bool broken = false}) async {

@@ -26,7 +26,13 @@ class DeployCommand extends PodshipCommand {
         negatable: false,
         help: 'No database backup before the switch.',
       )
-      ..addFlag('skip-hooks', negatable: false, help: 'No pre/post hooks.');
+      ..addFlag('skip-hooks', negatable: false, help: 'No pre/post hooks.')
+      ..addFlag(
+        'public-check',
+        defaultsTo: true,
+        help:
+            'Also check the public health URL (turn off before the domain is routed).',
+      );
   }
   @override
   String get name => 'deploy';
@@ -49,6 +55,18 @@ class DeployCommand extends PodshipCommand {
     if (source == SourceMode.git && git.sha == 'nogit') {
       throw Aborted('ref "$ref" not found; use --worktree outside git');
     }
+    if (source == SourceMode.git) {
+      for (final f in composeFilesOf(config, e)) {
+        final r = await Process.run('git', [
+          'cat-file',
+          '-e',
+          '${git.sha}:$f',
+        ], workingDirectory: config.root);
+        if (r.exitCode != 0) {
+          throw Aborted('$f is not in commit ${git.sha}; commit it first');
+        }
+      }
+    }
     if (e.isProduction &&
         !ctx.confirm(
           'Deploy ${git.sha.length > 7 ? git.sha.substring(0, 7) : git.sha} to PRODUCTION on ${e.host}?',
@@ -70,6 +88,7 @@ class DeployCommand extends PodshipCommand {
           skipWeb: argResults!['skip-web'] == true,
           skipBackup: argResults!['skip-backup'] == true,
           skipHooks: argResults!['skip-hooks'] == true,
+          publicCheck: argResults!['public-check'] == true,
         ),
       );
       await ctx.run(plan);

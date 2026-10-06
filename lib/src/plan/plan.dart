@@ -36,7 +36,17 @@ class RemoteStep extends Step {
   final bool tty;
   @override
   String describe() {
-    final lines = script.trim().split('\n');
+    // Skip the shared header (set -e and helper functions).
+    final lines = script
+        .trim()
+        .split('\n')
+        .where(
+          (l) =>
+              l != 'set -euo pipefail' &&
+              !RegExp(r'^_[a-z0-9]+\(\)').hasMatch(l) &&
+              !l.startsWith('export PATH='),
+        )
+        .toList();
     final shown = lines.length > 12
         ? [...lines.take(12), '  … ${lines.length - 12} more lines']
         : lines;
@@ -67,23 +77,23 @@ class HealthStep extends Step {
   const HealthStep(
     super.title,
     this.host,
-    this.remoteUrl, {
-    this.publicUrl,
+    this.remoteUrls, {
+    this.publicUrls = const [],
     this.attempts = 20,
     this.intervalSeconds = 6,
   });
   final String host;
 
   /// Fetched on the server.
-  final String remoteUrl;
+  final List<String> remoteUrls;
 
   /// Fetched from this machine.
-  final String? publicUrl;
+  final List<String> publicUrls;
   final int attempts;
   final int intervalSeconds;
   @override
   String describe() =>
-      '[health] $host: $remoteUrl${publicUrl == null ? '' : ' and $publicUrl'}'
+      '[health] $host: ${remoteUrls.join(' or ')}${publicUrls.isEmpty ? '' : ', then ${publicUrls.join(' or ')}'}'
       ' ($attempts × ${intervalSeconds}s)';
 }
 

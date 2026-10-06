@@ -145,7 +145,7 @@ for d in ${shq(l.releases)}/*/; do
 done
 docker network rm ${shq('${env.composeProject}_default')} >/dev/null 2>&1 || true
 rm -rf -- ${shq(env.dir)}
-${purgeBackups && env.backup != null ? 'rm -rf -- ${shq(env.backup!.dir)}\n' : ''}rm -f ${env.backup == null ? '' : shq(backupConfPath(env))}
+${purgeBackups && env.backup != null ? 'rm -rf -- ${shq(env.backup!.dir)}\n' : ''}rm -f ${env.backup == null ? '' : '${shq(backupConfPath(env))} ${shq(recipientsPath(env))}'}
 ${writeRegistry(env, regText, reg.render())}'''),
   ]);
 }

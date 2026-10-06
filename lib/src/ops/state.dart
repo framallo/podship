@@ -84,6 +84,10 @@ if command -v ss >/dev/null; then
 elif command -v netstat >/dev/null; then
   netstat -an -p tcp 2>/dev/null | awk '/LISTEN/ {print \$4}' | sed 's/.*[.:]//' | sort -un | tr '\\n' ' ' | sed 's/^/PORTS /'; echo
 fi
+if command -v docker >/dev/null; then
+  docker ps --filter label=com.docker.compose.project=${shq(env.composeProject)} --format '{{.Ports}}' 2>/dev/null |
+    tr ',' '\\n' | sed -n 's/.*:\\([0-9][0-9]*\\)->.*/\\1/p' | sort -un | tr '\\n' ' ' | sed 's/^/OWNPORTS /'; echo
+fi
 echo "REGISTRY-BEGIN"
 cat ${shq(env.registryPath)} 2>/dev/null || true
 echo "REGISTRY-END"
@@ -97,6 +101,7 @@ EnvState parseState(String out) {
   var inReg = false;
   var envFile = false, passwords = false, db = false;
   final listening = <int>{};
+  final own = <int>{};
   for (final line in const LineSplitter().convert(out)) {
     if (inReg) {
       if (line == 'REGISTRY-END') {
@@ -133,6 +138,11 @@ EnvState parseState(String out) {
         final n = int.tryParse(p);
         if (n != null) listening.add(n);
       }
+    } else if (line.startsWith('OWNPORTS ')) {
+      for (final p in line.substring(9).split(' ')) {
+        final n = int.tryParse(p);
+        if (n != null) own.add(n);
+      }
     }
   }
   releases.sort((a, b) => a.id.compareTo(b.id));
@@ -140,7 +150,8 @@ EnvState parseState(String out) {
     current: current,
     releases: releases,
     registryText: reg.toString(),
-    listening: listening,
+    // Ports held by this environment's own containers are not "taken".
+    listening: listening.difference(own),
     envFileExists: envFile,
     passwordsFileExists: passwords,
     dbRunning: db,

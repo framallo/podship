@@ -37,8 +37,8 @@ import 'state.dart';
       HealthStep(
         'Health check',
         env.host,
-        r.healthUrl,
-        publicUrl: r.publicHealthUrl,
+        r.healthUrls,
+        publicUrls: r.publicHealthUrls,
         attempts: env.health.attempts,
         intervalSeconds: env.health.intervalSeconds,
       ),
@@ -53,7 +53,7 @@ import 'state.dart';
         HealthStep(
           'Health check of $old',
           env.host,
-          r.healthUrl,
+          r.healthUrls,
           attempts: env.health.attempts,
           intervalSeconds: env.health.intervalSeconds,
         ),
@@ -138,8 +138,9 @@ Plan planRestart({
 }) {
   final env = r.env;
   final l = EnvLayout(env);
-  if (state.current == null)
+  if (state.current == null) {
     throw Aborted('nothing is deployed to ${env.name}');
+  }
   return Plan('restart ${env.name} (${state.current})', [
     RemoteStep(
       'Recreate containers',
@@ -149,8 +150,8 @@ Plan planRestart({
     HealthStep(
       'Health check',
       env.host,
-      r.healthUrl,
-      publicUrl: r.publicHealthUrl,
+      r.healthUrls,
+      publicUrls: r.publicHealthUrls,
       attempts: env.health.attempts,
       intervalSeconds: env.health.intervalSeconds,
     ),

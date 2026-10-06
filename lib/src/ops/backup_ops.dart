@@ -30,8 +30,9 @@ String recipientsText(PodshipConfig config, BackupConfig b) {
       continue;
     }
     final f = File(r.startsWith('~') ? expandHome(r) : p.join(config.root, r));
-    if (!f.existsSync())
+    if (!f.existsSync()) {
       throw ConfigException('backup recipient file $r not found');
+    }
     lines.addAll(
       f
           .readAsLinesSync()
@@ -145,6 +146,12 @@ Plan planSchedule(
         env.host,
         ctx.header(env) + setup,
       ),
+      for (final old in b.replaces)
+        RemoteStep(
+          'Disable the old schedule $old',
+          env.host,
+          'launchctl bootout gui/\$(id -u)/${shq(old)} 2>/dev/null || true\n',
+        ),
       RemoteStep(
         'Install launch agent ${b.unit} (${r.backupSchedule}, Mac local time)',
         env.host,
@@ -163,6 +170,13 @@ Plan planSchedule(
       env.host,
       ctx.header(env) + setup,
     ),
+    for (final old in b.replaces)
+      RemoteStep(
+        'Disable the old schedule $old (its files stay)',
+        env.host,
+        'systemctl disable --now ${shq('$old.timer')} 2>/dev/null || true\n'
+            'systemctl is-active ${shq('$old.timer')} || echo "$old is off"\n',
+      ),
     RemoteStep(
       'Install ${b.unit}.service and .timer (${r.backupSchedule})',
       env.host,
@@ -186,10 +200,11 @@ Plan planSchedule(
 Plan planPull(Ctx ctx, EnvConfig env) {
   final b = _need(env);
   final dir = b.offsiteDir;
-  if (dir == null)
+  if (dir == null) {
     throw ConfigException(
       'environments.${env.name}.backup.offsite.dir is not set',
     );
+  }
   final local = expandHome(dir);
   final ids = [for (final i in b.offsiteIdentities) expandHome(i)];
   return Plan('pull ${env.name} backups to $local', [

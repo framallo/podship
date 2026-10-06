@@ -134,7 +134,7 @@ void main() {
         expect(
           build.script,
           contains(
-            "/srv/demo/releases/20261006-160000-a0dc2b0/.podship/compose.sh build",
+            '/srv/demo/releases/20261006-160000-a0dc2b0/.podship/compose.sh build',
           ),
         );
       },

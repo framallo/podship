@@ -78,26 +78,31 @@ class Executor {
     final script =
         '''
 for i in \$(seq ${step.attempts}); do
-  if curl -fsS -o /dev/null --max-time 5 ${shq(step.remoteUrl)}; then
-    echo "healthy after \$i check(s)"; exit 0
-  fi
+  for u in ${step.remoteUrls.map(shq).join(' ')}; do
+    if curl -fsS -o /dev/null --max-time 5 "\$u"; then
+      echo "healthy after \$i check(s): \$u"; exit 0
+    fi
+  done
   sleep ${step.intervalSeconds}
 done
-echo "no healthy answer from ${step.remoteUrl}" >&2
+echo "no healthy answer from ${step.remoteUrls.join(' or ')}" >&2
 exit 1
 ''';
     final code = await ssh.stream(step.host, script);
-    if (code != 0) throw StepFailed(step, 'not healthy: ${step.remoteUrl}');
-    final pub = step.publicUrl;
-    if (pub == null) return;
+    if (code != 0) {
+      throw StepFailed(step, 'not healthy: ${step.remoteUrls.first}');
+    }
+    if (step.publicUrls.isEmpty) return;
     for (var i = 0; i < step.attempts; i++) {
-      if (await httpOk(pub)) {
-        log.detail('$pub answers');
-        return;
+      for (final pub in step.publicUrls) {
+        if (await httpOk(pub)) {
+          log.info('$pub answers');
+          return;
+        }
       }
       await Future<void>.delayed(Duration(seconds: step.intervalSeconds));
     }
-    throw StepFailed(step, 'not healthy: $pub');
+    throw StepFailed(step, 'not healthy: ${step.publicUrls.first}');
   }
 }
 

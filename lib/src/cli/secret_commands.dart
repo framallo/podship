@@ -51,8 +51,9 @@ class EnvSetCommand extends _EditCommand {
     final pairs = <String, String>{};
     for (final a in argResults!.rest) {
       final i = a.indexOf('=');
-      if (i <= 0 || !validEnvName(a.substring(0, i)))
+      if (i <= 0 || !validEnvName(a.substring(0, i))) {
         usageException('expected NAME=VALUE, got "$a"');
+      }
       pairs[a.substring(0, i)] = a.substring(i + 1);
     }
     if (pairs.isEmpty) usageException('give at least one NAME=VALUE');
@@ -89,8 +90,9 @@ class EnvGetCommand extends PodshipCommand {
     final n = argResults!.rest.single;
     final f = DotEnv(await readRemote(ctx, e, EnvLayout(e).envFile));
     if (!f.has(n)) throw Aborted('$n is not set in ${e.name}');
-    if (!isPlain(e, f, n))
+    if (!isPlain(e, f, n)) {
       throw Aborted('$n is a secret; podship never prints secret values');
+    }
     stdout.writeln(f.get(n));
     return 0;
   }
@@ -296,8 +298,9 @@ class SecretCopyCommand extends _EditCommand {
   Future<int> execute() async {
     final e = env;
     final src = config.env(argResults!['from'] as String);
-    if (src.name == e.name)
+    if (src.name == e.name) {
       usageException('--from must be another environment');
+    }
     final names = argResults!.rest;
     if (names.isEmpty) usageException('give at least one NAME');
     final pw = argResults!['password'] == true;

@@ -132,6 +132,8 @@ class HealthConfig {
   HealthConfig({
     required this.url,
     this.publicUrl,
+    this.fallbackUrls = const [],
+    this.publicFallbackUrls = const [],
     this.attempts = 20,
     this.intervalSeconds = 6,
   });
@@ -141,6 +143,11 @@ class HealthConfig {
 
   /// An optional public URL that is fetched from this machine.
   final String? publicUrl;
+
+  /// Other URLs that also count as healthy, for releases made before the
+  /// health route moved (a rollback to an old release still passes).
+  final List<String> fallbackUrls;
+  final List<String> publicFallbackUrls;
   final int attempts;
   final int intervalSeconds;
 }
@@ -279,6 +286,7 @@ class BackupConfig {
     this.offsiteDir,
     this.offsiteIdentities = const ['~/.ssh/id_ed25519'],
     this.compression = 'zstd',
+    this.replaces = const [],
   }) : layout = layout ?? BackupLayout();
 
   /// The backup directory on the server.
@@ -328,6 +336,11 @@ class BackupConfig {
 
   /// `zstd` or `gzip`, for volume archives.
   final String compression;
+
+  /// Older scheduled backup units (systemd timers or launchd labels) that
+  /// this schedule replaces. `backup schedule` disables them and leaves
+  /// their files, so one environment never has two schedules.
+  final List<String> replaces;
 }
 
 /// Where the database of an environment runs.
@@ -497,7 +510,12 @@ class PodshipConfig {
 
   /// Parses the YAML text of `podship.yaml`.
   static PodshipConfig parse(String text, {String root = '.'}) {
-    final doc = loadYaml(text);
+    final Object? doc;
+    try {
+      doc = loadYaml(text);
+    } on YamlException catch (e) {
+      throw ConfigException('$e');
+    }
     if (doc is! YamlMap) throw ConfigException('the top level must be a map');
     final r = _Reader(doc, '');
     final project = r.str('project');
@@ -619,6 +637,7 @@ class PodshipConfig {
         offsiteDir: off.optStr('dir'),
         offsiteIdentities: off.strs('identities', const ['~/.ssh/id_ed25519']),
         compression: bk.str('compression', 'zstd'),
+        replaces: bk.strs('replaces'),
       );
       if (!const ['zstd', 'gzip'].contains(backup.compression)) {
         throw ConfigException(
@@ -637,6 +656,8 @@ class PodshipConfig {
       health: HealthConfig(
         url: h.str('url'),
         publicUrl: h.optStr('public_url'),
+        fallbackUrls: h.strs('fallback_urls'),
+        publicFallbackUrls: h.strs('public_fallback_urls'),
         attempts: h.integer('attempts', 20),
         intervalSeconds: h.integer('interval', 6),
       ),

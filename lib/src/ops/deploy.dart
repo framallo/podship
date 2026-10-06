@@ -55,6 +55,7 @@ class DeployOptions {
     this.skipWeb = false,
     this.skipBackup = false,
     this.skipHooks = false,
+    this.publicCheck = true,
   });
 
   /// Overrides `build.source`.
@@ -62,6 +63,10 @@ class DeployOptions {
   final bool skipWeb;
   final bool skipBackup;
   final bool skipHooks;
+
+  /// Whether the health check also fetches the public URL. Off for a first
+  /// deploy, before the domain points at the new environment.
+  final bool publicCheck;
 }
 
 /// The compose files of [env], relative to the release root.
@@ -286,8 +291,8 @@ Plan planDeploy({
     HealthStep(
       'Health check',
       env.host,
-      r.healthUrl,
-      publicUrl: r.publicHealthUrl,
+      r.healthUrls,
+      publicUrls: options.publicCheck ? r.publicHealthUrls : const [],
       attempts: env.health.attempts,
       intervalSeconds: env.health.intervalSeconds,
     ),
@@ -326,7 +331,7 @@ Plan planDeploy({
       HealthStep(
         'Health check of $old',
         env.host,
-        r.healthUrl,
+        r.healthUrls,
         attempts: env.health.attempts,
         intervalSeconds: env.health.intervalSeconds,
       ),

@@ -34,8 +34,9 @@ class PasswordsFile {
     if (root is! YamlMap || root[section] is! YamlMap) {
       // Append a block-style section; yaml_edit cannot add to an empty
       // document and would write flow style.
-      if (root is YamlMap && root.containsKey(section))
+      if (root is YamlMap && root.containsKey(section)) {
         _editor.remove([section]);
+      }
       final text = _editor.toString().trimRight();
       _editor = YamlEditor(
         '${text.isEmpty ? '' : '$text\n'}$section:\n  $key: ${jsonEncode(value)}\n',

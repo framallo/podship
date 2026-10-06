@@ -216,8 +216,9 @@ class DomainAddCommand extends PodshipCommand {
     final hosts = argResults!.rest.isEmpty
         ? [for (final d in e.domains) d.host]
         : argResults!.rest;
-    if (hosts.isEmpty)
+    if (hosts.isEmpty) {
       usageException('no domains in environments.${e.name}.domains');
+    }
     final (:state, :r) = await load(e);
     await ctx.run(planDomain(ctx, r, hosts, remove: _remove));
     if (!_remove) {
@@ -354,8 +355,9 @@ class AccessCommand extends PodshipCommand {
     }
     if (argResults!.rest.length != 1) usageException('give one NAME');
     final who = argResults!.rest.single;
-    if (!RegExp(r'^[A-Za-z0-9._@-]+$').hasMatch(who))
+    if (!RegExp(r'^[A-Za-z0-9._@-]+$').hasMatch(who)) {
       usageException('invalid NAME');
+    }
     String script;
     if (_action == 'add') {
       final k = argResults!['key'] as String;
@@ -365,8 +367,9 @@ class AccessCommand extends PodshipCommand {
           .split('\n')
           .first;
       final parts = key.split(RegExp(r'\s+'));
-      if (parts.length < 2 || !isPublicKey(key))
+      if (parts.length < 2 || !isPublicKey(key)) {
         throw Aborted('not a public key: $k');
+      }
       final line = '${parts[0]} ${parts[1]} ${accessTag(who)}';
       script =
           '''

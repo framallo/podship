@@ -39,6 +39,18 @@ class ResolvedEnv {
   String get healthUrl => sub(env.health.url);
   String? get publicHealthUrl =>
       env.health.publicUrl == null ? null : sub(env.health.publicUrl!);
+
+  /// Every URL that counts as healthy on the server, primary first.
+  List<String> get healthUrls => [
+    healthUrl,
+    ...env.health.fallbackUrls.map(sub),
+  ];
+
+  /// Every public URL that counts as healthy, primary first.
+  List<String> get publicHealthUrls => [
+    ?publicHealthUrl,
+    if (publicHealthUrl != null) ...env.health.publicFallbackUrls.map(sub),
+  ];
 }
 
 /// Resolves [env] of [config] against [registry]. [listening] are ports in
