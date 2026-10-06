@@ -104,6 +104,9 @@ class DbUserCommand extends PodshipCommand {
     if (argResults!.rest.length != 1) usageException('give one NAME');
     final op = api.dbUser(e.name, _action, argResults!.rest.single);
     final code = await runOp(op);
+    // Through a console the operation ran there; reading op.result here
+    // would run it a second time.
+    if (via == 'console') return code;
     final r = await op.result;
     if (code == 0 && !json && r.data['password'] != null) {
       stdout.writeln('Password (shown once): ${r.data['password']}');
