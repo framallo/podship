@@ -243,13 +243,217 @@ Each environment runs its own Postgres by default. With `database: {mode: shared
 
 `podship ci setup --env staging` creates a deploy key, authorizes it, and prints the CI secrets and a GitHub Actions workflow that runs `podship deploy --env staging --yes`. CI needs no token, only the ssh key and the server's host key.
 
+## More commands
+
+| Command | What it does |
+|---|---|
+| `releases overview` | What runs where: every environment, its current release and commit. |
+| `releases containing <sha>` | Which environments run a release that contains a commit (by git ancestry). |
+| `history [--all]` | Every operation on the server: who, when, the release, the duration, the outcome, and a log. |
+| `unlock` | Removes the environment lock left by a client that stopped in the middle of an operation. |
+| `scale --replicas N` | Changes the number of server containers of the current release (see [Serverpod operations](#serverpod-operations)). |
+| `loadtest [--path] [--users] [--duration]` | Load tests an environment with k6, from its own server, and prints latency and errors. |
+| `provider login <name>`, `provider offers <name> [--country MX]` | Provider API tokens (kept in the system's secret store) and their regions, plans and prices. |
+| `server create`, `server destroy` | Buys or deletes a server at a provider; `create` also bootstraps it. Both ask you to type the server name. |
+| `console install` | Sets up a podship console on a machine, deployed by podship itself. |
+| `login`, `logout`, `whoami` | Personal access tokens for a podship console. |
+| `operations [--json]` | The operation catalog: stable names and parameters as JSON schema. |
+
+## Tests before a deploy
+
+`tests:` in `podship.yaml` lists test suites. They run after the commit is exported and before anything is built or uploaded. A failed suite stops the deploy, and the result names the failed tests.
+
+```yaml
+tests:
+  runner: local            # local: on the machine that runs podship; container: on the server, before the build
+  gate: [production]       # environments that only take tested commits
+  suites:
+    - name: server
+      dir: shop_server
+      command: <the test command, like your test runner with --concurrency=1>
+      timeout: 1800
+      environments: [staging]
+    - name: app
+      dir: shop_flutter
+      command: <the Flutter test command>
+      environments: [staging]
+```
+
+Each suite's counts, failures, duration and log go into the operation result, the history, and a per-commit record on the server (`<podship_home>/history/<project>/tests/<sha>.json`). An environment in `gate` takes a commit only if its tests passed in this deploy or in another environment's deploy of the same commit (staging, usually). Otherwise `deploy --skip-tests --reason "…"` asks you to type the environment name, and the skip is recorded. A project without suites has no gate. With `runner: container`, each suite runs in `image:` (default `dart:stable`) on the server, from the uploaded files.
+
+## GitHub
+
+```yaml
+github:
+  repo: owner/name
+  tags: true               # podship/<env>/<release> on the deployed commit
+  deployments: true        # GitHub Deployments with status (in_progress, success, failure, inactive after a rollback)
+  statuses: true           # commit status podship/deploy/<env>
+  releases: [production]   # a GitHub Release per deploy, with notes
+  release_tag: v{date}-{n}
+```
+
+podship uses the `gh` CLI with your own login. The release notes list the commits since the previous release of that environment, the merged pull requests, `Implements:` commit trailers as features, and the test summary. A rollback marks the deployment that was running inactive and adds a note to its release. A GitHub failure is a warning; it never fails a deploy.
+
+## Serverpod operations
+
+`serverpod:` in an environment follows Serverpod's operations guide:
+
+```yaml
+serverpod:
+  readiness: true          # also gate deploys on Serverpod's /readyz (web port, else api port)
+  logs:                    # session and query logs, so the log tables never grow without bound
+    retention_period: 30d
+    retention_count: 100000
+    cleanup_interval: 24h
+    persistent: true
+  db_pool: 10              # database connections per server container
+  stop_grace: 30           # seconds to drain on stop (Serverpod drains on SIGTERM)
+  replicas: 1              # above 1: serverless replicas, a sticky load balancer, Redis
+  redis: false
+  exception_dsn_env: SENTRY_DSN   # the .env variable the app's exception reporter reads
+```
+
+- **Logs.** The settings become `SERVERPOD_SESSION_LOG_*` variables of the server. `podship status` shows the rows and size of `serverpod_session_log`, `serverpod_log`, `serverpod_query_log` and `serverpod_message_log`.
+- **Health.** The deploy gate checks the app's health URL and Serverpod's `/readyz`. A failure in either rolls back.
+- **TLS.** Serverpod does not terminate TLS itself; the Cloudflare Tunnel or Caddy in front does (see [Domains and TLS](#domains-and-tls)).
+- **Scaling.** With `replicas: N`, the release has the `server` (monolith role: it runs future calls) and `N-1` `server-replica` containers with the serverless role, an nginx load balancer (`podship-lb`) on the server's published ports with `ip_hash`, so a client's stream stays on one container, and Redis for messages, caching and token revocation. Migrations run once: with `migrations: maintenance`, a maintenance-role container applies them before the rollout. Services inside the project that call the server directly (an nginx sidecar, for example) should call `podship-lb` instead. `podship scale --replicas N` changes the count later. If the compose file pins `--role` in the server's entrypoint, set `replica_entrypoint`.
+- **Graceful shutdown.** `stop_grace` becomes the server's `stop_grace_period`.
+- **Load testing.** `podship loadtest` runs k6 on the server against the environment's own port.
+- **Exception monitoring.** Serverpod reports exceptions through the app's own handler; podship keeps the DSN as a secret and passes it to the server through `.env`.
+
+## Egress proxy
+
+Some sites block data-center addresses. `egress:` sends chosen containers' outgoing traffic through a proxy:
+
+```yaml
+egress:
+  proxy: socks5://user:pass@mx-exit.example.com:1080
+  applies_to: [chrome, server]
+  no_proxy: [localhost, 127.0.0.1, postgres]
+```
+
+Each listed service gets `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and `NO_PROXY`. A service named `chrome` also gets `PODSHIP_CHROME_PROXY`, for an entrypoint that passes it to Chrome's `--proxy-server`.
+
+## Server providers
+
+`podship server create --provider vultr --name shop-mx --region mex --plan vc2-2c-4gb` buys a server, waits until it answers, and bootstraps it. Store the API token first with `podship provider login vultr`. `--dry-run` prints the API requests without sending them. `podship server destroy` deletes one.
+
+| Provider | Mexico | Notes |
+|---|---|---|
+| Vultr | `mex` (Mexico City) | Billed by the hour; delete stops billing. |
+| Hostinger | none (Phoenix, São Paulo are closest) | A purchase on the default payment method; the API cannot delete a VPS, so `destroy` turns off auto-renewal. |
+
+Other providers with a Mexico location: AWS EC2 `mx-central-1`, Google Cloud `northamerica-south1`, Azure Mexico Central, Oracle Cloud Querétaro and Monterrey. Providers are plugins: implement `ServerProvider` and call `registerProvider`.
+
+## Tunnel routes
+
+`TunnelRoutes` adds or removes "hostname → loopback port" rules on a server's cloudflared. `domain add` uses it, and other tools can too:
+
+```dart
+final routes = TunnelRoutes(Ssh(), Log((e) => print(renderEventText(e))));
+final result = await routes.apply(
+  TunnelTarget(
+    host: 'user@server',
+    config: '/home/user/.cloudflared/config.yml',
+    service: 'com.cloudflare.my-tunnel',   // systemd unit or launchd label
+    tunnelId: '<tunnel id>',
+    podshipHome: '/home/user/podship',
+    originCerts: {'example.com': '/home/user/.cloudflared/cert.pem'},
+  ),
+  [RouteChange('preview.example.com', [ResolvedRoute(null, 20010)])],
+);
+print(result.dns);   // created, exists, or the CNAME to add by hand
+```
+
+Every editor takes the lock `<podship_home>/locks/cloudflared` on that server and waits for it, so two tools never edit the config at once. The config is backed up, validated with `cloudflared tunnel ingress validate`, and the tunnel restarts only when a rule changed. A `RouteChange` with no routes removes the hostname.
+
+## The library
+
+Everything the CLI does is in `package:podship/podship.dart`. The CLI is a thin layer over it.
+
+```dart
+import 'package:podship/podship.dart';
+
+final podship = Podship(PodshipConfig.load('/path/to/project'));
+
+// Operations that change something: a live event stream and a result.
+final op = podship.deploy('staging');
+await for (final e in op.events) {
+  print(renderEventText(e) ?? '');          // or e.toJson()
+}
+final result = await op.result;             // OperationResult: ok, release, duration, error, data
+print(result.toJson());
+
+// Reads return typed values with toJson().
+final status = await podship.status('production');           // EnvStatus
+final releases = await podship.releases('production');       // List<ReleaseInfo>
+final overview = await podship.overview();                   // what runs where
+final where = await podship.releasesContaining('a0dc2b0');
+final history = await podship.history('production');         // List<HistoryRecord>
+final backups = await podship.backups('production');         // List<BackupInfo>
+```
+
+- **Operations**: `deploy`, `rollback`, `promote`, `restart`, `adopt`, `link`, `destroy`, `unlock`, `scale`, `loadtest`, `backupNow`, `backupDrill`, `backupRestore`, `backupSchedule`, `backupPull`, `envSet`, `envUnset`, `secretSet`, `secretUnset`, `secretCopy`, `secretCopyAll`, `secretInit`, `domainAdd`, `domainRemove`, `bootstrap`, `dbProvision`, `dbWipe`, `dbUser`, `access`, `serverCreate`, `serverDestroy`. An `Operation` starts when you first read `events` or `result`, and `op.request` is its protocol request: you can send it to a console instead of running it.
+- **Events**: `OperationStarted`, `PlanReady`, `StepStarted`, `StepFinished`, `StepFailed`, `LogLine`, `SuiteStarted`, `TestFailed`, `SuiteFinished`, `OperationFinished`. Each has `toJson()`; `eventFromJson` reads them back. Events never carry secret values.
+- **Reads**: `status`, `releases`, `currentRelease`, `overview`, `releasesContaining`, `backups`, `envList`, `envGet`, `secretList`, `projects`, `serverStatus`, `domains`, `migrateStatus`, `history`, `logs` (a stream of lines), `lockHolder`.
+- **`--json`**: read commands print JSON documents; commands that change something print one JSON event per line, ending with a `result` event.
+
+### History
+
+Every operation that changes an environment writes a record on that environment's server:
+
+```
+<podship_home>/history/<project>/<env>/<UTC time>-<operation>.json   who, when, release, previous release,
+                                                                     duration, outcome, error, data, log path
+<podship_home>/history/<project>/<env>/<UTC time>-<operation>.log    the operation's events as text
+<podship_home>/history/<project>/tests/<sha>.json                    test results of a commit
+```
+
+`podship history` and `Podship.history` read them; `--all` reads every project on the server. Records hold no secret values (a one-time password from `db user create` stays out of them).
+
+### The environment lock
+
+Every operation that changes an environment takes `<env dir>/.podship/lock` (a folder created with `mkdir`, with `owner.json`: who, what, since when) and releases it at the end. A second operation on the same environment fails and names the holder. `podship unlock` removes a lock left by a client that died. A console must take the same lock.
+
+## Consoles and the operation protocol
+
+A podship console runs operations on its own server, with its own deploy key, and streams the events back. The CLI talks to it when `--via console` is given, or when `transport: console` is set in `podship.yaml` (for the project or one environment). The console URL is `console.url` in `podship.yaml` or `PODSHIP_CONSOLE_URL`.
+
+```
+podship login https://console.example.com     # stores a personal access token (create it in the console)
+podship whoami
+podship deploy --env staging --via console
+podship logout
+```
+
+Tokens live in the macOS Keychain, the Linux Secret Service, or `~/.config/podship/tokens.json` (mode 0600). In CI, set `PODSHIP_TOKEN`. If the console does not answer, the CLI says so and suggests `--via ssh` when your key has access to the server. A console rejects a token with 401 and a role that may not run the operation with 403 (exit code 3).
+
+The protocol (version 1) is defined in `lib/src/protocol/protocol.dart`:
+
+- `POST <console>/podship/v1/operations` with an `OperationRequest`: `{"protocol":1, "id", "operation", "project", "env", "params", "dry_run"}`. The answer is NDJSON: one `{"protocol":1, "request_id", "seq", "event": {…}}` per event, ending with a `result` event. Reads put their value in the result's `data.value`.
+- `GET <console>/podship/v1/whoami`: the user and the roles.
+- `GET <console>/podship/v1/operations`: the catalog (`podship operations --json` prints the same): every operation's stable name, whether it changes or destroys something, the typed confirmation it needs, and its parameters as JSON schema, ready for MCP tools.
+
+`dispatch(Podship, OperationRequest)` runs a request and streams its events: a console can use it directly. Operation and parameter names are stable; new versions only add. The console itself is a separate project and is not part of this repository.
+
+## podship console install
+
+```
+podship console install --host user@machine --hostname console.example.com \
+  --image <console image> --admin you@example.com \
+  [--tunnel-config ~/.cloudflared/config.yml --tunnel-service <unit or label> --tunnel-id <id>]
+```
+
+It writes a small project for the console (its `podship.yaml` and compose file), creates the console's deploy key on the machine (it never leaves it; the command prints the public key to authorize on servers with `podship access add console --key "<key>"`), and runs `link`, `secret init`, `deploy`, `domain add` and `backup schedule`.
+
 ## Moving from hand-written scripts
 
 See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a real production setup as the example.
 
 ## Tests
 
-The unit tests cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention).
+Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing and the compose override (replicas, Redis, egress).
 
 The integration test in `test/integration/flow_test.dart` deploys a small project to a real Docker host over ssh: a deploy, a failed deploy with automatic rollback, `rollback`, `rollback --to`, a backup, a drill, a restore, `env set`, `promote`, `status` and `destroy`. It runs only when `PODSHIP_IT_HOST` is set. `tool/it.sh` runs it and prints a short log.
 
