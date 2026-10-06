@@ -10,16 +10,14 @@ J7: who ran which operation, when, on which release, how long it took, how it en
 
 ## 2. Data: what exists and what the console adds
 
-| Field | Source today | Note |
-|---|---|---|
-| Time | podship `history.log` (UTC) | per environment, on the server |
-| Action | `history.log`: deploy, rollback, promote, auto-rollback, adopt | other operations (backup, restore, secret, domain, access) are **not** in `history.log` |
-| Release, from | `history.log` | |
-| By | `history.log`: the server user (`$SUDO_USER` or `$USER`) | the console adds the person signed in, and `ci:<key name>` for CI |
-| Duration, outcome, steps, log | **not recorded by podship** | the console server records them from the event stream, for operations it runs |
-| Origin | console | "Console · person", "CLI · person on machine" (through `podship login`), "CI · token name", "CLI over SSH · user" (rows read from `history.log` without a console record); see `decisions/2026-10-06-cli-through-console.md` |
+Since commit `d837f54`, podship writes one record per operation on the server: `<podship_home>/history/<project>/<env>/<stamp>-<operation>.json` (operation, project, env, host, ok, duration, release, previous release, error, data without sensitive keys, actor, started_at, ended_at, log path) and the `.log` transcript. The older `<dir>/.podship/history.log` has one line per deploy, rollback or promote (time, action, release, from, user) and covers what ran before the records existed.
 
-Rows from `history.log` that the console did not run show duration and outcome as "Not recorded (run from the CLI)".
+| Field | Source |
+|---|---|
+| Time, operation, release, from, duration, outcome, log | the per-operation record (all operations run through the library, from the console, the CLI or CI) |
+| By | the record's `actor`; the console passes the signed-in person, the CLI the local user, CI its token name |
+| Origin | the console: "Console · person", "CLI · person on machine" (through `podship login`), "CI · token name", "MCP · client · person", "CLI over SSH · user" (records written by a CLI not logged in to the console), "Scheduled" (backup timers); see `decisions/2026-10-06-cli-through-console.md` |
+| Legacy rows | `history.log` lines with no record: duration and outcome shown as "Not recorded" |
 
 ## 3. Content
 
@@ -43,7 +41,7 @@ Filter chips are toggle buttons with state; the result count is a polite live re
 
 ## 7. Acceptance criteria
 
-Every console-run operation appears with person, duration and outcome; CLI rows are marked as such and never show invented durations.
+Every operation with a record appears with person, duration and outcome; legacy `history.log` rows are marked and never show invented durations.
 
 ## 8. Open questions
 

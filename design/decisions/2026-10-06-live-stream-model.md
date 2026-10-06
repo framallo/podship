@@ -4,7 +4,9 @@ Status: proposed 2026-10-06. Decided by: designer. Needs: a change to podship's 
 
 ## Context
 
-Every operation is a podship `Plan`: a title, ordered steps (`LocalStep`, `RemoteStep`, `UploadStep`, `HealthStep`, `ActionStep`), and recovery steps that run when a guarded step fails (a deploy's automatic rollback). The `Executor` runs the steps in order. Today it reports through `Log` to stdout and stderr, and remote and local steps inherit stdio (`ssh.stream`, `Process.start(… inheritStdio)`). There is no event sink, no sequence numbers and no cancellation.
+Every operation is a podship `Plan`: a title, ordered steps, and recovery steps that run when a guarded step fails (a deploy's automatic rollback). Since commit `d837f54` (6 Oct 2026) podship's library API (`lib/src/api/`) runs each operation as a typed `Stream<PodshipEvent>`: `OperationStarted` (operation, project, env, host, dry run), `PlanReady` (title, step titles, plan text), `StepStarted` (index, total, title, `recovery` flag), `StepFinished` (index, title, duration), `StepFailed` (index, title, error), `LogLine` (text, level `info|detail|ok|warn|error|output`, `stderr`), `OperationFinished` (an `OperationResult`: ok, duration, release, previous release, error, data). Events carry a UTC time and never secret values. Each operation also writes a history record on the server (`<podship_home>/history/<project>/<env>/<stamp>-<operation>.json` and `.log`) with the actor, start and end, duration, outcome, release and log path.
+
+Still missing for a console: sequence numbers, a step index on `LogLine` (lines belong to the step that is running when they arrive), persistence across a console restart, and cancellation (the executor has none; only the `logs` stream can be cancelled).
 
 Serverpod streams close when the WebSocket dies and never reopen on their own; long work must be shown from persisted state (`references/serverpod-ux.md` in the skill, rules 4 and 10).
 
@@ -16,16 +18,19 @@ Serverpod streams close when the WebSocket dies and never reopen on their own; l
 
 ## Decision
 
-**Proposal to podship (not existing behavior):** an `OperationListener` (or a `Stream<OperationEvent>`) passed to `Executor`, with these events:
+**Mapping from the library events to the UI:**
 
-| Event | Fields | UI |
-|---|---|---|
-| `planned` | title, steps (title, kind, host), recovery steps, guard range | Step list in pending state; header with the plan title |
-| `stepStarted` | index, time | Step becomes "running"; progress "Step 5 of 11" |
-| `logLine` | step index, stream (`stdout`/`stderr`/`podship`), text, time | Line in the log viewer under that step |
-| `stepFinished` | index, ok, duration, message | Step "done" with duration, or "failed" with the message |
-| `recoveryStarted` | failed step index | A "Recovery" group appears; the header says "Rolling back automatically" |
-| `finished` | outcome (`succeeded`, `failed`, `recovered`), duration, release id | Outcome banner; history row |
+| Library event | UI |
+|---|---|
+| `OperationStarted` | Header (operation, project/env, host) and the running indicator |
+| `PlanReady` | Step list in pending state; header with the plan title |
+| `StepStarted` (recovery false / true) | Step becomes "running"; "Step 5 of 11". With `recovery: true` a "Recovery" group appears and the header says "Rolling back automatically" |
+| `LogLine` | A line in the log viewer under the running step; `stderr` and `level: error` lines get the danger color and the "err" label; `warn` the warn color |
+| `StepFinished` | Step "done" with its duration |
+| `StepFailed` | Step "failed" with the error |
+| `OperationFinished` | Outcome banner (succeeded; failed; recovered when a recovery step ran and the result names the previous release) and the history row |
+
+**What the console server adds:** a sequence number per event, the operation id, persistence in its database (so a reload, a sleeping phone or a second viewer gets everything), the origin (`Console · person`, `CLI · person on machine`, `CI · token`, `MCP · client`), and the actor string it passes to the library so the server-side history record names the person. **Proposal to podship:** a step index on `LogLine`, so a line can never be attributed to the wrong step when steps overlap.
 
 Secrets: podship already never logs secret values; the console server also masks any value of a known secret key if it ever appears in a line, before it stores the line.
 
@@ -44,4 +49,4 @@ UI rules:
 
 ## Consequences
 
-podship needs the listener before the console can show real step state; until then the console can only show the CLI's raw output. The history spec separates the fields podship records today (`history.log`: time, action, release, from, user) from the ones the console server adds (duration, outcome, log).
+The console can be built on the library stream as it is; the step index on `LogLine` is a small addition. The history spec reads podship's per-operation records for duration, outcome and log, and the older `history.log` lines only for operations from before the records existed.

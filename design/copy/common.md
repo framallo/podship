@@ -47,4 +47,4 @@ Status: draft 2026-10-06. Keys map to ARB keys (`common.retry` → `commonRetry`
 | origin.mcp | MCP · {client} · {person} (token {name}) | MCP · {client} · {person} (token {name}) | client from the MCP handshake |
 | origin.ssh | CLI over SSH · {user} | CLI por SSH · {user} | rows read from history.log, not live |
 | origin.scheduled | Scheduled | Programado | backup timers |
-| history.notRecorded | Not recorded (run from the CLI over SSH) | No registrado (se ejecutó con la CLI por SSH) | duration and outcome of SSH rows |
+| history.notRecorded | Not recorded (older than podship's history records) | No registrado (anterior a los registros de historial de podship) | legacy history.log rows |
