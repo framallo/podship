@@ -1,73 +1,75 @@
-# Overview
+# Spec · Overview
 
-Status: draft 2026-10-06. Mockups: `mockups/web-overview.html` (desktop), `mockups/status-phone.html` frame 1 and alternates (phone). Copy: `copy/overview.md`.
+Status: draft 2026-10-06. Key: OVR. Copy: [overview](../copy/overview.md), [common](../copy/common.md). Mockups: `mockups/web-overview.html`, `mockups/status-phone.html` frame 1 and alternates.
+Read: the console home, between tasks or first thing in the morning, desk or phone. Calm, exact, high restraint.
 
-Reading this as: the console's home for the owner between tasks or first thing in the morning, desk or phone, calm and exact, high restraint. One question: is everything up and backed up?
+## Purpose
 
-## 1. Job story
+The owner sees in one glance, also on a phone, whether every environment is up and backed up (J1).
 
-J1 (`research/job-stories.md`): when I open the console, I want to see whether every environment is up and was backed up last night, so I can stop worrying or know where to look. HMW make that readable in one glance, on a phone?
+## Entry and exit
 
-## 2. Entry points and exits
-
-Entry: sign-in lands here; `/overview`; the logo; `G O`. Exits: a row → its environment page; a server name → server page; a running operation → operation view; "Needs attention" items → the exact tab (backups, environment).
-
-## 3. Primary action
-
-None that changes anything. The focal point is the **attention summary** line at the top: "All 4 environments are healthy. Newest backups are 8 h old or less." or "1 environment needs attention". Secondary: "Add a project" (opens the CLI instructions; adding projects is `podship init` + `link` from the repo, open question below).
-
-## 4. States
-
-| State | What shows | Frame |
+| Way | From or to | Condition |
 |---|---|---|
-| Loading (first) | Table with skeleton rows (layout known), summary line replaced by "Checking 2 servers…" | phone: `status-phone.html` alt "loading" |
-| Ideal | Summary line in ok; one table grouped by server: environment, project, health, current release and age, last backup age, last drill, running operation | web 1, phone 1 |
-| Needs attention | Summary in danger or warn; affected rows first inside their group with the reason in words ("Health check failing for 12 min", "Last backup 31 h ago, schedule missed"); a "Needs attention" list above the table with a link per item | web 2, rollback-phone 1 |
-| Partial | One server unreachable: its group shows "Can't reach agentes.local over SSH since 09:41" and its rows show the last known values marked stale; the other group is live | web 2 (server group) |
-| Stale (console server unreachable) | Banner "Showing data from 10:52. Can't reach the console server. Retrying in 8 s" with "Retry now"; every age keeps counting; health words get "(last known)" | web 3, phone alt "stale" |
-| Empty (first run) | "No servers yet. podship console reads the servers and projects you set up with the CLI." + the three commands (`podship init`, `podship launch --env staging`, then "Add server") and one button "Add a server" | web 4 |
-| Unauthorized | Session expired → sign-in with the code; return to `/overview` | shared shell |
-| Forbidden | A collaborator sees only the environments they have a role on; no 403 page here | web 1 for owner; settings spec |
-| Dark | Same layout | web 5, phone alt "dark" |
+| Entry | Sign-in, `/overview`, the logo, `G O` | |
+| Exit | Environment page, server page, operation view | Tap a row, a server name, a running operation |
+| Exit | The exact tab (backups, environment) | Tap a "Needs attention" item |
 
-## 5. Layout per size class
+## States
 
-- Expanded: sidebar; content max 1152; summary line + "Needs attention" list (only when non-empty) + one table grouped by server (group row: server name, OS and arch, CPU and disk use as words and numbers, "Open server"). Columns: Environment (env name + project), Health, Release (id in mono + "2 h ago"), Last backup, Last drill, Activity (running op or last op).
-- Medium: rail; the table drops "Last drill" and "Activity" into a second line of each row.
-- Compact: bottom nav (Overview, Operations, Servers, Settings). Summary card at top, then one list per server; each row is two lines: "cazafacturas · production" and "Healthy · release 2 h ago · backup 8 h ago". Pull to refresh.
+| State | What shows | Trigger | Frame |
+|---|---|---|---|
+| Loading | Skeleton rows. Summary is `overview.summary.checking`. | First load | phone alt "loading" |
+| Ideal | Summary `overview.summary.allOk` in ok. One table grouped by server (OVR-3). | All healthy | web 1, phone 1 |
+| Needs attention | Summary in danger or warn. `overview.attention.title` list above the table, one link per item. Affected rows first in their group, reason in words. | A threshold is crossed (OVR-6) | web 2, rollback-phone 1 |
+| Partial | The unreachable server's group shows `state.serverUnreachable` and stale rows. Other groups stay live. | One server unreachable ([COM-server-unreachable](common.md#com-server-unreachable)) | web 2 |
+| Stale | `state.stale` banner with `common.retry`. Ages keep counting. Health words get `common.lastKnown`. | Console server unreachable ([COM-stale](common.md#com-stale)) | web 3, phone alt "stale" |
+| Empty | `overview.empty.*`, the commands `podship init`, `podship launch --env staging`, then "Add server". One button `overview.empty.action`. | No servers | web 4 |
+| Unauthorized | Sign-in with the code, then back to `/overview` | Session expired ([COM-auth](common.md#com-auth)) | shared shell |
+| Forbidden | No 403 page. A collaborator sees only environments where they have a role. | Collaborator ([COM-forbidden](common.md#com-forbidden)) | web 1, settings spec |
+| Dark | Same layout | Dark theme | web 5, phone alt "dark" |
 
-## 6. Components and tokens
+## Rules
 
-`AppShell`, `EnvironmentBand` (not on this page), `StatusPill`, `HealthIndicator`, `AgeText` (relative time with absolute tooltip and stale marking), `DataTable` with group rows, `Banner`, `Skeleton`, `EmptyState`. Tokens: surfaces `page`, `surface`, `container` (group rows); status triads; `id` mono style for releases.
+| ID | Kind | Rule | Ref |
+|---|---|---|---|
+| OVR-1 | ui | No primary action changes anything. The attention summary line at the top is the focal point. | |
+| OVR-2 | ui | Secondary: "Add a project" opens the CLI instructions (`podship init` + `link` from the repo). | Open question 1 |
+| OVR-3 | data | Group row: server name, OS and arch, CPU and disk use as words and numbers, `overview.group.open`. | |
+| OVR-4 | data | Columns: Environment (env + project), Health, Release (id in mono + age), Last backup, Last drill, Activity (running or last op). | |
+| OVR-5 | data | The summary line has four forms: all healthy, n need attention, checking, stale. | |
+| OVR-6 | data | Console setting defaults: backup age warn > 26 h, danger > 50 h. Drill age warn > 30 days. Health stale after 3 min without a check. | |
+| OVR-7 | layout | Expanded: sidebar, content max 1152. The attention list shows only when not empty. | |
+| OVR-8 | layout | Medium: rail. "Last drill" and "Activity" move to a second line of each row. | |
+| OVR-9 | layout | Compact: bottom nav (Overview, Operations, Servers, Settings), summary card, one list per server, pull to refresh. | |
+| OVR-10 | layout | Compact row, two lines: "cazafacturas · production" and "Healthy · release 2 h ago · backup 8 h ago". | |
+| OVR-11 | ui | Components: `AppShell`, `StatusPill`, `HealthIndicator`, `AgeText`, `DataTable` with group rows, `Banner`, `Skeleton`, `EmptyState`. No `EnvironmentBand`. | |
+| OVR-12 | ui | Tokens: surfaces `page`, `surface`, `container` (group rows), status triads, `id` mono for releases. | |
+| OVR-13 | validation | None. The page is read only. | |
+| OVR-14 | test | 4 environments on 2 servers: the answer is the first line, no scrolling, at 390 × 844 and 1440 × 900. | |
+| OVR-15 | test | Backup older than 26 h shows warn with the reason in words. Older than 50 h shows danger. | |
+| OVR-16 | test | Console server unreachable: the page keeps the last data, shows its time, marks every value "last known". | [COM-stale](common.md#com-stale) |
+| OVR-17 | test | One server unreachable: only its group is marked. The other group stays live. | |
+| OVR-18 | test | Goldens: ideal, attention, stale, empty, dark, compact. `meetsGuideline` passes in light and dark. | [COM-goldens](common.md#com-goldens) |
 
-Thresholds (console settings, defaults): backup age warn > 26 h, danger > 50 h; drill age warn > 30 days; health stale after 3 min without a check.
+## Copy keys
 
-## 7. Copy
+`overview.*` in the copy table, `state.*` and `common.*` in common.
 
-`copy/overview.md`. Behavior strings: the summary line has four forms (all healthy / n need attention / checking / stale).
+## Accessibility and platform
 
-## 8. Validation
+| ID | Rule |
+|---|---|
+| OVR-19 | The summary line is a heading and a polite live region. It is the only announcement on refresh. |
+| OVR-20 | Each row is one node (`MergeSemantics`): "cazafacturas production on caza-vps. Healthy. Release 20261006-170512-a0dc2b0, deployed 2 hours ago. Last backup 8 hours ago." |
+| OVR-21 | Health shows dot + word. Pills show icon + word ([COM-status-not-color](common.md#com-status-not-color)). |
+| OVR-22 | Relative times carry the absolute time in the label: "8 hours ago, 6 October 2026 03:00" ([COM-relative-time](common.md#com-relative-time)). |
+| OVR-23 | Row targets: 44 px desktop, 64 px phone. Rows show the focus ring. Enter opens. |
+| OVR-24 | 200 % text: phone rows wrap to three lines. The desktop table switches to the two-line medium row. |
 
-None (read only).
+## Open questions
 
-## 9. Accessibility
-
-- The summary line is a heading and a polite live region; it is the only thing announced when data refreshes.
-- Each row is one semantics node: "cazafacturas production on caza-vps. Healthy. Release 20261006-170512-a0dc2b0, deployed 2 hours ago. Last backup 8 hours ago." (`MergeSemantics`).
-- Health never by color: dot + word; pill = icon + word.
-- Relative times have the absolute time in the label ("8 hours ago, 6 October 2026 03:00").
-- Targets: rows 44 px desktop, 64 px phone. Focus ring on rows; Enter opens.
-- 200 % text: phone rows wrap to three lines; the desktop table switches to the medium two-line row at 200 %.
-
-## 10. Acceptance criteria
-
-- With 4 environments on 2 servers, the answer to "everything up and backed up?" is in the first line, without scrolling, at 390 × 844 and at 1440 × 900.
-- A backup older than 26 h shows warn with the reason in words; older than 50 h shows danger.
-- When the console server is unreachable, the page keeps the last data, shows its time, and every value is marked "last known".
-- When one server is unreachable, only its group is marked; the other group stays live.
-- `meetsGuideline` (text contrast, tap target Android and iOS, labeled tap targets) passes in light and dark; goldens: ideal, attention, stale, empty, dark, compact.
-
-## 11. Open questions
-
-- Can the console add a project, or only read what `podship link` registered? (owner, before build)
-- Should the overview include projects whose environments are all on servers the console cannot reach yet (first SSH key not installed)? (owner)
+| # | Question | Owner | Date |
+|---|---|---|---|
+| 1 | Can the console add a project, or only read what `podship link` registered? Answer before build. | owner | 2026-10-06 |
+| 2 | Include projects whose environments are all on servers the console cannot reach yet (first SSH key not installed)? | owner | 2026-10-06 |

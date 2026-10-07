@@ -1,52 +1,56 @@
-# Domains
+# Spec · Domains
 
-Status: draft 2026-10-06. Mockups: `mockups/web-domains.html` (3 states). Copy: `copy/domains.md`.
+Status: draft 2026-10-06. Key: DMN. Copy: [domains](../copy/domains.md). Mockups: `mockups/web-domains.html` (3 states).
+Read: a rarely used setup page, desktop, technical, medium restraint. The DNS record is the thing to copy.
 
-Reading this as: a rarely used setup page, desktop, technical, medium restraint; the DNS record is the thing to copy.
+## Purpose
 
-## 1. Job story
+The owner adds a domain to a project and knows exactly which DNS record to create (J6).
 
-J6: add a domain for a project and know exactly which DNS record to create.
+## Entry and exit
 
-## 2. Entry and exits
+| Way | From or to | Condition |
+|---|---|---|
+| Entry | Environment tab "Domains" | |
+| Exit | Operation view | `domain add`, `domain remove` |
 
-Entry: environment tab "Domains". Exits: operation view (`domain add`, `domain remove`).
+## States
 
-## 3. Primary action
+| State | What shows | Trigger | Frame |
+|---|---|---|---|
+| Ideal | Proxy line, domains table, DNS record (DMN-2 to DMN-4) | 2 domains on production through the tunnel | web 1 |
+| Add a domain | Host field, routes (default: everything to web), preview of the DNS record and of the plan | `domains.add` | web 2 |
+| DNS not pointing | Warn row `domains.dns.pending` | Public DNS does not match | web 3 |
+| No proxy | `domains.noProxy` | `proxy.kind: none` | |
 
-"Add a domain".
+## Rules
 
-## 4. Content
+| ID | Kind | Rule | Ref |
+|---|---|---|---|
+| DMN-1 | ui | Primary: `domains.add`. | |
+| DMN-2 | data | Proxy line from `proxy.kind`: `domains.proxy.tunnel` or `domains.proxy.caddy`, with the config path. | |
+| DMN-3 | data | Table: host, routes, TLS, DNS. Routes: path regex → port name and number, for example `^/(api|v1)/` → api 8086, else → web 8087. | |
+| DMN-4 | data | TLS: Cloudflare edge, or Caddy certificate with expiry. DNS: the expected record and whether public DNS matches. | |
+| DMN-5 | data | The record to create is copyable text. Cloudflare: `CNAME cazafacturas.mx → 2b4f…cfargotunnel.com (proxied)`. Caddy: `A shop.example.com → 203.0.113.24`. | [COM-copy](common.md#com-copy) |
+| DMN-6 | flow | Add plan steps: back up tunnel config, write ingress, validate, restart cloudflared. | |
+| DMN-7 | validation | Host: a valid hostname, unique in the server registry, on blur. In use: `domains.inUse`. | |
+| DMN-8 | validation | Path rule: a valid regex, on blur. | |
+| DMN-9 | ui | Components: `DataTable`, `CodeText` with copy, `ConfirmDialog` (tier 1 on production), `Banner`. | |
+| DMN-10 | test | The DNS record matches podship's output for the proxy kind. | |
+| DMN-11 | test | A host in use elsewhere is rejected before the operation starts. podship refuses a second user. | |
 
-- Proxy: "Cloudflare Tunnel cazafacturas-vps" or "Caddy with Let's Encrypt" (from `proxy.kind`), with the config path.
-- Table: host, routes (path regex → port name and number, e.g. `^/(api|v1)/` → api 8086; everything else → web 8087), TLS (Cloudflare edge, or Caddy certificate with expiry), DNS (record podship expects and whether public DNS matches: "Points to the tunnel", "Not pointing yet").
-- The DNS record to create, as copyable text: Cloudflare `CNAME cazafacturas.mx → 2b4f…cfargotunnel.com (proxied)`; Caddy `A shop.example.com → 203.0.113.24`.
+## Copy keys
 
-## 5. States
+`domains.*` in the copy table.
 
-| State | Frame |
+## Accessibility and platform
+
+| ID | Rule |
 |---|---|
-| Ideal: 2 domains on production through the tunnel | web 1 |
-| Add a domain: host field, routes (default: everything to web), preview of the DNS record and of the plan (backup tunnel config, write ingress, validate, restart cloudflared) | web 2 |
-| DNS not pointing yet: warn row "admin.cazafacturas.mx doesn't resolve to the tunnel yet. Create the CNAME below; it can take a few minutes." | web 3 |
-| Proxy none: "This environment has no proxy (proxy.kind: none). Set it in podship.yaml." | spec only |
+| DMN-12 | Copy button label: "Copy DNS record for admin.cazafacturas.mx". Copy confirms with a polite "Copied" ([COM-copy](common.md#com-copy)). |
 
-## 6. Validation
+## Open questions
 
-Host: a valid hostname, unique in the server registry (podship refuses a second user): "shop.example.com is already used by shop/production on caza-vps." on blur. Path rule: a valid regex; on blur.
-
-## 7. Components
-
-`DataTable`, `CodeText` with copy, `ConfirmDialog` (tier 1 on production), `Banner`.
-
-## 8. Accessibility
-
-Copy buttons labeled "Copy DNS record for admin.cazafacturas.mx"; confirmation of copy as a polite announcement "Copied".
-
-## 9. Acceptance criteria
-
-The DNS record shown matches podship's output for the proxy kind; a host in use elsewhere is rejected before the operation starts.
-
-## 10. Open questions
-
-Removing the last domain of production: tier 1 or tier 2? Proposed tier 2 (it takes the site off the internet). (owner)
+| # | Question | Owner | Date |
+|---|---|---|---|
+| 1 | Removing the last domain of production: tier 1 or tier 2? Proposed: tier 2 (the site goes off the internet). | owner | 2026-10-06 |

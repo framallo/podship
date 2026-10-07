@@ -1,42 +1,45 @@
-# Logs
+# Spec · Logs
 
-Status: draft 2026-10-06. Mockups: `mockups/web-logs.html` (3 states). Copy: `copy/logs.md`.
+Status: draft 2026-10-06. Key: LOG. Copy: [copy/logs.md](../copy/logs.md). Mockups: `mockups/web-logs.html`.
+Read: diagnostic tool used right after something breaks, desktop, dense and technical, low decoration.
 
-Reading this as: a diagnostic tool used right after something breaks, desktop, dense and technical, low decoration.
+## Purpose
 
-## 1. Job stories
+The owner finds out what broke (J3) and a collaborator reads staging logs (J9).
 
-J3 (find out what broke), J9 (collaborator reads staging logs).
+## States
 
-## 2. Content and controls
+| State | What shows | Frame |
+|---|---|---|
+| Following | All services, last 15 min | web 1 |
+| Paused | User scrolled up. "Paused. 38 new lines. Jump to latest". Search matches counted. | web 2 |
+| Empty | `logs.empty` | web 3 |
+| Container not running | `logs.notRunning` with the last lines | spec only |
 
-Container logs (`podship logs`): service filter (all, server, postgres, pacewright), time range ("Last 15 min", "Last hour", "Since the current release", custom `--since`/`--until`), follow on/off, timestamps on/off, search (highlights and filters), wrap, download. Each line: time (local, with UTC in the tooltip), service, text. Lines matching `error|exception|fatal` get the danger color and an "err" label.
+## Rules
 
-## 3. States
+| ID | Kind | Rule |
+|---|---|---|
+| LOG-1 | data | Source: container logs (`podship logs`). |
+| LOG-2 | ui | Service filter: all, server, postgres, pacewright. |
+| LOG-3 | ui | Time range: `logs.range.*` or custom `--since`/`--until`. |
+| LOG-4 | ui | Toggles: follow, timestamps, wrap. Search highlights and filters. Download. |
+| LOG-5 | ui | Each line: local time (UTC in the tooltip), service, text. |
+| LOG-6 | ui | Lines that match `error\|exception\|fatal` get the danger color and an "err" label. |
+| LOG-7 | flow | Scrolling up pauses follow. "Jump to latest" resumes it. |
+| LOG-8 | server | The console server masks secrets in lines. |
+| LOG-9 | layout | Expanded: filter toolbar above a full-height viewer. |
+| LOG-10 | layout | Compact: filters in a sheet, viewer full width, wrap forced on. |
+| LOG-11 | ui | Components: `LogViewer` (shared with the operation view), `Segmented`, `Select`, `SearchField`. |
+| LOG-12 | a11y | Text is selectable. A polite live region counts search results (`logs.matches`). |
+| LOG-13 | a11y | Follow is a toggle button with its state in the label. |
 
-| State | Frame |
-|---|---|
-| Following, all services, last 15 min | web 1 |
-| Paused (user scrolled up) with "Paused. 38 new lines. Jump to latest"; search "timeout" with 4 matches; service filter server | web 2 |
-| No lines in range: "No log lines from server between 10:00 and 10:15. Widen the range or pick another service." | web 3 |
-| Container not running: "server isn't running on caza-vps. The last lines before it stopped are below." | spec only |
+## Copy keys
 
-## 4. Layout
+`logs.*`. "Paused. 38 new lines. Jump to latest" has no key yet.
 
-Expanded: toolbar (filters) above a full-height viewer. Compact: filters in a sheet; the viewer full width; line wrap forced on.
+## Open questions
 
-## 5. Components
-
-`LogViewer` (shared with the operation view), `Segmented`, `Select`, `SearchField`.
-
-## 6. Accessibility
-
-Selectable text; search results counted in a polite live region ("4 matches"); following state is a toggle button with its state in the label.
-
-## 7. Acceptance criteria
-
-Follow pauses on scroll-up and resumes with "Jump to latest"; secrets are masked in lines (console server rule).
-
-## 8. Open questions
-
-Keep a history beyond Docker's own log retention? Not proposed. (owner)
+| # | Question | Owner |
+|---|---|---|
+| 1 | Keep history beyond Docker's log retention? Not proposed. | owner |

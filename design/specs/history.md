@@ -1,48 +1,48 @@
-# History and audit
+# Spec · History and audit
 
-Status: draft 2026-10-06. Mockups: `mockups/web-history.html` (3 states). Copy: `copy/history.md`.
+Status: draft 2026-10-06. Key: HIS. Copy: [copy/history.md](../copy/history.md). Mockups: `mockups/web-history.html` (3 states).
+Read: audit list read when explaining what happened, desktop, exact, high density.
 
-Reading this as: an audit list read when explaining what happened, desktop, exact, high density.
+## Purpose
 
-## 1. Job story
+The owner sees who ran which operation, when, on which release, how long it took and how it ended (J7).
 
-J7: who ran which operation, when, on which release, how long it took, how it ended.
+## States
 
-## 2. Data: what exists and what the console adds
+| State | What shows | Frame |
+|---|---|---|
+| Default | All operations, last 7 days | web 1 |
+| Row expanded | CLI row: the raw line. Console row: steps summary and `lock.open`. | web 2 |
+| No results | `history.empty` with `history.filter.clear` | web 3 |
 
-Since commit `d837f54`, podship writes one record per operation on the server: `<podship_home>/history/<project>/<env>/<stamp>-<operation>.json` (operation, project, env, host, ok, duration, release, previous release, error, data without sensitive keys, actor, started_at, ended_at, log path) and the `.log` transcript. The older `<dir>/.podship/history.log` has one line per deploy, rollback or promote (time, action, release, from, user) and covers what ran before the records existed.
+## Rules
 
-| Field | Source |
-|---|---|
-| Time, operation, release, from, duration, outcome, log | the per-operation record (all operations run through the library, from the console, the CLI or CI) |
-| By | the record's `actor`; the console passes the signed-in person, the CLI the local user, CI its token name |
-| Origin | the console: "Console · person", "CLI · person on machine" (through `podship login`), "CI · token name", "MCP · client · person", "CLI over SSH · user" (records written by a CLI not logged in to the console), "Scheduled" (backup timers); see `decisions/2026-10-06-cli-through-console.md` |
-| Legacy rows | `history.log` lines with no record: duration and outcome shown as "Not recorded" |
+| ID | Kind | Rule |
+|---|---|---|
+| HIS-1 | data | Since commit `d837f54`, podship writes one record per operation: `<podship_home>/history/<project>/<env>/<stamp>-<operation>.json` and a `.log` transcript. |
+| HIS-2 | data | Record fields: operation, project, env, host, ok, duration, release, previous release, error, actor, started_at, ended_at, log path. |
+| HIS-3 | data | The record's data excludes sensitive keys. |
+| HIS-4 | data | The older `<dir>/.podship/history.log` has one line per deploy, rollback or promote: time, action, release, from, user. |
+| HIS-5 | data | Time, operation, release, from, duration, outcome and log come from the record. This covers console, CLI and CI runs. |
+| HIS-6 | data | "By" is the record's `actor`: the console's signed-in person, the CLI's local user, or the CI token name. |
+| HIS-7 | data | Origin is set by the console: `origin.*`. CLI over SSH means a CLI not logged in to the console. [COM-origin](common.md#com-origin). |
+| HIS-8 | data | A `history.log` line with no record shows duration and outcome as `history.notRecorded`. It never shows invented durations. |
+| HIS-9 | ui | Columns: time, operation (verb + project/env), release (mono, "from" for rollbacks), by, origin, duration, outcome pill. |
+| HIS-10 | ui | Filters: project, environment, operation type, person, origin (Console, CLI, CI, CLI over SSH), outcome, date range. |
+| HIS-11 | flow | CLI and CI operations through the console are live and open the same operation view. |
+| HIS-12 | flow | A row opens the operation view. A CLI row expands inline with its raw `history.log` line. |
+| HIS-13 | flow | Every operation with a record shows person, duration and outcome. |
+| HIS-14 | ui | Components: `DataTable` with filters, `StatusPill`, `FilterBar`, `EmptyState`. |
+| HIS-15 | a11y | Filter chips are toggle buttons with state. The result count is a polite live region (`history.count`). |
 
-## 3. Content
+Origin labels: [CLI through the console](../decisions/2026-10-06-cli-through-console.md).
 
-Table: time, operation (verb + project/env), release (mono; "from" for rollbacks), by, source, duration, outcome pill. Filters: project, environment, operation type, person, **origin** (Console, CLI, CI, CLI over SSH), outcome, date range. Operations started from the CLI or CI through the console are live like any other and open the same operation view. Row → operation view (or an inline expansion for CLI rows with the raw `history.log` line).
+## Copy keys
 
-## 4. States
+`history.*`, `origin.*`, `lock.open`.
 
-| State | Frame |
-|---|---|
-| All operations, last 7 days | web 1 |
-| One row expanded (CLI row: the raw line; console row: steps summary and "Open operation") | web 2 |
-| Filter with no results: "No failed operations on staging in the last 7 days. Clear filters" | web 3 |
+## Open questions
 
-## 5. Components
-
-`DataTable` with filters, `StatusPill`, `FilterBar`, `EmptyState`.
-
-## 6. Accessibility
-
-Filter chips are toggle buttons with state; the result count is a polite live region.
-
-## 7. Acceptance criteria
-
-Every operation with a record appears with person, duration and outcome; legacy `history.log` rows are marked and never show invented durations.
-
-## 8. Open questions
-
-Export (CSV) for audits? (owner)
+| # | Question | Owner |
+|---|---|---|
+| 1 | Export (CSV) for audits? | owner |

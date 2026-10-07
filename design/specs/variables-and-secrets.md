@@ -1,64 +1,61 @@
-# Variables and secrets
+# Spec · Variables and secrets
 
-Status: draft 2026-10-06. Mockups: `mockups/web-variables.html` (4 states). Copy: `copy/variables-and-secrets.md`.
+Status: draft 2026-10-06. Key: VAR. Copy: [copy/variables-and-secrets.md](../copy/variables-and-secrets.md). Mockups: `mockups/web-variables.html` (4 states).
+Read: settings table the owner edits a few times a month, desktop, exact, high restraint. Secrets are write-only.
 
-Reading this as: a settings table the owner edits a few times a month, desktop, exact, high restraint; secrets are write-only.
+## Purpose
 
-## 1. Job story
+The owner adds a secret without a server login, and the value never shows (J6).
 
-J6: add a secret without logging into the server and without the value ever being shown.
+## Entry and exit
 
-## 2. Entry and exits
-
-Entry: environment tab "Variables"; palette "Set a secret on cazafacturas production". Exits: restart (after a change), operation view.
-
-## 3. Primary action
-
-"Add" (menu: "Add a variable", "Add a secret"). After a change: "Restart to apply" becomes primary (the change takes effect only after `restart`).
-
-## 4. Content and rules
-
-- Two sections from podship: **Variables** (keys in `plain_env`, values may be shown) and **Secrets** (every other key in `.env`, and the keys in `passwords.yaml`). File shown as a caption: `shared/.env`, `cazafacturas_server/config/passwords.yaml`.
-- Secrets show the key, the file, "Set" or "Not set", and the time it last changed if known. **The value is never shown, never sent to the client, never logged.** There is no "reveal" control.
-- Set a secret: hidden input (no echo; a "show what I typed" toggle shows only the local text before it is sent), or "Generate a random value" (podship `--generate`: 32 bytes), or "Read from a file". Replacing asks nothing more on staging and is tier 1 on production.
-- Copy from another environment (`secret copy --from`): pick keys; values move server to server without passing through the browser.
-- Template check: keys in `.env.example` missing on the server are listed as "Not set" with "Set".
-
-## 5. States
-
-| State | Frame |
+| Way | Detail |
 |---|---|
-| Ideal: 7 variables with values, 12 secrets "Set", 1 "Not set" (warn) | web 1 |
-| Set a secret dialog (production, tier 1) | web 2 |
-| Restart needed: run banner "2 changes are saved on caza-vps and apply after a restart." primary "Restart production…" | web 3 |
-| Copy from staging dialog with key checklist | web 4 |
-| Files missing (`secret init` never ran): empty state with "Create .env and passwords.yaml" (runs `secret init`, tier 1 on production) | spec only |
-| Unreachable server, forbidden: shared | spec only |
+| Entry | Environment tab "Variables". Palette: "Set a secret on cazafacturas production". |
+| Exit | Restart after a change. Operation view. |
 
-## 6. Layout
+## States
 
-Expanded: two tables stacked (variables, secrets), search over keys. Compact: read-only list; editing secrets on the phone is not offered (proposed; owner to confirm).
+| State | What shows | Frame |
+|---|---|---|
+| Ideal | Variables with values. Secrets `vars.state.set`, missing ones `vars.state.notSet` in warn. | web 1 |
+| Set a secret | Dialog, tier 1 on production | web 2 |
+| Restart needed | Run banner `vars.restart.banner` | web 3 |
+| Copy from staging | Dialog with a key checklist | web 4 |
+| Files missing | `secret init` never ran. Empty state "Create .env and passwords.yaml" runs `secret init`, tier 1 on production. | spec only |
+| Unreachable server, forbidden | [COM-server-unreachable](common.md#com-server-unreachable), [COM-forbidden](common.md#com-forbidden) | spec only |
 
-## 7. Components
+## Rules
 
-`DataTable`, `ConfirmDialog` tier 1, `SecretField` (obscured, no autofill, no spellcheck, `enableSuggestions: false`), `Banner`, `Checklist`.
+| ID | Kind | Rule |
+|---|---|---|
+| VAR-1 | ui | Primary: `vars.add` (menu: `vars.add.variable`, `vars.add.secret`). After a change, `vars.restart.action` is primary. |
+| VAR-2 | flow | A change applies only after `restart`. The restart banner then names the number of pending changes. |
+| VAR-3 | data | Variables: keys in `plain_env`, values may show. Secrets: other `.env` keys and `passwords.yaml` keys. |
+| VAR-4 | ui | A caption names the files: `shared/.env`, `cazafacturas_server/config/passwords.yaml`. |
+| VAR-5 | ui | A secret shows key, file, set or not set, and last change time if known. |
+| VAR-6 | server | A secret value is never shown, never sent to the client, never logged. There is no reveal control. |
+| VAR-7 | ui | Set a secret: hidden input, `secret.dialog.generate` (podship `--generate`, 32 bytes), or `secret.dialog.file`. |
+| VAR-8 | ui | `secret.dialog.show` shows only the local typed text, before it is sent. |
+| VAR-9 | flow | Replacing a secret asks nothing more on staging. It is tier 1 on production. |
+| VAR-10 | flow | Copy from another environment (`secret copy --from`) shows keys only. Values go server to server. |
+| VAR-11 | flow | Keys in `.env.example` missing on the server show as `vars.state.notSet` with "Set". |
+| VAR-12 | test | An endpoint test checks that no API response contains a secret value. |
+| VAR-13 | layout | Expanded: variables and secrets tables stacked, search over keys. |
+| VAR-14 | layout | Compact: read-only list. Editing secrets on the phone is not offered (proposed, owner to confirm). |
+| VAR-15 | ui | Components: `DataTable`, `ConfirmDialog` tier 1, `Banner`, `Checklist`, `SecretField` (obscured, no autofill, no spellcheck, `enableSuggestions: false`). |
+| VAR-16 | validation | `.env` key: `^[A-Z_][A-Z0-9_]*$`. `passwords.yaml` key: the key path podship accepts. `vars.keyError` on blur. |
+| VAR-17 | validation | Value required unless "Generate" is chosen. On submit. |
+| VAR-18 | validation | Duplicate key: `vars.dupError` with the action. |
+| VAR-19 | a11y | The secret field is a password field for assistive tech. Set and not set are words, not icons. |
+| VAR-20 | a11y | The restart banner is a live region. |
 
-## 8. Validation
+## Copy keys
 
-- Key: `^[A-Z_][A-Z0-9_]*$` for `.env`; for `passwords.yaml` the key path podship accepts; on blur: "Use capital letters, digits and _. Example: STRIPE_API_KEY."
-- Value required unless "Generate" is chosen; on submit.
-- Duplicate key: "STRIPE_API_KEY already exists. Set a new value instead." with the action.
+`vars.*`, `secret.dialog.*`, `copy.dialog.*`. The palette command, "Create .env and passwords.yaml" and "Set" (template row) have no key yet.
 
-## 9. Accessibility
+## Open questions
 
-The secret field is a password field for assistive tech; "Set"/"Not set" are words, not icons only. The restart banner is a live region.
-
-## 10. Acceptance criteria
-
-- No API response to the client contains a secret value (test on the endpoint).
-- After any change, the restart banner appears and names the number of pending changes.
-- Copying secrets shows keys only.
-
-## 11. Open questions
-
-- Show the last-changed time and who changed a secret? podship does not record it; the console server can, for changes made through it. (owner)
+| # | Question | Owner |
+|---|---|---|
+| 1 | Show who changed a secret and when? podship does not record it. The console server can, for its own changes. | owner |

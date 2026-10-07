@@ -1,70 +1,72 @@
-# Backups (schedule, list, drill, restore, off-site)
+# Spec · Backups
 
-Status: draft 2026-10-06. Mockups: `mockups/web-backups.html` (6 states), `mockups/status-phone.html` frame 3. Copy: `copy/backups.md`.
+Status: draft 2026-10-06. Key: BAK. Copy: [copy/backups.md](../copy/backups.md). Mockups: `mockups/web-backups.html` (6 states), `mockups/status-phone.html` frame 3.
+Decisions: [dangerous actions](../decisions/2026-10-06-dangerous-actions.md), [rationale](../decisions/2026-10-07-spec-backups-rationale.md).
+Read: trust page checked weekly, acted on rarely, under stress when restoring. Calm, exact, high restraint.
 
-Reading this as: a trust page the owner checks weekly and acts on rarely, under stress when restoring; calm, exact, high restraint.
+## Purpose
 
-## 1. Job stories
+The owner knows the backups ran (J1), proves they restore (J4) and restores safely (J5), never by accident.
 
-J1 (backed up?), J4 (drill), J5 (safe restore). HMW make "restore" both provably safe and impossible to start by accident?
+## Entry and exit
 
-## 2. Entry points and exits
-
-Entry: the environment's Backups tab; overview "Last backup" cell; "Needs attention" items. Exits: an operation view (backup now, drill, restore); the server page (schedule slot).
-
-## 3. Primary action
-
-"Run a restore drill" (proves the backups work; the job most often skipped). Secondary: "Back up now", "Restore…" (outlined, in the row menu and the page header's overflow), "Pull to this Mac" when off-site is configured.
-
-## 4. Content
-
-- Summary panel: schedule ("Daily at 03:00 America/Mexico_City, systemd timer podship-backup-cazafacturas"), retention ("Today and yesterday, then 14 daily, 8 weekly, 6 monthly"), encryption ("Encrypted to 2 SSH keys: federico@mbp, federico@backup-yubikey"), off-site ("Pulled to ~/Backups/cazafacturas on federico-mbp, newest pulled 08:12, decrypts and checksums match"), last drill ("21 Sep 2026: 41 tables match, 2 volatile tables differ as expected").
-- Backups table: stamp (mono), age, size, contents (database, `uploads` volume, counts, checksums), encrypted copy yes/no, off-site yes/no, origin ("scheduled", "before deploy 20261006-170512-a0dc2b0", "manual"), row menu: "Run a drill on this backup", "Restore…", "Copy stamp".
-
-## 5. States
-
-| State | Frame |
+| Way | Detail |
 |---|---|
-| Ideal list | web 1, phone 3 |
-| Drill finished: per-table comparison (tables, rows at backup, rows restored, live now, result), verdict "Backup 2026-10-06T0300 restores. 41 of 41 tables match; 2 volatile tables differ (sessions, job_queue)." | web 2 |
-| Restore, step 1: choose a backup (radio list, default newest), shows what happens, in order: fresh backup, stop app services, rename database to `cazafacturas_before_<time>`, restore, start, wait for health | web 3 |
-| Restore, step 2: tier-2 dialog, typed `cazafacturas/production`, consequence "The app is down while the restore runs, about 4 min for a 48 MB database." | web 4 |
-| Restore finished: ok banner + "The previous database is kept as cazafacturas_before_20261006T1412." + how to switch back | web 5 |
-| No schedule (new environment): empty state "No backups yet. Schedule a daily backup or take one now." primary "Schedule daily backups", secondary "Back up now" | web 6 |
-| Schedule missed: warn row "Last backup 31 h ago. The 03:00 backup didn't run on 6 Oct." with "Open server" (timer state) | overview web 2 |
-| Backup failed (phone): danger line "Backup of 6 Oct failed: disk full on caza-vps (98 %)" | status-phone alt "backup failed" |
-| Drill failed: danger verdict naming the tables that differ beyond volatile ones | spec only (same table as web 2 with failed rows) |
-| Loading, offline, forbidden | shared patterns |
+| Entry | Environment Backups tab. Overview "Last backup" cell. "Needs attention" items. |
+| Exit | Operation view (backup now, drill, restore). Server page (schedule slot). |
 
-## 6. Layout
+## States
 
-Expanded: summary panel (two-column definition list) above the table; drill result replaces the summary area until dismissed. Compact: summary as a list, backups as rows (stamp, age, size); drill and restore read-only on the phone except "Run a drill" (restore from a phone is allowed only on desktop widths: proposed, see open questions).
+| State | What shows | Frame |
+|---|---|---|
+| Ideal | Summary panel and backups table | web 1, phone 3 |
+| Drill finished | Per-table comparison and verdict `drill.verdict.ok` | web 2 |
+| Restore step 1 | Choose a backup (radio list, newest default) and `restore.step1.list` in order | web 3 |
+| Restore step 2 | Tier-2 dialog, typed `cazafacturas/production`, `restore.dialog.consequence` | web 4 |
+| Restore finished | Ok banner, `restore.done.kept` and how to switch back | web 5 |
+| No schedule | `backups.empty.*`. Primary `backups.empty.action`, secondary `backups.action.now`. | web 6 |
+| Schedule missed | Warn row "Last backup 31 h ago. The 03:00 backup didn't run on 6 Oct." with "Open server" (timer state) | overview web 2 |
+| Backup failed | Phone danger line `backups.failed` | status-phone alt "backup failed" |
+| Drill failed | `drill.verdict.fail`, naming tables that differ beyond volatile ones | spec only (web 2 with failed rows) |
+| Loading, offline, forbidden | [COM-loading](common.md#com-loading), [COM-offline](common.md#com-offline), [COM-forbidden](common.md#com-forbidden) | |
 
-## 7. Components
+## Rules
 
-`DefinitionList`, `DataTable`, `StatusPill`, `ConfirmDialog` tier 0/2, `TypedConfirmField`, `RadioList`, `Banner`, `EmptyState`, `CodeText`.
+| ID | Kind | Rule |
+|---|---|---|
+| BAK-1 | ui | Primary: `backups.action.drill`. Secondary: `backups.action.now`, `backups.action.restore`, `backups.action.pull` (off-site only). |
+| BAK-2 | ui | "Restore…" is outlined, in the row menu and the header overflow. |
+| BAK-3 | ui | Summary: schedule (`backups.schedule`, systemd timer `podship-backup-<project>`), retention, encryption, off-site, last drill. |
+| BAK-4 | data | Mockup retention: today and yesterday, then 14 daily, 8 weekly, 6 monthly. Encryption to 2 SSH keys. |
+| BAK-5 | ui | Table columns: stamp (mono), age, size, contents, encrypted copy, off-site, origin (`backups.origin.*`). |
+| BAK-6 | ui | Contents: database, `uploads` volume, counts, checksums. |
+| BAK-7 | ui | Row menu: "Run a drill on this backup", "Restore…", "Copy stamp". |
+| BAK-8 | ui | Drill table columns: `drill.col`. A drill shows a per-table result and a one-sentence verdict. Volatile tables (sessions, job_queue) differ as expected. |
+| BAK-9 | flow | Restore order, as `restore.sh` runs it: fresh backup, stop app services, rename database to `cazafacturas_before_<time>`, restore, start, wait for health. |
+| BAK-10 | flow | The restore dialog lists those steps and names the kept database. |
+| BAK-11 | flow | The confirm button stays disabled until `<project>/<env>` matches exactly. Paste works. No error after a wrong attempt. |
+| BAK-12 | ui | The hint under the typed field says what to type (`confirm.typeHint`). |
+| BAK-13 | flow | A restore is tier 2 on every environment, staging included. |
+| BAK-14 | flow | Step 1 offers `restore.step1.upload` (`--dump`), desktop only. |
+| BAK-15 | flow | A restore locks the environment against deploys and other restores. |
+| BAK-16 | ui | Off-site status shows the newest pulled stamp and whether it decrypts. |
+| BAK-17 | layout | Expanded: summary panel (two-column definition list) above the table. A drill result replaces the summary until dismissed. |
+| BAK-18 | layout | Compact: summary as a list, backups as rows (stamp, age, size). |
+| BAK-19 | platform | Phone: drill and restore are read-only except "Run a drill". Restore only on desktop widths (proposed). |
+| BAK-20 | ui | Components: `DefinitionList`, `DataTable`, `StatusPill`, `ConfirmDialog` tier 0/2, `TypedConfirmField`, `RadioList`, `Banner`, `EmptyState`, `CodeText`. |
+| BAK-21 | a11y | Table has column headers. Row menus are labeled "Actions for backup 2026-10-06T0300". |
+| BAK-22 | a11y | The drill verdict is a live region. |
+| BAK-23 | a11y | The typed field has a visible label, autocorrect and autocapitalize off. |
+| BAK-24 | test | Goldens for the 6 web states. `meetsGuideline` x4. [COM-goldens](common.md#com-goldens). |
 
-## 8. Validation and behavior
+## Copy keys
 
-- Typed confirmation: exact match of `<project>/<env>`; the error after a wrong attempt on submit is not needed because the button stays disabled; the hint under the field says what to type.
-- A restore is tier 2 on every environment, including staging (the CLI asks for the project name everywhere).
-- Restore from an uploaded dump (`--dump`): an option in step 1, "Upload a .dump file", desktop only.
-- Lock: a restore blocks deploys and other restores of the environment.
+`backups.*`, `drill.*`, `restore.*`, `confirm.typeHint`. No key yet: the schedule-missed row, "Open server", the row menu items, "Actions for backup …".
 
-## 9. Accessibility
+## Open questions
 
-Table with column headers; row menus labeled "Actions for backup 2026-10-06T0300"; the drill verdict is a live region; the typed field has a visible label, autocorrect and autocapitalize off.
-
-## 10. Acceptance criteria
-
-- The restore dialog cannot be confirmed until `cazafacturas/production` is typed exactly; paste works.
-- The dialog lists the steps in the order `restore.sh` runs them and names the kept database.
-- A drill on a backup shows a per-table result and a one-sentence verdict.
-- Off-site status shows the newest pulled stamp and whether it decrypts.
-- Goldens for the 6 web states; `meetsGuideline` x4.
-
-## 11. Open questions
-
-- "Switch back to the previous database": podship has no command for it (README: "swap the names back"). Proposed: `podship backup restore --undo`, then a tier-2 action here. (podship)
-- Allow restore from a phone? Proposed no for production (desktop only), yes for drills. (owner)
-- Deleting backups is not a podship command; not designed. (owner)
+| # | Question | Owner |
+|---|---|---|
+| 1 | "Switch back to the previous database" has no podship command (README: "swap the names back"). Proposed: `podship backup restore --undo`, then a tier-2 action here. | podship |
+| 2 | Allow restore from a phone? Proposed: no for production (desktop only), yes for drills. | owner |
+| 3 | Deleting backups is not a podship command. Not designed. | owner |

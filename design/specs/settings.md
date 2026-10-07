@@ -1,56 +1,54 @@
-# Settings: people, SSH access, CI keys
+# Spec · Settings
 
-Status: draft 2026-10-06. Mockups: `mockups/web-settings.html` (4 states). Copy: `copy/settings.md`.
+Status: draft 2026-10-06. Key: SET. Copy: [copy/settings.md](../copy/settings.md). Mockups: `mockups/web-settings.html`.
+Read: admin page, used a few times a year, desktop, careful, high restraint.
 
-Reading this as: an admin page used a few times a year, desktop, careful, high restraint.
+## Purpose
 
-## 1. Job stories
+The owner gives collaborators limited access, manages server SSH keys and sets up CI deploys (J9).
 
-Owner gives a collaborator limited access (J9), adds or removes a person's SSH key on a server, sets up CI deploys.
+## Entry and exit
 
-## 2. Sections
+| Route | Content |
+|---|---|
+| `/settings/people` | People and their role per environment |
+| `/settings/access` | Keys in each server's `authorized_keys` marked `podship:<name>` (`podship access list/add/remove`) |
+| `/settings/tokens` | CLI access tokens (web 5–10), see [cli-and-tokens.md](cli-and-tokens.md) |
+| `/settings/ci`, `/projects/<p>/settings/ci` | SSH deploy keys from `ci setup`. CI tokens per project. |
+| `/settings/preferences` | Language, theme (system, light, dark), time zone |
 
-| Section | Route | Content |
+## States
+
+| State | What shows | Frame |
 |---|---|---|
-| People | `/settings/people` | Who can sign in to the console and their role per environment |
-| SSH access | `/settings/access` | Keys in each server's `authorized_keys` marked `podship:<name>` (`podship access list/add/remove`) |
-| Access tokens | `/settings/tokens` | Personal access tokens for the CLI (`specs/cli-and-tokens.md`) |
-| CI keys and CI tokens | `/settings/ci` (and `/projects/<p>/settings/ci`) | SSH deploy keys from `ci setup`, and CI tokens per project for CI through the console |
-| Preferences | `/settings/preferences` | Language, theme (system, light, dark), time zone |
+| People | Each person with a role per project or environment | web 1 |
+| SSH access | Keys per server: name, type, date added | web 2 |
+| CI key created | Private key and GitHub Actions workflow, once, with `common.copy` and `ci.created.done` | web 3 |
+| Remove access | Tier 2: type the person's name (`ana-lucia`) | web 4 |
 
-## 3. Roles (console, proposed; granted per project or per environment)
+## Rules
 
-| Role | Can |
-|---|---|
-| Owner | everything |
-| Deployer (per environment) | deploy, restart, roll back code only, back up, drill, read logs and variables (not secrets) on that environment |
-| Viewer (per environment) | read status, releases, backups list, logs, history |
+| ID | Kind | Rule |
+|---|---|---|
+| SET-1 | data | Roles (proposed) are per project or environment. Owner: everything. |
+| SET-2 | data | Deployer: deploy, restart, roll back code only, back up, drill, read logs and variables. No secrets. |
+| SET-3 | data | Viewer: read status, releases, backups list, logs, history. |
+| SET-4 | flow | A console role gives no SSH access. An SSH key gives no console sign-in. The page shows `people.separate`. |
+| SET-5 | flow | The CI private key is never retrievable after the dialog closes. Closing warns it does not show again. [COM-shown-once](common.md#com-shown-once). |
+| SET-6 | flow | Remove access is tier 2 and names the affected servers. |
+| SET-7 | validation | Key name: `^[a-z0-9-]+$`. |
+| SET-8 | validation | Key must parse as `ssh-ed25519` or `ssh-rsa`, else `access.keyError` on blur. |
+| SET-9 | validation | Email: on blur. |
+| SET-10 | a11y | The one-time key is a read-only, selectable field with a copy button. |
+| SET-11 | a11y | The one-time warning is text, not color. |
 
-Console roles and SSH access are separate: a console role does not give SSH, and an SSH key does not give a console sign-in. The page says so.
+## Copy keys
 
-## 4. States
+`settings.*`, `people.*`, `access.*`, `ci.created.*`, `prefs.*`.
 
-| State | Frame |
-|---|---|
-| People: Federico Ramallo (owner), Ana Lucía Torres (deployer on cazafacturas/staging and shop/staging, viewer on production), Kenji Watanabe (viewer on shop) | web 1 |
-| SSH access per server: caza-vps has `federico` (ssh-ed25519, added 2 Oct) and `ci-shop-staging`; agentes.local has `federico`, `ana-lucia` and `ci-cazafacturas-staging` | web 2 |
-| CI key created: the private key and the GitHub Actions workflow shown **once**, with "Copy" and "I saved it" (closing warns that it won't be shown again) | web 3 |
-| Remove access: tier 2, type the person's name `ana-lucia` | web 4 |
-| Access tokens, create, shown once, CI tokens, revoke, CLI authorize | web 5–10 (`specs/cli-and-tokens.md`) |
+## Open questions
 
-## 5. Validation
-
-Add SSH key: name `^[a-z0-9-]+$`; key must parse as `ssh-ed25519` or `ssh-rsa`: "This isn't an SSH public key. It starts with ssh-ed25519 or ssh-rsa." on blur. Email for people: on blur.
-
-## 6. Accessibility
-
-The one-time key is in a read-only, selectable field with a copy button; the warning about one-time display is text, not color.
-
-## 7. Acceptance criteria
-
-The private key of a CI deploy key is never retrievable after the dialog closes; removing access is tier 2 and names the servers it affects.
-
-## 8. Open questions
-
-- Where does the console run, and which SSH key does it use? (owner, before build)
-- Sign-in method: email code like CazaFacturas, or passkeys? (owner)
+| # | Question | Owner |
+|---|---|---|
+| 1 | Where does the console run, and which SSH key does it use? | owner, before build |
+| 2 | Sign-in: email code like CazaFacturas, or passkeys? | owner |

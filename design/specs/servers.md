@@ -1,68 +1,102 @@
-# Server (resources, registry, bootstrap)
+# Spec · Server (resources, registry, bootstrap, new server)
 
-Status: draft 2026-10-06. Mockups: `mockups/web-server.html` (7 states), `mockups/web-new-server.html` (6 states). Provider facts: `decisions/2026-10-06-providers-first-run-mcp.md`. Copy: `copy/servers.md`.
+Status: draft 2026-10-06. Key: SRV. Copy: [servers](../copy/servers.md). Mockups: `mockups/web-server.html` (7 states), `mockups/web-new-server.html` (6 states). Decisions: [providers](../decisions/2026-10-06-providers-first-run-mcp.md), [rationale](../decisions/2026-10-07-spec-servers-rationale.md).
+Read: a capacity and placement page, desktop, technical, medium restraint.
 
-Reading this as: a capacity and placement page, desktop, technical, medium restraint.
+## Server page
 
-## 1. Job story
+### Server page: Purpose
 
-J8: see what runs on each server, its free resources and the ports and backup slots in use, so a new environment goes in safely.
+The owner sees what runs on a server, its free resources, ports and backup slots, to place environments safely (J8).
 
-## 2. Entry and exits
+### Server page: Entry and exit
 
-Entry: sidebar Servers; overview group row; the environment band's server name. Exits: an environment; operation view (bootstrap); Settings → SSH access for this server.
-
-## 3. Primary action
-
-None when bootstrapped. "Bootstrap this server" when podship's folders are missing.
-
-## 4. Content (`podship server status`, `projects list`, `doctor`)
-
-- Header: host alias (`caza-vps`), what it is ("Ubuntu 24.04, x86_64, Docker 28.4, compose 2.39"), scheduler (systemd or launchd), podship home (`/srv/podship`), proxy (Cloudflare Tunnel `cazafacturas-vps`).
-- Resources: CPU (load and cores), memory used/total, disk used/total with the backup folder's size, each as numbers and a bar with the value in text; warn above 80 % disk, danger above 90 %.
-- Registry table: project/env, compose project, directory, ports (name and number), domains, database, backup unit and slot, updated.
-- Containers per environment: name, state, CPU %, memory.
-- Port range and free ports: "20000–20999, 6 in use".
-- Backup slots: 03:00 cazafacturas/production, 03:15 shop/production, 03:30 shop/staging.
-
-## 5. States
-
-| State | Frame |
-|---|---|
-| caza-vps, Linux | web 1 |
-| agentes.local, macOS arm64, launchd, Docker Desktop; note "Staging and non-critical apps" | web 2 |
-| Bootstrap plan (tier 1): the steps `server bootstrap` runs on Debian/Ubuntu: install Docker and compose, age, zstd, firewall rules, podship folders; "Safe to run again" | web 3 |
-| Unreachable: danger banner "Can't reach caza-vps over SSH since 09:41 (connection timed out). Environments on it show last known values." + "Try again" and the SSH command to test | web 4 |
-
-## 6. Components
-
-`DefinitionList`, `UsageBar` (with text value), `DataTable`, `Banner`, `ConfirmDialog`.
-
-## 7. Accessibility
-
-Usage bars are not the only cue: the number and the word ("Disk 61 % used, 78 GB free") are in the text and the label.
-
-## 8. Acceptance criteria
-
-Registry rows match `projects list`; disk above 90 % appears on the overview's attention list.
-
-## 8b. Provider info, projects and destroy (added 2026-10-06)
-
-- **Provider panel** (Hostinger servers): VPS id, plan (`KVM 4`), data center (city, country), IPv4, OS template, created, subscription renews or ends on, auto-renewal on/off, Hostinger weekly backups on/off, "Open in hPanel". Servers added over SSH show "Added over SSH (no provider)".
-- **Projects on it**: the registry table (already above) with links.
-- **Destroy** (web-server 6 and 7): blocked while environments are registered ("Move or destroy these environments first: shop/production, shop/staging") with links to `podship destroy` per environment; when empty, tier 2 typed with the server alias (`shop-vps`). The dialog states what happens, in order: remove the SSH alias and the console's registry entry, delete the Cloudflare Tunnel, stop the VPS, turn off auto-renewal. And the limit: "Hostinger's API can't delete a VPS. It stays stopped and billed until 3 Nov 2026, then Hostinger removes it. To delete it sooner, use hPanel."
-
-## 8c. New server (`/servers/new`, `mockups/web-new-server.html`)
-
-| Step | Content | Frame |
+| Way | From or to | Condition |
 |---|---|---|
-| 1. How | "Create a VPS on Hostinger" or "Add a server I already have" (SSH) | 1 |
-| 2. Configure | Name (SSH alias, `^[a-z0-9-]+$`), data center (from the API, grouped by continent; Mexico first when available, otherwise the note), plan (from the catalog: CPU, memory, disk, price per month), OS (Ubuntu 24.04 LTS default; podship bootstrap supports Debian and Ubuntu), SSH keys (the console's own key is always added; pick people's keys), firewall (preset "SSH only, web through the tunnel" or "SSH, HTTP and HTTPS for Caddy"), Cloudflare Tunnel (on by default when Cloudflare is connected), Hostinger weekly backups (off by default: podship backs up the data) | 2 |
-| 3. Review | Summary and price; tier 1; the button carries the price | 3 |
-| 4. Provisioning live | Operation view: Hostinger steps, bootstrap steps, tunnel, registration | 4 |
-| 5. Registered | The server page with "Ready for projects" and the next step (`podship link` from a project, or `launch`) | 5 |
-| Failed | "Hostinger couldn't set up the VPS: the plan isn't available in São Paulo right now. Nothing was charged." or, after purchase, "The VPS exists (id 1084213) but bootstrap failed at Install Docker. Retry bootstrap" (bootstrap is safe to run again) | 6 |
+| Entry | Sidebar Servers, overview group row, server name in the environment band | |
+| Exit | An environment, the operation view (bootstrap), Settings → SSH access for this server | |
 
-## 9. Open questions
+### Server page: States
 
-Prices and data centers come from Hostinger at run time; the mockup values are examples. Other providers (Hetzner, DigitalOcean) use the same flow with their own pickers. (owner)
+| State | What shows | Trigger | Frame |
+|---|---|---|---|
+| Linux | caza-vps | Linux server | web 1 |
+| macOS | agentes.local, macOS arm64, launchd, Docker Desktop. Note `server.macNote`. | macOS server | web 2 |
+| Bootstrap plan | Tier 1. Steps of `server bootstrap` on Debian/Ubuntu: Docker and compose, age, zstd, firewall rules, podship folders. "Safe to run again". | podship folders missing | web 3 |
+| Unreachable | Danger banner `server.unreachable`, "Try again", and the SSH command to test (`server.test`) | SSH fails ([COM-server-unreachable](common.md#com-server-unreachable)) | web 4 |
+| Destroy blocked | `destroy.blocked` with a `podship destroy` link per environment | Environments are registered | web 6 |
+| Destroy | Tier 2, typed with the server alias (`shop-vps`). Steps `destroy.steps` in order, then `destroy.limit`. | No environments | web 7 |
+
+### Server page: Rules
+
+| ID | Kind | Rule | Ref |
+|---|---|---|---|
+| SRV-1 | ui | No primary when bootstrapped. Primary `server.bootstrap` when podship's folders are missing. | |
+| SRV-2 | data | Sources: `podship server status`, `projects list`, `doctor`. | |
+| SRV-3 | data | Header: host alias (`caza-vps`), `server.about` ("Ubuntu 24.04, x86_64, Docker 28.4, compose 2.39"), scheduler (systemd or launchd). | |
+| SRV-4 | data | Header also: podship home (`/srv/podship`), proxy (Cloudflare Tunnel `cazafacturas-vps`). | |
+| SRV-5 | data | Resources: CPU (load, cores), memory used/total, disk used/total with the backup folder size. Each as numbers and a bar. | |
+| SRV-6 | data | Disk: warn above 80 %, danger above 90 %. | |
+| SRV-7 | data | Registry table: project/env, compose project, directory, ports (name, number), domains, database, backup unit and slot, updated. | |
+| SRV-8 | data | Containers per environment: name, state, CPU %, memory. | |
+| SRV-9 | data | Port range and free ports: "20000–20999, 6 in use". Backup slots: 03:00 cazafacturas/production, 03:15 shop/production, 03:30 shop/staging. | |
+| SRV-10 | data | Provider panel (Hostinger): VPS id, plan (`KVM 4`), data center (city, country), IPv4, OS template, created. | |
+| SRV-11 | data | Provider panel also: renews or ends on, auto-renewal on/off, Hostinger weekly backups on/off, `server.provider.hpanel`. | |
+| SRV-12 | data | Servers added over SSH show `server.provider.none`. Projects on the server: the registry table with links. | |
+| SRV-13 | flow | Destroy steps, in order: remove SSH alias and registry entry, delete the Cloudflare Tunnel, stop the VPS, turn off auto-renewal. | |
+| SRV-14 | flow | The destroy dialog states the limit: Hostinger's API can't delete a VPS. It stays stopped and billed until Hostinger removes it, for example 3 Nov 2026 (`destroy.limit`). | |
+| SRV-15 | ui | Components: `DefinitionList`, `UsageBar` (with text value), `DataTable`, `Banner`, `ConfirmDialog`, `ProviderPanel`. | |
+| SRV-16 | test | Registry rows match `projects list`. | |
+| SRV-17 | test | Disk above 90 % appears on the overview attention list. | |
+
+## New server
+
+### New server: Purpose
+
+The owner creates a Hostinger VPS or adds an existing SSH server at `/servers/new`, and it ends registered and bootstrapped.
+
+### New server: Entry and exit
+
+| Way | From or to | Condition |
+|---|---|---|
+| Entry | `/servers/new` (`server.new`) | |
+| Exit | The server page with `new.ready` and `new.ready.next` | Registered |
+
+### New server: States
+
+| State | What shows | Trigger | Frame |
+|---|---|---|---|
+| How | `new.how.create` or `new.how.existing` (SSH) | Step 1 | 1 |
+| Configure | SRV-18 to SRV-23 | Step 2 | 2 |
+| Review | Summary and price. Tier 1. The button carries the price (`new.buy`). | Step 3 | 3 |
+| Provisioning | Operation view: Hostinger steps, bootstrap steps, tunnel, registration | Step 4 | 4 |
+| Registered | Server page, "Ready for projects", next step `podship link` from a project, or `launch` | Step 5 | 5 |
+| Failed before purchase | `new.failed.before` ("the plan isn't available in São Paulo right now") | Hostinger refuses | 6 |
+| Failed after purchase | `new.failed.after` ("id 1084213", "Install Docker") with `new.failed.retry`. Bootstrap is safe to run again. | Bootstrap fails | 6 |
+
+### New server: Rules
+
+| ID | Kind | Rule | Ref |
+|---|---|---|---|
+| SRV-18 | validation | Name: SSH alias, `^[a-z0-9-]+$`. | |
+| SRV-19 | data | Data center: from the API, grouped by continent. Mexico first when available, otherwise `new.dc.noMexico`. | |
+| SRV-20 | data | Plan from the catalog: CPU, memory, disk, price per month. OS: Ubuntu 24.04 LTS default. Bootstrap supports Debian and Ubuntu. | |
+| SRV-21 | data | SSH keys: the console's own key is always added. The owner picks people's keys. | |
+| SRV-22 | data | Firewall presets: `new.firewall.tunnel` or `new.firewall.caddy`. | |
+| SRV-23 | data | Cloudflare Tunnel: on by default when Cloudflare is connected. Hostinger weekly backups: off by default. | [rationale](../decisions/2026-10-07-spec-servers-rationale.md) |
+
+## Copy keys
+
+`server.*`, `new.*`, `destroy.*` in the copy table.
+
+## Accessibility and platform
+
+| ID | Rule |
+|---|---|
+| SRV-24 | Usage bars are not the only cue. The number and the word ("Disk 61 % used, 78 GB free") are in the text and the label ([COM-status-not-color](common.md#com-status-not-color)). |
+
+## Open questions
+
+| # | Question | Owner | Date |
+|---|---|---|---|
+| 1 | Prices and data centers come from Hostinger at run time. Mockup values are examples. Other providers (Hetzner, DigitalOcean) use the same flow with their own pickers. | owner | 2026-10-06 |

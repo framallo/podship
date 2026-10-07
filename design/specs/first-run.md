@@ -1,46 +1,64 @@
-# First-run setup (fresh console on a local computer)
+# Spec · First-run setup
 
-Status: draft 2026-10-06 (added on request). Decision: `decisions/2026-10-06-providers-first-run-mcp.md`. Mockups: `mockups/web-first-run.html` (7 states). Copy: `copy/first-run.md`.
+Status: draft 2026-10-06. Key: FRN. Copy: [copy/first-run.md](../copy/first-run.md). Mockups: `mockups/web-first-run.html` (7 states).
+Decision: [providers, first run, MCP](../decisions/2026-10-06-providers-first-run-mcp.md).
+Read: one-time setup for the owner at a desk after install. Plain, one question per step, medium restraint.
 
-Reading this as: a one-time setup for the owner at a desk, right after installing the console; plain, one question per step, medium restraint (a little more space and explanation than the rest of the console).
+## Purpose
 
-## 1. Job story
+After install, the owner becomes owner, reaches the console from the phone and connects a first server.
 
-When I install podship console on my computer, I want to make myself the owner, reach it from my phone, and connect my first server, so I can stop using the CLI for everyday checks.
+## Entry and exit
 
-## 2. Entry and exit
+| Way | Detail |
+|---|---|
+| Entry | The URL the console prints on first start, with a one-time code: `http://localhost:8090/setup?code=K7P-29Q`. |
+| No code | `/setup` shows `setup.noCode`. |
+| Exit | The overview, or the new-server operation. |
 
-Entry: the URL printed by the console on first start, with a one-time setup code (`http://localhost:8090/setup?code=K7P-29Q`). Without the code, `/setup` says "Open the setup link printed in the terminal where the console started." Exit: the overview (or the new-server operation).
+## States
 
-## 3. Steps (one primary per step, a step indicator "Step 2 of 4")
+Each step has one primary and a step indicator (`setup.step`).
 
-| Step | Content | Primary | Secondary | Frame |
+| State | What shows | Primary | Secondary | Frame |
 |---|---|---|---|---|
-| 1. Owner | Name, email; sign-in method: passkey (default) or email codes (needs a mail sender; disabled with the reason when none is configured) | "Create owner and continue" | — | 1 |
-| 2. Remote access | Cloudflare Tunnel: Cloudflare API token (permissions listed: Cloudflare Tunnel edit, DNS edit, on one zone), zone, hostname (`console.framallo.dev`); the console creates the tunnel and the DNS record | "Connect and continue" | "Stay on this computer only" (the phone can't reach it; can be set later) | 2, error 3 |
-| 3. Providers | Hostinger API token (optional); "Test" checks it by listing data centers; stored on this computer, encrypted, never shown again | "Save and continue" | "Skip" | 4 |
-| 4. First server | Two choices: "Add a server I already have" (SSH alias from `~/.ssh/config`, or host, user and key; then `podship doctor` checks run) or "Create a VPS on Hostinger" (opens the new-server flow) | "Add server" | "Do this later" | 5 |
-| Done | Summary of what was set up and what was skipped, with links to Settings | "Open the overview" | — | 6 |
-| Code expired or used | "This setup link was already used. Sign in instead." | "Sign in" | — | 7 |
+| 1. Owner | Name, email, sign-in method: passkey (default) or email codes | `setup.owner.confirm` | none | 1 |
+| 2. Remote access | Cloudflare API token, zone, hostname (`console.framallo.dev`) | `setup.remote.confirm` | `setup.remote.skip` | 2, error 3 |
+| 3. Providers | Hostinger API token (optional) with `setup.providers.test` | `setup.providers.confirm` | `setup.skip` | 4 |
+| 4. First server | `setup.server.existing` or `setup.server.create` | `setup.server.confirm` | `setup.server.later` | 5 |
+| Done | What was set up and what was skipped, with links to Settings | `setup.done.open` | none | 6 |
+| Code expired or used | `setup.used` | "Sign in" | none | 7 |
 
-## 4. Validation
+## Rules
 
-- Email on blur. Name required on submit.
-- Cloudflare token: checked on "Connect and continue"; errors name the missing permission: "This token can't edit DNS for framallo.dev. Create a token with Zone, DNS, Edit on that zone." Hostname must be inside the chosen zone (on blur).
-- Hostinger token: "Test" shows "Works. 14 data centers available." or "Hostinger rejected this token (401). Create a new one in hPanel, under API."
-- SSH: `podship doctor` results inline per check (ssh, Docker, compose, disk, ports).
+| ID | Kind | Rule |
+|---|---|---|
+| FRN-1 | flow | Email codes need a mail sender. With none configured, the option is disabled with the reason. |
+| FRN-2 | ui | The Cloudflare token hint lists its permissions: Cloudflare Tunnel edit, DNS edit, on one zone. |
+| FRN-3 | server | The console creates the tunnel and the DNS record. |
+| FRN-4 | flow | Remote access can be set later. Skipping it leaves `setup.localOnly` on the overview. |
+| FRN-5 | server | "Test" checks the Hostinger token by listing data centers. |
+| FRN-6 | server | Provider tokens are stored on this computer, encrypted. They are never shown again. |
+| FRN-7 | flow | An existing server: SSH alias from `~/.ssh/config`, or host, user and key. Then `podship doctor` checks run. |
+| FRN-8 | flow | "Create a VPS on Hostinger" opens the new-server flow. |
+| FRN-9 | validation | Email on blur. Name required on submit. |
+| FRN-10 | validation | The Cloudflare token is checked on `setup.remote.confirm`. Errors name the missing permission (`setup.remote.errPerm`). |
+| FRN-11 | validation | Hostname must be inside the chosen zone. On blur. |
+| FRN-12 | validation | Hostinger "Test" shows `setup.providers.ok` or `setup.providers.err`. |
+| FRN-13 | validation | `podship doctor` results show inline per check: ssh, Docker, compose, disk, ports. |
+| FRN-14 | server | Setup does not open without the printed code. The code works once and expires after 24 h. |
+| FRN-15 | server | Provider and Cloudflare tokens never return to the browser after saving. Only the last 4 characters do. |
+| FRN-16 | a11y | The step indicator is text ("Step 2 of 4: Remote access") and a heading. |
+| FRN-17 | a11y | Secrets are password fields with no autofill. |
+| FRN-18 | a11y | Errors are icon plus text below the field, summarized at the top on submit. |
 
-## 5. Accessibility
+## Copy keys
 
-Step indicator is text ("Step 2 of 4: Remote access") and a heading; secrets are password fields with no autofill; errors are icon plus text below the field and summarized at the top on submit.
+`setup.*`. "Sign in" (code used) has no key yet.
 
-## 6. Acceptance criteria
+## Open questions
 
-- Setup can't be opened without the printed code; the code works once and expires after 24 h.
-- Provider and Cloudflare tokens are never sent back to the browser after saving (only the last 4 characters).
-- Skipping remote access leaves a reminder on the overview: "The console is only on this computer. Connect a Cloudflare Tunnel to reach it from your phone."
-
-## 7. Open questions
-
-- Passkey or email code as the owner's sign-in (email code needs SES or SMTP on a local install). Proposed: passkey first, email code optional. (owner)
-- Should the setup also import projects by reading `podship.yaml` files from local repositories? (owner)
+| # | Question | Owner |
+|---|---|---|
+| 1 | Owner sign-in: passkey or email code? Email code needs SES or SMTP locally. Proposed: passkey first, email code optional. | owner |
+| 2 | Import projects from local `podship.yaml` files during setup? | owner |

@@ -1,49 +1,71 @@
-# MCP access (Claude Code and other agents)
+# Spec · MCP access
 
-Status: draft 2026-10-06 (added on request). Decision: `decisions/2026-10-06-providers-first-run-mcp.md`. Mockups: `mockups/web-settings.html` states 11–13, `mockups/web-history.html` state 1 (MCP origin). Copy: `copy/mcp.md`.
+Status: draft 2026-10-06. Key: MCP. Copy: [copy/mcp.md](../copy/mcp.md). Mockups: `mockups/web-settings.html` states 11–13, `mockups/web-history.html` state 1.
+Decision: [providers, first run, MCP](../decisions/2026-10-06-providers-first-run-mcp.md).
+Read: settings page where the owner connects an AI agent. Technical, exact, high restraint. Safety rules read before the command.
 
-Reading this as: a settings page for the owner wiring an AI agent to the console; technical, exact, high restraint; the safety rules must be readable before the command.
+## Purpose
 
-## 1. Job story
+Claude Code reads status and logs and runs safe operations through the console. Production changes wait for the owner's approval.
 
-When I work with Claude Code, I want it to read status and logs and run safe operations through the console, so I don't paste logs by hand; and I want production changes to wait for my approval.
+## Entry and exit
 
-## 2. Page (`/settings/mcp`)
+| Route | Content |
+|---|---|
+| `/settings/mcp` | Intro (`mcp.intro`), connect command, tools table, MCP tokens, approvals |
 
-1. What it is: one sentence. "Agents like Claude Code can use podship console through MCP, with a token you control."
-2. Connect Claude Code: the command, copyable, with the console URL filled in and the token as `<token>` until one is created:
-   `claude mcp add --transport http podship https://console.framallo.dev/mcp --header "Authorization: Bearer <token>"`
-3. Tools: a table of every tool, what it does, and its rule (Read, Runs directly, Needs your approval on production, Not available).
+## States
 
-| Tool | Does | Rule |
+| State | What shows | Frame |
 |---|---|---|
-| `list_environments` | Projects, environments, health, current release | Read |
-| `get_environment` | One environment's state, releases, last backup | Read |
-| `get_operation` | Steps, outcome and log of an operation | Read |
-| `get_logs` | Container logs with service and time range | Read |
-| `list_backups` | Backups and drill results | Read |
-| `list_variables` | Variable values and secret keys (never secret values) | Read |
-| `deploy` | Deploy a ref | Runs directly on non-production; needs approval on production |
-| `promote` | Promote a release | Needs approval (target is production) |
-| `rollback` | Roll back, code only | Runs directly on non-production; needs approval on production |
-| `restart` | Restart an environment | Runs directly on non-production; needs approval on production |
-| `backup_now` | Take a backup | Runs directly |
-| `run_restore_drill` | Drill a backup | Runs directly |
-| — | Restore, rollback with database, db wipe, destroy, secrets, access, servers, force release | Not available through MCP |
+| Page | Connect command, tools, tokens | web-settings 11 |
+| Create an MCP token | Name, scope, role, tools checklist, approval switch | web-settings 12 |
+| Approval request | Banner on every page and a notification (`approval.banner`) | web-settings 13 |
+| Origin | MCP origin in history | web-history 1 |
 
-4. MCP tokens: table (name, client last seen, scope, role, expires, last used) and "Create an MCP token" (state 12): name, scope, role (deployer or viewer only; owner is not offered), tools checklist (defaults: all read tools + tier-0 tools), "Production changes need my approval" (always on, shown disabled with the reason).
-5. Approvals (state 13): when an agent asks, the console shows a banner on every page and a notification: "Claude Code asks to roll back cazafacturas production to 20261005-221844-9c41e07. Reason it gave: health check failing since 10:51." Actions: "Deny" (left), "Review and approve" (opens the normal tier-1 dialog with origin MCP). Expires after 10 min.
+## Rules
 
-## 3. Origin
+| ID | Kind | Rule |
+|---|---|---|
+| MCP-1 | ui | The connect command is copyable: `claude mcp add --transport http podship https://console.framallo.dev/mcp --header "Authorization: Bearer <token>"`. |
+| MCP-2 | data | The command has the console's real URL. The token shows as `<token>` until one exists. |
+| MCP-3 | ui | The tools table shows each tool, what it does and its rule (`mcp.rule.*`). |
+| MCP-4 | ui | Tokens table: name, client last seen, scope, role, expires, last used. |
+| MCP-5 | data | Token role: deployer or viewer. Owner is not offered (`mcp.tokens.roleLimit`). |
+| MCP-6 | data | Default tools: all read tools and tier-0 tools. |
+| MCP-7 | ui | "Production changes need my approval" is always on, disabled, with `mcp.tokens.approvalLocked`. |
+| MCP-8 | flow | Approval actions: `approval.deny` (left), `approval.review` (opens the tier-1 dialog with origin MCP). |
+| MCP-9 | flow | An approval request expires after 10 min. |
+| MCP-10 | flow | A tier-1 production request through MCP never starts until a person confirms the normal dialog. |
+| MCP-11 | server | No MCP tool can run a tier-2 operation or return a secret value. |
+| MCP-12 | ui | MCP operations show `origin.mcp` in the operation header, running indicator and history. History filters by origin MCP. [COM-origin](common.md#com-origin). |
 
-Operations from MCP show "MCP · Claude Code · federico (token claude-mbp)" in the operation header, running indicator and history; history filters by origin MCP.
+## Tools
 
-## 4. Acceptance criteria
+Rule values are `mcp.rule.*`. "Approval on prod" means it runs directly elsewhere.
 
-- No MCP tool can run a tier-2 operation or return a secret value.
-- A tier-1 production request through MCP never starts without a person confirming the normal dialog.
-- The command on the page has the console's real URL.
+| ID | Tool | Does | Rule |
+|---|---|---|---|
+| MCP-13 | `list_environments` | Projects, environments, health, current release | Read |
+| MCP-14 | `get_environment` | One environment's state, releases, last backup | Read |
+| MCP-15 | `get_operation` | Steps, outcome and log of an operation | Read |
+| MCP-16 | `get_logs` | Container logs with service and time range | Read |
+| MCP-17 | `list_backups` | Backups and drill results | Read |
+| MCP-18 | `list_variables` | Variable values and secret keys, never secret values | Read |
+| MCP-19 | `deploy` | Deploy a ref | Approval on prod |
+| MCP-20 | `promote` | Promote a release | Approval (target is production) |
+| MCP-21 | `rollback` | Roll back, code only | Approval on prod |
+| MCP-22 | `restart` | Restart an environment | Approval on prod |
+| MCP-23 | `backup_now` | Take a backup | Runs directly |
+| MCP-24 | `run_restore_drill` | Drill a backup | Runs directly |
+| MCP-25 | none | Restore, rollback with database, db wipe, destroy, secrets, access, servers, force release | Not available (`mcp.notAvailable`) |
 
-## 5. Open questions
+## Copy keys
 
-- Should approvals also be possible from the phone's lock-screen notification (push)? Proposed: the phone opens the approval page; no one-tap approve. (owner)
+`mcp.*`, `approval.*`, `origin.mcp`.
+
+## Open questions
+
+| # | Question | Owner |
+|---|---|---|
+| 1 | Approve from a phone lock-screen notification? Proposed: the notification opens the approval page. No one-tap approve. | owner |
