@@ -188,8 +188,8 @@ Plan planSchedule(
           env.host,
           // Unloaded and renamed, so it does not come back at the next login.
           'launchctl bootout gui/\$(id -u)/${shq(old)} 2>/dev/null || true\n'
-          'f="\$HOME/Library/LaunchAgents/"${shq('$old.plist')}\n'
-          '[ -f "\$f" ] && mv "\$f" "\$f.disabled-by-podship" || true\n',
+              'f="\$HOME/Library/LaunchAgents/"${shq('$old.plist')}\n'
+              '[ -f "\$f" ] && mv "\$f" "\$f.disabled-by-podship" || true\n',
         ),
       RemoteStep(
         'Install launch agent ${b.unit} (${r.backupSchedule}, Mac local time)',

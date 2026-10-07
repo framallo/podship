@@ -657,29 +657,44 @@ class Podship {
   );
 
   /// Records a setup that runs already as a release, without restarting it.
-  Operation adopt(String envName, {String? composeDir}) =>
-      _op('adopt', envName, {'compose_dir': composeDir}, (ctx, rec) async {
-        final e = config.env(envName);
-        final dir = composeDir ?? e.dir;
-        final (:state, :r) = await _load(ctx, e);
-        final scan = await scanForAdopt(ctx, e, dir, composeFilesOf(config, e));
-        final work = await Directory.systemTemp.createTemp('podship-adopt-');
-        try {
-          final plan = planAdopt(
-            ctx: ctx,
-            r: r,
-            state: state,
-            scan: scan,
-            composeDir: dir,
-            now: DateTime.now(),
-            workDir: work.path,
-          );
-          await ctx.run(plan);
-          rec.release = plan.title.split(' as ').last;
-        } finally {
-          await work.delete(recursive: true);
+  Operation adopt(String envName, {String? composeDir, String? sha}) => _op(
+    'adopt',
+    envName,
+    {'compose_dir': composeDir, 'sha': sha},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final dir = composeDir ?? e.dir;
+      final (:state, :r) = await _load(ctx, e);
+      var scan = await scanForAdopt(ctx, e, dir, composeFilesOf(config, e));
+      if (sha != null) {
+        if (!RegExp(r'^[0-9a-f]{7,40}$').hasMatch(sha)) {
+          throw Aborted('--sha must be a commit id, not "$sha"');
         }
-      });
+        if (scan.sha != 'nogit' && !scan.sha.startsWith(sha)) {
+          throw Aborted(
+            '$dir is a git checkout at ${scan.sha}; --sha $sha does not match',
+          );
+        }
+        scan = AdoptScan(sha, scan.images, scan.composeTexts);
+      }
+      final work = await Directory.systemTemp.createTemp('podship-adopt-');
+      try {
+        final plan = planAdopt(
+          ctx: ctx,
+          r: r,
+          state: state,
+          scan: scan,
+          composeDir: dir,
+          now: DateTime.now(),
+          workDir: work.path,
+        );
+        await ctx.run(plan);
+        rec.release = plan.title.split(' as ').last;
+      } finally {
+        await work.delete(recursive: true);
+      }
+    },
+  );
 
   /// Registers the environment in the server registry.
   Operation link(String envName) => _op('link', envName, const {}, (

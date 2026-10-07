@@ -226,11 +226,17 @@ class PromoteCommand extends PodshipCommand {
 
 class AdoptCommand extends PodshipCommand {
   AdoptCommand() {
-    argParser.addOption(
-      'compose-dir',
-      help:
-          'The folder the running compose project was started from (default: the env dir).',
-    );
+    argParser
+      ..addOption(
+        'compose-dir',
+        help:
+            'The folder the running compose project was started from (default: the env dir).',
+      )
+      ..addOption(
+        'sha',
+        help:
+            'The commit the running files came from, when the folder is not a git checkout (a deploy from an export).',
+      );
   }
   @override
   String get name => 'adopt';
@@ -241,7 +247,11 @@ class AdoptCommand extends PodshipCommand {
   bool get mutating => true;
   @override
   Future<int> execute() async => runOp(
-    api.adopt(env.name, composeDir: argResults!['compose-dir'] as String?),
+    api.adopt(
+      env.name,
+      composeDir: argResults!['compose-dir'] as String?,
+      sha: argResults!['sha'] as String?,
+    ),
   );
 }
 

@@ -59,7 +59,7 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `rollback` | Switches to the previous release, or to `--to <release>`. Code only. `--with-db <stamp>` also restores that backup first. |
 | `promote <from> <to>` | Runs on `<to>` the exact release of `<from>`: the same files and the same images, with no build. Between servers with different CPU architectures it stops and tells you to deploy the same commit instead. |
 | `restart [service…]` | Recreates the containers of the current release, for example after `env set`. |
-| `adopt` | Records a setup that already runs (started by hand or by scripts) as a release, without restarting it, so `rollback` can come back to it. |
+| `adopt` | Records a setup that already runs (started by hand or by scripts) as a release, without restarting it, so `rollback` can come back to it. `--sha` names the commit when the folder is not a git checkout. |
 | `status` | Current and previous releases, containers, health, disk and recent history. `--watch`. |
 | `logs` | Container logs. `--service`, `--since`, `--until`, `--tail`, `--follow`, `--timestamps`. |
 | `releases list`, `releases history` | The releases on the server; the deploys, rollbacks and promotions. |

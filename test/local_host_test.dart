@@ -4,6 +4,7 @@ import 'package:podship/src/config/config.dart';
 import 'package:podship/src/ops/backup_ops.dart';
 import 'package:podship/src/ops/context.dart';
 import 'package:podship/src/ops/deploy.dart';
+import 'package:podship/src/ops/release_ops.dart';
 import 'package:podship/src/ops/resolve.dart';
 import 'package:podship/src/ops/state.dart';
 import 'package:podship/src/plan/plan.dart';
@@ -168,5 +169,32 @@ void main() {
     );
     expect(step.script, contains('io.example.old-backup.plist'));
     expect(step.script, contains('.disabled-by-podship'));
+  });
+
+  test('adopt names the release after a given commit (adopt --sha)', () {
+    final config = PodshipConfig.parse(sampleConfig, root: '/work/demo');
+    final ctx = Ctx(
+      config: config,
+      ssh: Ssh(),
+      log: Log.silent(),
+      dryRun: true,
+    );
+    final state = parseState(
+      'CURRENT \nENVFILE yes\nDB yes\nPORTS 22\nREGISTRY-BEGIN\nREGISTRY-END\n',
+    );
+    final p = planAdopt(
+      ctx: ctx,
+      r: resolveEnv(config, config.env('production'), state.registry),
+      state: state,
+      scan: AdoptScan(
+        'b9913c6aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        {'server': 'sha256:1'},
+        {'docker-compose.yml': 'services:\n  server:\n    build: .\n'},
+      ),
+      composeDir: '/srv/demo',
+      now: DateTime.utc(2026, 10, 7, 18),
+      workDir: '/tmp/x',
+    );
+    expect(p.title, endsWith('20261007-180000-b9913c6-adopted'));
   });
 }
