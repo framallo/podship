@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:podship/src/config/config.dart';
+import 'package:podship/src/ops/backup_ops.dart';
 import 'package:podship/src/ops/context.dart';
 import 'package:podship/src/ops/deploy.dart';
 import 'package:podship/src/ops/resolve.dart';
@@ -134,5 +135,38 @@ void main() {
       remoteAssets['restore.sh'],
       contains(r'if [[ "$vol" == /* ]]; then mkdir -p "$vol";'),
     );
+  });
+
+  test('a replaced launchd schedule is unloaded and its plist renamed', () {
+    final config = PodshipConfig.parse(
+      sampleConfig.replaceFirst(
+        '      unit: demo-backup\n',
+        '      unit: demo-backup\n      replaces: [io.example.old-backup]\n',
+      ),
+      root: '/work/demo',
+    );
+    final ctx = Ctx(
+      config: config,
+      ssh: Ssh(),
+      log: Log.silent(),
+      dryRun: true,
+    );
+    final state = parseState(
+      'CURRENT \nENVFILE yes\nDB yes\nPORTS 22\nREGISTRY-BEGIN\nREGISTRY-END\n',
+    );
+    final p = planSchedule(
+      ctx,
+      resolveEnv(config, config.env('production'), state.registry),
+      macos: true,
+    );
+    final step = p.steps.whereType<RemoteStep>().firstWhere(
+      (s) => s.title == 'Disable the old schedule io.example.old-backup',
+    );
+    expect(
+      step.script,
+      contains('launchctl bootout gui/\$(id -u)/io.example.old-backup'),
+    );
+    expect(step.script, contains('io.example.old-backup.plist'));
+    expect(step.script, contains('.disabled-by-podship'));
   });
 }
