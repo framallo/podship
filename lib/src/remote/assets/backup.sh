@@ -198,7 +198,13 @@ FILES=("$DUMP_NAME" "$COUNTS_NAME")
 for entry in $VOLUMES; do
   IFS='|' read -r vname vol sqlite files <<<"$entry"
   log "volume $vol → $vname.$EXT"
-  docker volume inspect "$vol" >/dev/null 2>&1 || fail "no Docker volume $vol"
+  # A volume is a Docker volume name, or an absolute host folder (a bind
+  # mount, like a data folder next to the deploy).
+  if [[ "$vol" == /* ]]; then
+    [[ -d "$vol" ]] || fail "no folder $vol"
+  else
+    docker volume inspect "$vol" >/dev/null 2>&1 || fail "no Docker volume $vol"
+  fi
   VTMP=$(mktemp -d "/tmp/podship-volume-$vname.XXXX")
   chmod 777 "$VTMP"
   mkdir -p "$TMP/$vname"

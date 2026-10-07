@@ -31,6 +31,18 @@ String shq(String s) {
   return "'${s.replaceAll("'", "'\\''")}'";
 }
 
+/// The host name of a server that is this machine: no ssh, scripts run
+/// with the local `bash` and uploads are a local rsync. For a Mac that runs
+/// its own projects (`host: local`).
+const localHost = 'local';
+
+/// Whether [host] is this machine ([localHost]).
+bool isLocalHost(String host) => host == localHost;
+
+/// `host:path` for rsync and scp, or the bare [path] on this machine.
+String remoteSpec(String host, String path) =>
+    isLocalHost(host) ? path : '$host:$path';
+
 /// Runs commands on servers.
 class Ssh {
   Ssh({this.extraOptions = const [], this.verbose = false});
@@ -68,6 +80,16 @@ class Ssh {
     'bash -c ${shq(script)}',
   ];
 
+  /// The program and arguments that run [script] on [host]: ssh, or the
+  /// local bash for [localHost].
+  (String, List<String>) command(
+    String host,
+    String script, {
+    bool tty = false,
+  }) => isLocalHost(host)
+      ? ('bash', ['-c', script])
+      : ('ssh', _args(host, script, tty: tty));
+
   /// Runs [script] and returns its stdout. Throws [RemoteException] on a
   /// non-zero exit. [stdin] is written to the script's standard input.
   Future<String> capture(String host, String script, {List<int>? stdin}) async {
@@ -82,7 +104,8 @@ class Ssh {
     String script, {
     List<int>? stdin,
   }) async {
-    final proc = await Process.start('ssh', _args(host, script));
+    final (exe, args) = command(host, script);
+    final proc = await Process.start(exe, args);
     final out = proc.stdout.transform(utf8.decoder).join();
     final err = proc.stderr.transform(utf8.decoder).join();
     if (stdin != null) proc.stdin.add(stdin);
@@ -93,9 +116,10 @@ class Ssh {
 
   /// Runs [script] with its output shown live. Returns the exit code.
   Future<int> stream(String host, String script, {bool tty = false}) async {
+    final (exe, args) = command(host, script, tty: tty);
     final proc = await Process.start(
-      'ssh',
-      _args(host, script, tty: tty),
+      exe,
+      args,
       mode: tty ? ProcessStartMode.inheritStdio : ProcessStartMode.normal,
     );
     if (!tty) {
@@ -114,7 +138,10 @@ class Ssh {
     String host,
     String script,
     void Function(String line, bool stderr) onLine,
-  ) => runLines('ssh', _args(host, script), onLine);
+  ) {
+    final (exe, args) = command(host, script);
+    return runLines(exe, args, onLine);
+  }
 
   /// Copies [localDir] to [host]:[remoteDir] with rsync.
   Future<int> upload(
@@ -129,10 +156,9 @@ class Ssh {
       '--no-owner',
       '--no-group',
       if (delete) '--delete',
-      '-e',
-      rsyncShell(),
+      if (!isLocalHost(host)) ...['-e', rsyncShell()],
       '$localDir/',
-      '$host:$remoteDir/',
+      '${remoteSpec(host, remoteDir)}/',
     ];
     if (onLine != null) return runLines('rsync', args, onLine);
     final proc = await Process.start('rsync', args);

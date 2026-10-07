@@ -187,7 +187,7 @@ restore() {
       for ext in tar.zst tar.gz; do [[ -f "$DIR/$vname.$ext" ]] && arc="$DIR/$vname.$ext"; done
       [[ -n "$arc" ]] || { log "no archive for volume $vname; kept"; continue; }
       log "volume $vol ← $(basename "$arc")"
-      docker volume create "$vol" >/dev/null
+      if [[ "$vol" == /* ]]; then mkdir -p "$vol"; else docker volume create "$vol" >/dev/null; fi
       keep="$(dirname "$DUMP")/$vname-before-$(date +%Y%m%d%H%M%S).tar.gz"
       docker run --rm -v "$vol:/v" "$HELPER_IMAGE" tar -C /v -czf - . >"$keep" || true
       case "$arc" in

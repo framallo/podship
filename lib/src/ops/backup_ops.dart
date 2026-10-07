@@ -118,13 +118,14 @@ Plan planRestore(
       if (dumpFile != null)
         ActionStep(
           'Upload $dumpFile',
-          'scp to ${env.host}:${env.podshipHome}/upload.dump',
+          'scp to ${remoteSpec(env.host, '${env.podshipHome}/upload.dump')}',
           () async {
-            final res = await Process.run('scp', [
-              ...ctx.ssh.options(),
-              dumpFile,
-              '${env.host}:${env.podshipHome}/upload.dump',
-            ]);
+            final res =
+                await Process.run(isLocalHost(env.host) ? 'cp' : 'scp', [
+                  if (!isLocalHost(env.host)) ...ctx.ssh.options(),
+                  dumpFile,
+                  remoteSpec(env.host, '${env.podshipHome}/upload.dump'),
+                ]);
             if (res.exitCode != 0) throw Aborted('scp failed: ${res.stderr}');
           },
         ),
@@ -247,8 +248,10 @@ Plan planPull(Ctx ctx, EnvConfig env) {
       'bash',
       '-c',
       'mkdir -p ${shq(local)} && chmod 700 ${shq(local)} && '
-          'rsync -t --ignore-existing -e ${shq(ctx.ssh.rsyncShell())} '
-          '${shq('${env.host}:${b.dir}/${b.layout.encrypted}/')}\'*.tar.age\' ${shq('$local/')}',
+          // The server is this machine: a plain copy, never overwriting.
+          '${isLocalHost(env.host) ? 'for f in ${shq('${expandHome(b.dir)}/${b.layout.encrypted}')}/*.tar.age; do '
+                    '[ -e "\$f" ] && cp -np "\$f" ${shq('$local/')}; done; true' : 'rsync -t --ignore-existing -e ${shq(ctx.ssh.rsyncShell())} '
+                    '${shq('${env.host}:${b.dir}/${b.layout.encrypted}/')}\'*.tar.age\' ${shq('$local/')}'}',
     ]),
     LocalStep('Check that the newest copy decrypts and its checksums match', [
       'bash',

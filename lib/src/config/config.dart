@@ -282,6 +282,7 @@ class ComposeConfig {
     this.files = const ['docker-compose.yml'],
     this.buildContexts = const {},
     this.remotePreBuild = const [],
+    this.remotePostSwitch = const [],
   });
 
   /// Compose files, relative to the project root. They are shipped.
@@ -293,6 +294,12 @@ class ComposeConfig {
 
   /// Shell commands that run on the server before the build.
   final List<String> remotePreBuild;
+
+  /// Shell commands that run on the server in the new release's folder
+  /// after the switch and the health check, like installing a host service
+  /// (a launchd agent) that runs next to the containers. A failure rolls
+  /// the deploy back.
+  final List<String> remotePostSwitch;
 }
 
 /// How scheduled jobs run on a server.
@@ -704,6 +711,7 @@ class EnvConfig {
     this.podshipHome = '/srv/podship',
     this.buildContexts,
     this.remotePreBuild,
+    this.remotePostSwitch,
     this.scheduler = Scheduler.auto,
     this.transport,
     ServerpodSettings? serverpod,
@@ -759,6 +767,9 @@ class EnvConfig {
 
   /// Overrides `compose.remote_pre_build` for this environment.
   final List<String>? remotePreBuild;
+
+  /// Overrides `compose.remote_post_switch` for this environment.
+  final List<String>? remotePostSwitch;
 
   /// How scheduled backups run on the server.
   final Scheduler scheduler;
@@ -899,6 +910,7 @@ class PodshipConfig {
       files: c.strs('files', const ['docker-compose.yml']),
       buildContexts: c.strMap('build_contexts'),
       remotePreBuild: c.strs('remote_pre_build'),
+      remotePostSwitch: c.strs('remote_post_switch'),
     );
 
     final envs = <String, EnvConfig>{};
@@ -1195,6 +1207,9 @@ class PodshipConfig {
           : null,
       remotePreBuild: e.has('remote_pre_build')
           ? e.strs('remote_pre_build')
+          : null,
+      remotePostSwitch: e.has('remote_post_switch')
+          ? e.strs('remote_post_switch')
           : null,
       transport: e.optStr('transport'),
       serverpod: () {

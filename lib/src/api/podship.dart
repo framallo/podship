@@ -2088,11 +2088,8 @@ df -Pk / | tail -1 | awk '{print "DISK " $4 " " $2}'
     final c = StreamController<String>();
     Process? proc;
     c.onListen = () async {
-      proc = await Process.start('ssh', [
-        ...ctx.ssh.options(),
-        e.host,
-        'bash -c ${shq(ctx.header(e) + cmd)}',
-      ]);
+      final (exe, args) = ctx.ssh.command(e.host, ctx.header(e) + cmd);
+      proc = await Process.start(exe, args);
       final a = proc!.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())

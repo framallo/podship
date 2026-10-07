@@ -147,6 +147,8 @@ environments:
 
 Only `project` is required at the top, and `host`, `dir` and `health.url` in each environment. Other keys:
 
+- `host: local` runs the environment on this machine: scripts run with the local `bash` instead of ssh, uploads are a local rsync, `backup pull` is a local copy, and `tunnel forward` prints the local port. Use it for a Mac that hosts its own projects.
+- `remote_post_switch` (under `compose`, or per environment): shell commands that run on the server in the new release's folder after the switch and the health checks, before the release is marked healthy. A failure rolls the deploy back. Use it for a host service that runs next to the containers, like a launchd agent. `--skip-hooks` skips them.
 - `compose_project` (default: the project name for `production`, `<project>-<env>` for the others), `compose_files` (extra compose files for this environment only), `run_mode`, `plain_env` (variables whose values may be printed), `remote_path` (added to the front of `PATH` on the server), `podship_home` (default `/srv/podship`), `server_service` (default `server`), per-environment `build_contexts` and `remote_pre_build`, and `scheduler` (`auto`, `systemd` or `launchd`).
 - `health.fallback_urls` and `health.public_fallback_urls`: other URLs that also count as healthy, so a rollback to a release from before a health route moved still passes. `health.attempts`, and `health.interval` in seconds.
 - `secrets.env_file` and `secrets.passwords_file` (relative to `dir`; default `shared/.env` and `shared/passwords.yaml`), `secrets.passwords_link` (where each release sees `passwords.yaml`), and `secrets.password_keys`.
@@ -211,7 +213,9 @@ Every release folder has `.podship/compose.sh`, which runs `docker compose` with
                        the same files, plus .env and passwords.yaml
 ```
 
-The encrypted copy is for `age` recipients: SSH public keys (`ssh-ed25519`, `ssh-rsa`) or age keys. List them in `backup.recipients`, as keys or as files like `~/.ssh/id_ed25519.pub`. Anyone with a matching private key can decrypt:
+The encrypted copy is for `age` recipients: SSH public keys (`ssh-ed25519`, `ssh-rsa`) or age keys. List them in `backup.recipients`, as keys or as files like `~/.ssh/id_ed25519.pub`. A `backup.volumes` entry's `volume` is a Docker volume name or an absolute host folder (a bind mount, like `/Users/me/services/app-data/data`).
+
+Anyone with a matching private key can decrypt:
 
 ```
 age -d -i ~/.ssh/id_ed25519 2026-10-06T0330.tar.age | tar -x

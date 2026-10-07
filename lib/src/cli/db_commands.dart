@@ -1,3 +1,4 @@
+import 'dart:async';
 // db: connect, provision, wipe, migrate status, users; and tunnel.
 
 import 'dart:io';
@@ -189,6 +190,20 @@ docker rm -f ${shq(name)} >/dev/null 2>&1 || true
 docker run -d --rm --name ${shq(name)} --network "\$net" -p 127.0.0.1::$port alpine/socat tcp-listen:$port,fork,reuseaddr "tcp-connect:\$ip:$port" >/dev/null
 docker port ${shq(name)} $port/tcp | head -1 | sed 's/.*://'
 ''');
+    if (isLocalHost(e.host)) {
+      // The server is this machine: the socat port is the forward.
+      log.info(
+        'Forwarding localhost:${remotePort.trim()} → $service:$port. Ctrl+C to stop.',
+      );
+      final done = Completer<void>();
+      final sub = ProcessSignal.sigint.watch().listen((_) {
+        if (!done.isCompleted) done.complete();
+      });
+      await done.future;
+      await sub.cancel();
+      await ctx.query(e, 'docker rm -f ${shq(name)} >/dev/null 2>&1 || true');
+      return 0;
+    }
     log.info(
       'Forwarding localhost:$local → $service:$port on ${e.host}. Ctrl+C to stop.',
     );

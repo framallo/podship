@@ -409,6 +409,16 @@ Plan planDeploy({
         intervalSeconds: env.health.intervalSeconds,
       ),
   ]);
+  final postSwitch = env.remotePostSwitch ?? config.compose.remotePostSwitch;
+  if (postSwitch.isNotEmpty && !options.skipHooks) {
+    steps.add(
+      RemoteStep(
+        'Run the post-switch commands in $id',
+        env.host,
+        '${ctx.header(env)}cd ${shq(l.release(id))}\n${postSwitch.join('\n')}',
+      ),
+    );
+  }
   final guardTo = steps.length - 1;
   final toPrune = releasesToPrune(
     [...state.ids, id],

@@ -203,7 +203,13 @@ FILES=("$DUMP_NAME" "$COUNTS_NAME")
 for entry in $VOLUMES; do
   IFS='|' read -r vname vol sqlite files <<<"$entry"
   log "volume $vol → $vname.$EXT"
-  docker volume inspect "$vol" >/dev/null 2>&1 || fail "no Docker volume $vol"
+  # A volume is a Docker volume name, or an absolute host folder (a bind
+  # mount, like a data folder next to the deploy).
+  if [[ "$vol" == /* ]]; then
+    [[ -d "$vol" ]] || fail "no folder $vol"
+  else
+    docker volume inspect "$vol" >/dev/null 2>&1 || fail "no Docker volume $vol"
+  fi
   VTMP=$(mktemp -d "/tmp/podship-volume-$vname.XXXX")
   chmod 777 "$VTMP"
   mkdir -p "$TMP/$vname"
@@ -470,7 +476,7 @@ restore() {
       for ext in tar.zst tar.gz; do [[ -f "$DIR/$vname.$ext" ]] && arc="$DIR/$vname.$ext"; done
       [[ -n "$arc" ]] || { log "no archive for volume $vname; kept"; continue; }
       log "volume $vol ← $(basename "$arc")"
-      docker volume create "$vol" >/dev/null
+      if [[ "$vol" == /* ]]; then mkdir -p "$vol"; else docker volume create "$vol" >/dev/null; fi
       keep="$(dirname "$DUMP")/$vname-before-$(date +%Y%m%d%H%M%S).tar.gz"
       docker run --rm -v "$vol:/v" "$HELPER_IMAGE" tar -C /v -czf - . >"$keep" || true
       case "$arc" in
