@@ -197,4 +197,13 @@ void main() {
     );
     expect(p.title, endsWith('20261007-180000-b9913c6-adopted'));
   });
+
+  test('backup pull checks the newest podship stamp, not other archives', () {
+    final script = verifyNewestScript('/b', ['/k']);
+    expect(
+      script,
+      contains('/b/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*.tar.age'),
+    );
+    expect(script, isNot(contains('/b/*.tar.age 2>/dev/null | sort')));
+  });
 }

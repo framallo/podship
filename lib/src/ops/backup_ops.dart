@@ -268,7 +268,9 @@ Plan planPull(Ctx ctx, EnvConfig env) {
 String verifyNewestScript(String dir, List<String> identities) =>
     '''
 set -euo pipefail
-newest=\$(ls -1 ${shq(dir)}/*.tar.age 2>/dev/null | sort | tail -1)
+# Only podship's stamps (2026-10-07T0330.tar.age): older archives with
+# other names may share the folder and must not count as the newest.
+newest=\$(ls -1 ${shq(dir)}/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*.tar.age 2>/dev/null | sort | tail -1)
 [ -n "\$newest" ] || { echo "no backups in $dir"; exit 1; }
 tmp=\$(mktemp -d); trap 'rm -rf "\$tmp"' EXIT
 ok=""
