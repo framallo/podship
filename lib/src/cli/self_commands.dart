@@ -70,6 +70,16 @@ bool isPubScript(File file) {
   }
 }
 
+/// Whether [file] is the shim that [shimScript] writes.
+bool isShim(File file) {
+  try {
+    return file.existsSync() &&
+        file.readAsStringSync().contains('podship self update');
+  } catch (_) {
+    return false;
+  }
+}
+
 /// The shim that replaces pub's script: it runs the compiled executable.
 String shimScript(String exe) =>
     '#!/bin/sh\n# podship: runs the compiled executable (podship self update).\nexec "$exe" "\$@"\n';
@@ -192,10 +202,10 @@ class SelfUpdateCommand extends PodshipCommand {
           shimmed = true;
           continue;
         }
-        if (isPubScript(f)) {
+        if (isPubScript(f) || isShim(f)) {
           f.writeAsStringSync(shimScript(exe));
           await Process.run('chmod', ['755', path]);
-          log.ok('$path now runs the executable');
+          log.ok('$path runs the executable');
           shimmed = true;
         }
       }
