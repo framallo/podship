@@ -20,6 +20,7 @@ import '../images/images.dart';
 import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../release/release.dart';
+import '../server/registry.dart';
 import '../remote/ssh.dart';
 import 'backup_ops.dart';
 import 'bluegreen.dart';
@@ -420,6 +421,31 @@ Plan planDeploy({
   final buildRoot = source == SourceMode.git ? snapshot : root;
   final old = state.current;
   final reg = state.registry..put(r.entry);
+  // `scheduled:` commands, in the current release; a removed one goes.
+  final project = ctx.config.project;
+  for (final id in [
+    for (final j in reg.jobs.values)
+      if (j.kind == JobKind.command &&
+          j.project == project &&
+          j.env == env.name)
+        j.id,
+  ]) {
+    reg.removeJob(id);
+  }
+  for (final c in env.scheduled) {
+    reg.putJob(
+      ScheduledJob(
+        kind: JobKind.command,
+        project: project,
+        env: env.name,
+        name: c.name,
+        run: c.run,
+        cwd: p.posix.normalize(p.posix.join(env.dir, 'current', c.cwd)),
+        path: c.path ?? env.remotePath,
+        note: 'from podship.yaml scheduled:',
+      ),
+    );
+  }
   final inputs = options.inputs ?? DeployInputs();
   final reuse = {
     if (!options.skipWeb)

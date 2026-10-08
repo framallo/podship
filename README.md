@@ -350,6 +350,20 @@ jobs:
     project_dir: /Users/me/work/shop
 ```
 
+An environment can add its own nightly commands in `podship.yaml`; each deploy writes them into the server's registry as `command:<project>/<env>/<name>` jobs, which run after the backups and pulls, in a folder of the current release:
+
+```yaml
+environments:
+  production:
+    scheduled:
+      - name: shots
+        cwd: boceto_tool                    # under <dir>/current
+        run: [dart, run, bin/boceto_tool.dart, shots, --all]
+        path: /opt/homebrew/bin             # optional; default remote_path
+```
+
+A command removed from `podship.yaml` leaves the registry at the next deploy.
+
 `backup schedule` writes a backup job into the server's registry; `backup pull --schedule` writes a pull job into this machine's registry. Each run executes every job that has not run on today's local date, backups first, then pulls. A machine that was asleep or off catches up with one run when it comes back (launchd fires a missed calendar time on wake; the systemd timer is persistent); several missed nights still give one run, never a burst. Daylight-saving changes neither skip nor double a night. Each job runs under its own lock, so a job still running is skipped, and a failing job never stops the others or the agent.
 
 The agent keeps `<podship_home>/scheduler/state.json` (last tick, and per job the last run, its outcome and backup stamp), appends to `<podship_home>/log/scheduler.log`, and writes a history record per run under `<podship_home>/history/<project>/<env>/` (actor `podship-scheduler`), like a manual `backup now`.

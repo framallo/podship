@@ -134,6 +134,10 @@ enum JobKind {
 
   /// `podship backup pull` on the machine that keeps the off-site copies.
   pull,
+
+  /// A project's own nightly command (`scheduled:` in `podship.yaml`): argv
+  /// run in a folder of the current release, after backups and pulls.
+  command,
 }
 
 /// One scheduled job. The registry holds everything the job needs, so the
@@ -150,6 +154,9 @@ class ScheduledJob {
     this.projectDir,
     this.path,
     this.note,
+    this.name,
+    this.run,
+    this.cwd,
   });
 
   factory ScheduledJob.fromMap(Map m) => ScheduledJob(
@@ -163,6 +170,9 @@ class ScheduledJob {
     projectDir: m['project_dir'] as String?,
     path: m['path'] as String?,
     note: m['note'] as String?,
+    name: m['name'] as String?,
+    run: m['run'] is List ? [for (final x in m['run'] as List) '$x'] : null,
+    cwd: m['cwd'] as String?,
   );
 
   final JobKind kind;
@@ -185,8 +195,16 @@ class ScheduledJob {
   /// Where the job came from, for people (`migrated from …`).
   final String? note;
 
-  /// `backup:project/env` or `pull:project/env`.
-  String get id => '${kind.name}:$project/$env';
+  /// Command: its name, argv and working folder.
+  final String? name;
+  final List<String>? run;
+  final String? cwd;
+
+  /// `backup:project/env`, `pull:project/env` or
+  /// `command:project/env/name`.
+  String get id => kind == JobKind.command
+      ? '${kind.name}:$project/$env/$name'
+      : '${kind.name}:$project/$env';
   String get envKey => '$project/$env';
 
   Map<String, Object?> toMap() => {
@@ -200,6 +218,9 @@ class ScheduledJob {
     'project_dir': ?projectDir,
     'path': ?path,
     'note': ?note,
+    'name': ?name,
+    'run': ?run,
+    'cwd': ?cwd,
   };
 }
 

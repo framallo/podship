@@ -412,6 +412,12 @@ class JobRunner {
         }
         final (exe, pre) = podshipCommand();
         return (exe, [...pre, 'agent', 'backup', '--conf', conf], env, home);
+      case JobKind.command:
+        final run = job.run;
+        if (run == null || run.isEmpty) {
+          throw StateError('${job.id} has no run');
+        }
+        return (run.first, run.sublist(1), env, job.cwd ?? home);
       case JobKind.pull:
         final dir = job.projectDir;
         if (dir == null) throw StateError('${job.id} has no project_dir');
@@ -449,7 +455,11 @@ class JobRunner {
     String two(int n) => n.toString().padLeft(2, '0');
     final stamp =
         '${s.year}${two(s.month)}${two(s.day)}T${two(s.hour)}${two(s.minute)}${two(s.second)}Z';
-    final op = job.kind == JobKind.backup ? 'backup now' : 'backup pull';
+    final op = switch (job.kind) {
+      JobKind.backup => 'backup now',
+      JobKind.pull => 'backup pull',
+      JobKind.command => 'scheduled ${job.name}',
+    };
     final base = '$stamp-${op.replaceAll(' ', '-')}';
     final ended = s.add(run.duration);
     final json = {

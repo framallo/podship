@@ -834,6 +834,22 @@ class PublicCheck {
   ].join(', ');
 }
 
+/// A nightly command of an environment (`scheduled:`): [run] is argv,
+/// [cwd] a folder of the current release, [path] extra PATH entries.
+class ScheduledCommand {
+  ScheduledCommand({
+    required this.name,
+    required this.run,
+    this.cwd = '.',
+    this.path,
+  });
+
+  final String name;
+  final List<String> run;
+  final String cwd;
+  final String? path;
+}
+
 /// Where the secrets of an environment live on the server.
 class SecretsConfig {
   SecretsConfig({
@@ -1198,6 +1214,7 @@ class EnvConfig {
     this.remotePreBuild,
     this.remotePostSwitch,
     this.scheduler = Scheduler.auto,
+    this.scheduled = const [],
     this.transport,
     ServerpodSettings? serverpod,
     this.egress,
@@ -1229,6 +1246,9 @@ class EnvConfig {
   /// the server registry allocates a free port.
   final Map<String, int> ports;
   final HealthConfig health;
+
+  /// Nightly commands the scheduler runs on this environment's server.
+  final List<ScheduledCommand> scheduled;
   final SecretsConfig secrets;
 
   /// Variables in `.env` that are not secret. Their values may be printed.
@@ -1592,6 +1612,15 @@ class PodshipConfig {
       dir: dir,
       composeProject: composeProject,
       composeFiles: e.strs('compose_files'),
+      scheduled: [
+        for (final c in e.maps('scheduled'))
+          ScheduledCommand(
+            name: c.str('name'),
+            run: c.strs('run'),
+            cwd: c.str('cwd', '.'),
+            path: c.optStr('path'),
+          ),
+      ],
       runMode: e.str('run_mode', 'production'),
       ports: e.portMap('ports'),
       health: HealthConfig(
