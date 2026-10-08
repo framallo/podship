@@ -127,7 +127,9 @@ abstract class PodshipCommand extends Command<int> {
   /// The notifier of this command: the project's `notify:` (and the global
   /// one), turned off by `--no-notify`, turned on by `--notify` even when
   /// the config says `enabled: false`.
-  Notifier get notifier {
+  late final Notifier notifier = _buildNotifier();
+
+  Notifier _buildNotifier() {
     final flag = notifyFlag;
     final cfg = flag == true
         ? NotifyConfig(
@@ -136,11 +138,16 @@ abstract class PodshipCommand extends Command<int> {
             bell: config.notify.bell,
           )
         : config.notify;
-    final integrations = Integrations();
+    // The secret store (Keychain) is read only when an email channel
+    // exists, so plain commands do not pay for it.
+    final email = cfg.channels.any((c) => c.kind == 'email');
+    final integrations = email ? Integrations() : null;
     return Notifier(
       cfg,
       enabled: flag ?? true,
-      ses: integrations.hasAws ? integrations.ses : null,
+      ses: integrations != null && integrations.hasAws
+          ? integrations.ses
+          : null,
     );
   }
 

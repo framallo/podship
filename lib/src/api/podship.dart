@@ -119,7 +119,11 @@ class Podship {
       _notifier ??
       (_defaultNotifier ??= Notifier(
         config.notify,
-        ses: integrations.hasAws ? integrations.ses : null,
+        ses:
+            config.notify.channels.any((c) => c.kind == 'email') &&
+                integrations.hasAws
+            ? integrations.ses
+            : null,
       ));
   Notifier? _defaultNotifier;
 

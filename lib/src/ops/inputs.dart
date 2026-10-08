@@ -133,3 +133,22 @@ Future<String?> flutterVersionTag() async {
   _flutterTag = '';
   return null;
 }
+
+String? _dartTag;
+
+/// `dart <version>` of the `dart` on PATH (not this process's SDK, which
+/// in a compiled podship is podship's own), once per process, or null.
+Future<String?> dartVersionTag() async {
+  if (_dartTag != null) return _dartTag!.isEmpty ? null : _dartTag;
+  try {
+    final r = await Process.run('dart', ['--version']);
+    if (r.exitCode == 0) {
+      final out = '${r.stdout}${r.stderr}'.trim();
+      final m = RegExp(r'version: (\S+)').firstMatch(out);
+      _dartTag = 'dart ${m?[1] ?? out}';
+      return _dartTag;
+    }
+  } catch (_) {}
+  _dartTag = '';
+  return null;
+}

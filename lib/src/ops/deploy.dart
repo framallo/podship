@@ -181,6 +181,12 @@ Future<DeployInputs> computeDeployInputs({
       }
     }
   }
+  // The toolchain is part of a suite's inputs: a Dart or Flutter upgrade
+  // that leaves the lock alone must still run the tests.
+  final tools = [
+    ?await dartVersionTag(),
+    if (config.build.flutterWeb.isNotEmpty) ?await flutterVersionTag(),
+  ];
   final suiteHashes = <String, String>{};
   for (final suite in config.tests.forEnv(env.name)) {
     final paths = await packageInputs(
@@ -197,6 +203,7 @@ Future<DeployInputs> computeDeployInputs({
         'command=${suite.command}',
         'runner=${config.tests.runner.name}',
         'image=${suite.image ?? ''}',
+        ...tools,
       ],
     );
     if (h != null) suiteHashes[suite.name] = h;

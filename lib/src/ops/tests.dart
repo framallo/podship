@@ -369,7 +369,12 @@ Future<String> writeTestRecord(
         stdin: File(r.log!).readAsBytesSync(),
       );
     }
-    remote.add(SuiteResult.fromJson({...r.toJson(), 'log': remoteLog}));
+    remote.add(
+      SuiteResult.fromJson({
+        ...r.toJson(),
+        if (r.log != null) 'log': remoteLog,
+      }),
+    );
   }
   final record = {
     'sha': sha,
