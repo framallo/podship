@@ -2,7 +2,7 @@
 
 Deploy, back up and roll back [Serverpod](https://serverpod.dev) projects on your own servers, with production and staging.
 
-podship is a command-line tool. It talks to your servers over ssh and runs everything with Docker Compose. Nothing runs on a server except Docker, a few bash scripts, and systemd timers (or launchd on a Mac).
+podship is a command-line tool. It talks to your servers over ssh and runs everything with Docker Compose. Nothing runs on a server except Docker, a few bash scripts, and one podship scheduler agent per machine (launchd on a Mac, a systemd timer on Linux) that runs the nightly backups and off-site pulls.
 
 ```
 podship deploy --env staging
@@ -18,7 +18,8 @@ podship backup now --env production
 - **Environments.** `production`, `staging` or any name. Each one has its own compose project, network, database, volumes, ports, domain and secrets. They can share a server or use different servers.
 - **Many projects on one server.** A registry on each server records every project and environment. podship refuses a second user of a directory, compose project, port, domain or backup slot. It gives free ports and backup times to environments that ask for `auto`.
 - **Secrets on the server only.** `.env` and Serverpod's `passwords.yaml` live on the server. podship edits them over ssh stdin. It never prints a secret value and never puts one in a command line.
-- **Backups.** `pg_dump -Fc` of the database, archives of Docker volumes (SQLite files copied with SQLite's backup API), row counts, checksums, and an encrypted copy that you decrypt with your SSH key. A daily schedule, retention, a restore drill in a throwaway container, a restore that renames the old database instead of dropping it, and an off-site pull to your machine.
+- **Backups.** `pg_dump -Fc` of the database, archives of Docker volumes (SQLite files copied with SQLite's backup API), row counts, checksums, and an encrypted copy that you decrypt with your SSH key. A nightly schedule, retention, a restore drill in a throwaway container, a restore that renames the old database instead of dropping it, and an off-site pull to your machine.
+- **Scheduler.** One agent per machine, registered once. Its jobs (backups, off-site pulls) live in the machine's registry. See [Scheduler](#scheduler).
 - **Domains.** Routes through a Cloudflare Tunnel, or Caddy with automatic Let's Encrypt certificates.
 - **Cloudflare and SES.** DNS records, tunnel routes, Access apps and the app's email sender, through the Cloudflare and Amazon SES APIs, as plans you approve (see [Cloudflare and SES](#cloudflare-and-ses)).
 - **Dry runs.** Every command that changes something takes `--dry-run` and prints its plan.
@@ -66,6 +67,7 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `env list/get/set/unset` | Plain variables in the environment's `.env`. |
 | `secret init/list/set/unset/copy` | Secrets in `.env` and `passwords.yaml`. `set` reads the value from stdin, a hidden prompt, `--from-file` or `--generate`. `copy --from <env>` copies values between environments without showing them. `init` creates both files with fresh random values. |
 | `backup now/list/drill/restore/schedule/pull` | See [Backups](#backups). |
+| `scheduler install/status/list/run-once/uninstall` | The nightly scheduler agent of a machine. See [Scheduler](#scheduler). |
 | `db connect` | `psql` on the environment database. |
 | `db migrate status` | The applied Serverpod migrations, against the newest one in the current release. |
 | `db user list/create/reset-password/delete` | Database roles for people and tools. The password is printed once. |
@@ -149,10 +151,10 @@ Only `project` is required at the top, and `host`, `dir` and `health.url` in eac
 
 - `host: local` runs the environment on this machine: scripts run with the local `bash` instead of ssh, uploads are a local rsync, `backup pull` is a local copy, and `tunnel forward` prints the local port. Use it for a Mac that hosts its own projects.
 - `remote_post_switch` (under `compose`, or per environment): shell commands that run on the server in the new release's folder after the switch and the health checks, before the release is marked healthy. A failure rolls the deploy back. Use it for a host service that runs next to the containers, like a launchd agent. `--skip-hooks` skips them.
-- `compose_project` (default: the project name for `production`, `<project>-<env>` for the others), `compose_files` (extra compose files for this environment only), `run_mode`, `plain_env` (variables whose values may be printed), `remote_path` (added to the front of `PATH` on the server), `podship_home` (default `/srv/podship`), `server_service` (default `server`), per-environment `build_contexts` and `remote_pre_build`, and `scheduler` (`auto`, `systemd` or `launchd`).
+- `compose_project` (default: the project name for `production`, `<project>-<env>` for the others), `compose_files` (extra compose files for this environment only), `run_mode`, `plain_env` (variables whose values may be printed), `remote_path` (added to the front of `PATH` on the server), `podship_home` (default `/srv/podship`), `server_service` (default `server`), per-environment `build_contexts` and `remote_pre_build`. (`scheduler: auto|systemd|launchd` is still accepted and ignored: the agent detects the OS of the machine.)
 - `health.fallback_urls` and `health.public_fallback_urls`: other URLs that also count as healthy, so a rollback to a release from before a health route moved still passes. `health.attempts`, and `health.interval` in seconds.
 - `secrets.env_file` and `secrets.passwords_file` (relative to `dir`; default `shared/.env` and `shared/passwords.yaml`), `secrets.passwords_link` (where each release sees `passwords.yaml`), and `secrets.password_keys`.
-- `backup.dir`, `unit`, `schedule` (a systemd `OnCalendar` value; empty means a free slot from the registry), `timezone`, `retention` (`days`, `weeks`, `months`), `compression` (`zstd` or `gzip`), `layout` (the `plain`, `encrypted`, `dump`, `counts` and `secrets` names), `stop_on_restore`, `drill.tables` and `drill.volatile` (globs), `offsite.identities`, `before_deploy`, and `replaces` (older schedule units to turn off).
+- `backup.dir`, `unit`, `schedule` (kept for the registry's backup slot; the nightly run time is the machine's, see [Scheduler](#scheduler)), `timezone`, `retention` (`days`, `weeks`, `months`), `compression` (`zstd` or `gzip`), `layout` (the `plain`, `encrypted`, `dump`, `counts` and `secrets` names), `stop_on_restore`, `drill.tables` and `drill.volatile` (globs), `offsite.identities`, `before_deploy`, and `replaces` (older schedule units to turn off).
 - `proxy.kind` (`cloudflare_tunnel`, `caddy` or `none`), `proxy.config`, `proxy.service`, `proxy.tunnel_id` and `proxy.managed` (`remote`: the tunnel's ingress lives in Cloudflare and podship edits it through the API; `local`: a `config.yml` on the host. Default: `local` when `proxy.config` is set, else `remote`).
 - `dns` (`provider: cloudflare` or `none`, `zone`, `account_id`, and for Caddy `ipv4`, `ipv6`, `proxied`), `email` (`from`, `region`, `provider: ses`, `identity`, `mail_from`, `env`), `domains[].access` (`emails`, `email_domains`, `session`), and at the top level `cloudflare: {account_id}`. See [Cloudflare and SES](#cloudflare-and-ses).
 
@@ -229,14 +231,59 @@ Retention keeps everything from today and yesterday, plus the newest backup of e
 | `backup list` | Stamps, sizes, and whether the encrypted copy exists. |
 | `backup drill [stamp]` | Restores into a throwaway Postgres container with no network and no ports, compares row counts with the counts at backup time and with the live database, and deletes the container. Tables in `drill.volatile` may differ. |
 | `backup restore [stamp \| --dump file]` | Asks you to type the project name, takes a fresh backup, stops the app services, renames the database to `<db>_before_<time>`, restores into a new one, starts the services and waits for health. To undo, swap the names back. |
-| `backup schedule` | Installs the daily timer: systemd on Linux, launchd on macOS. `--show`, `--remove`. `backup.replaces` turns off older timers, so one environment never has two schedules. |
-| `backup pull` | Copies new encrypted backups to `offsite.dir` on your machine (it never deletes there), and checks that the newest one decrypts with one of `offsite.identities` and that its checksums match. `--install-agent` runs it three times a day with launchd. |
+| `backup schedule` | Writes the backup job (`backup:<project>/<env>`) into the server's registry and installs the scripts and settings it runs with. The server's scheduler agent runs it every night. No launchd or systemd unit per environment. `--show` prints the job and its last run, `--remove` removes it. |
+| `backup pull` | Copies new encrypted backups to `offsite.dir` on your machine (it never deletes there), and checks that the newest one decrypts with one of `offsite.identities` and that its checksums match. `--schedule` writes the pull job (`pull:<project>/<env>`) into this machine's registry instead, for its scheduler agent; `--schedule --remove` removes it. |
 
 The scripts run with bash 3.2 and BSD tools as well as GNU tools, so a Mac with Docker Desktop or colima can be a server too.
 
+## Scheduler
+
+podship registers **one background agent per machine, once**: `dev.podship.scheduler` with launchd on a Mac, `podship-scheduler.timer` with systemd on Linux. The agent runs `podship scheduler tick --home <podship home>` once a night (03:00 machine local time by default) and once at load (login, reboot). Nothing else is registered per environment, and a deploy never touches launchd or systemd.
+
+The jobs live in the machine's registry (`<podship_home>/registry.yaml`):
+
+```yaml
+scheduler:
+  at: "03:00"                                    # the nightly run, machine local time
+jobs:
+  "backup:shop/production":
+    kind: backup
+    project: shop
+    env: production
+    script: /srv/podship/lib/backup.sh
+    conf: /srv/podship/etc/podship-backup-shop.conf
+    log: /srv/podship/log/podship-backup-shop.log
+    path: /usr/local/bin:/usr/bin:/bin
+  "pull:shop/production":                        # on the machine that keeps the off-site copies
+    kind: pull
+    project: shop
+    env: production
+    project_dir: /Users/me/work/shop
+```
+
+`backup schedule` writes a backup job into the server's registry; `backup pull --schedule` writes a pull job into this machine's registry. Each run executes every job that has not run on today's local date, backups first, then pulls. A machine that was asleep or off catches up with one run when it comes back (launchd fires a missed calendar time on wake; the systemd timer is persistent); several missed nights still give one run, never a burst. Daylight-saving changes neither skip nor double a night. Each job runs under its own lock, so a job still running is skipped, and a failing job never stops the others or the agent.
+
+The agent keeps `<podship_home>/scheduler/state.json` (last tick, and per job the last run, its outcome and backup stamp), appends to `<podship_home>/log/scheduler.log`, and writes a history record per run under `<podship_home>/history/<project>/<env>/` (actor `podship-scheduler`), like a manual `backup now`.
+
+```
+podship scheduler install --env production          # the server of production
+podship scheduler install --at 04:00                # this machine (the off-site pulls)
+podship scheduler status --env production
+podship scheduler list
+podship scheduler run-once backup:shop/production --env production
+podship scheduler run-once pull:shop/production
+podship scheduler uninstall --env production        # the registry and its jobs stay
+```
+
+`install` puts a compiled podship at `<podship_home>/bin/podship` (this executable when it is a compiled podship, else a fresh `dart compile exe` of the package; `--binary` names one; the machine must have the same OS and CPU architecture), imports the per-environment agents an older podship installed (`dev.podship.backup.*` and `dev.podship.pull.*` launch agents, `podship-backup-*` systemd timers) into the registry, boots them out and renames their files `.migrated-by-podship`, turns off the units in `backup.replaces`, and registers the agent. It is idempotent: a second install with nothing changed changes nothing, and macOS shows its "can run in the background" notice only when the plist really changed. Imported jobs start the next night (the install marks them as run today), so `run-once` is the way to test one now. After a podship upgrade, run `scheduler install` again on each machine to update the binary.
+
+Pick the run times so a machine that pulls fires after the machine that backs up: for example 03:00 on the server and 04:00 on your Mac.
+
+The protocol exposes `scheduler.list` (list_schedules), `scheduler.run` (run_job), `scheduler.status` and `scheduler.install` for consoles and MCP tools.
+
 ## Several projects on one server
 
-Each server has one registry, at `<podship_home>/registry.yaml`. `link`, `deploy` and `adopt` write to it, and `destroy` removes the entry. podship checks it before any change: two environments cannot share a directory, compose project, port, domain, shared database or backup unit. `ports: {web: auto}` takes free ports from 20000–20999 and skips ports that something else listens on. An empty `backup.schedule` takes a free 15-minute slot from 03:00. `podship server status` and `podship projects list` show everything on the server.
+Each server has one registry, at `<podship_home>/registry.yaml`. `link`, `deploy` and `adopt` write to it, and `destroy` removes the entry. podship checks it before any change: two environments cannot share a directory, compose project, port, domain, shared database or backup unit. `ports: {web: auto}` takes free ports from 20000–20999 and skips ports that something else listens on. The registry also holds the machine's nightly run time and its scheduled jobs (see [Scheduler](#scheduler)). `podship server status` and `podship projects list` show everything on the server.
 
 Each environment runs its own Postgres by default. With `database: {mode: shared}`, `db provision` starts one `podship-postgres` container per server and gives the environment its own database and role.
 
@@ -589,7 +636,7 @@ See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a 
 
 ## Tests
 
-Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing and the compose override (replicas, Redis, egress).
+Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`).
 
 The Cloudflare and SES integrations are tested against recorded API responses in `test/api_fixtures/` (`cloudflare_test.dart`, `ses_test.dart`, `zones_test.dart`, `changes_test.dart`, `app_test.dart`): every client call, SigV4 against AWS's published test vectors, plan rendering and plan ids, idempotency, rollback, zone resolution (including the zone of the owner's real account), drift, the approval rules of the protocol, and the CLI wiring. They never reach the network.
 

@@ -4,6 +4,11 @@
 // It lives at /srv/podship/registry.yaml. podship reads it before it changes
 // anything, so two projects never take the same directory, compose project,
 // port, domain, database or backup slot.
+//
+// It also holds the schedule of the machine: the time of the nightly
+// scheduler run (`scheduler:`) and the jobs it runs (`jobs:`). The podship
+// scheduler agent reads the jobs from here; nothing else is registered with
+// launchd or systemd per environment.
 
 import 'dart:convert';
 
@@ -94,12 +99,119 @@ class RegistryEntry {
   );
 }
 
+/// The nightly scheduler run of a machine.
+class SchedulerSettings {
+  SchedulerSettings({this.at = defaultAt});
+
+  factory SchedulerSettings.fromMap(Map? m) =>
+      SchedulerSettings(at: validTime('${m?['at'] ?? defaultAt}'));
+
+  /// The default time of the nightly run, machine local time.
+  static const defaultAt = '03:00';
+
+  /// `HH:MM`, machine local time.
+  final String at;
+
+  int get hour => int.parse(at.substring(0, 2));
+  int get minute => int.parse(at.substring(3, 5));
+
+  Map<String, Object?> toMap() => {'at': at};
+
+  /// [t] as `HH:MM`, or a [RegistryConflict] when it is not a time.
+  static String validTime(String t) {
+    final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(t.trim());
+    if (m == null) throw RegistryConflict('"$t" is not a time (HH:MM)');
+    final h = int.parse(m[1]!), mi = int.parse(m[2]!);
+    if (h > 23 || mi > 59) throw RegistryConflict('"$t" is not a time (HH:MM)');
+    return '${h.toString().padLeft(2, '0')}:${m[2]}';
+  }
+}
+
+/// What the scheduler runs.
+enum JobKind {
+  /// `backup.sh <conf>` on the server that holds the data.
+  backup,
+
+  /// `podship backup pull` on the machine that keeps the off-site copies.
+  pull,
+}
+
+/// One scheduled job. The registry holds everything the job needs, so the
+/// scheduler runs it on a machine with no `podship.yaml`.
+class ScheduledJob {
+  ScheduledJob({
+    required this.kind,
+    required this.project,
+    required this.env,
+    this.enabled = true,
+    this.script,
+    this.conf,
+    this.log,
+    this.projectDir,
+    this.path,
+    this.note,
+  });
+
+  factory ScheduledJob.fromMap(Map m) => ScheduledJob(
+    kind: JobKind.values.byName('${m['kind']}'),
+    project: '${m['project']}',
+    env: '${m['env']}',
+    enabled: m['enabled'] != false,
+    script: m['script'] as String?,
+    conf: m['conf'] as String?,
+    log: m['log'] as String?,
+    projectDir: m['project_dir'] as String?,
+    path: m['path'] as String?,
+    note: m['note'] as String?,
+  );
+
+  final JobKind kind;
+  final String project;
+  final String env;
+  final bool enabled;
+
+  /// Backup: the script, its settings file and its log file.
+  final String? script;
+  final String? conf;
+  final String? log;
+
+  /// Pull: the project root that holds `podship.yaml`.
+  final String? projectDir;
+
+  /// The PATH the job runs with (Docker, age, zstd, podship).
+  final String? path;
+
+  /// Where the job came from, for people (`migrated from …`).
+  final String? note;
+
+  /// `backup:project/env` or `pull:project/env`.
+  String get id => '${kind.name}:$project/$env';
+  String get envKey => '$project/$env';
+
+  Map<String, Object?> toMap() => {
+    'kind': kind.name,
+    'project': project,
+    'env': env,
+    'enabled': enabled,
+    'script': ?script,
+    'conf': ?conf,
+    'log': ?log,
+    'project_dir': ?projectDir,
+    'path': ?path,
+    'note': ?note,
+  };
+}
+
 class Registry {
   Registry({
     Map<String, RegistryEntry>? entries,
+    Map<String, ScheduledJob>? jobs,
+    SchedulerSettings? scheduler,
     this.portMin = 20000,
     this.portMax = 20999,
-  }) : entries = entries ?? {};
+  }) : entries = entries ?? {},
+       jobs = jobs ?? {},
+       scheduler = scheduler ?? SchedulerSettings();
 
   /// Parses the registry text. Empty text is an empty registry.
   factory Registry.parse(String text) {
@@ -114,16 +226,53 @@ class Registry {
         entries['${e.key}'] = RegistryEntry.fromMap(e.value as Map);
       }
     }
+    final jobs = <String, ScheduledJob>{};
+    final j = doc['jobs'];
+    if (j is YamlMap) {
+      for (final e in j.entries) {
+        final job = ScheduledJob.fromMap(e.value as Map);
+        jobs[job.id] = job;
+      }
+    }
     return Registry(
       entries: entries,
+      jobs: jobs,
+      scheduler: SchedulerSettings.fromMap(doc['scheduler'] as Map?),
       portMin: range is YamlList ? range[0] as int : 20000,
       portMax: range is YamlList ? range[1] as int : 20999,
     );
   }
 
   final Map<String, RegistryEntry> entries;
+
+  /// The jobs of the nightly scheduler run, by [ScheduledJob.id].
+  final Map<String, ScheduledJob> jobs;
+
+  /// The nightly run of this machine.
+  SchedulerSettings scheduler;
   final int portMin;
   final int portMax;
+
+  /// Adds or replaces [job].
+  void putJob(ScheduledJob job) => jobs[job.id] = job;
+
+  ScheduledJob? removeJob(String id) => jobs.remove(id);
+
+  /// The jobs of one environment, backups first.
+  List<ScheduledJob> jobsOf(String project, String env) => [
+    for (final j in orderedJobs)
+      if (j.project == project && j.env == env) j,
+  ];
+
+  /// Every job in run order: backups, then pulls; by id within a kind.
+  List<ScheduledJob> get orderedJobs {
+    final list = jobs.values.toList()
+      ..sort((a, b) {
+        final k = a.kind.index.compareTo(b.kind.index);
+        return k != 0 ? k : a.id.compareTo(b.id);
+      });
+    return list;
+  }
 
   /// Ports in use by entries other than [exceptKey].
   Set<int> usedPorts({String? exceptKey}) => {
@@ -227,7 +376,11 @@ class Registry {
     entries[entry.key] = entry;
   }
 
-  RegistryEntry? remove(String key) => entries.remove(key);
+  /// Removes the entry and its jobs.
+  RegistryEntry? remove(String key) {
+    jobs.removeWhere((_, j) => j.envKey == key);
+    return entries.remove(key);
+  }
 
   /// The registry as YAML. JSON values are valid YAML; one entry per block.
   String render() {
@@ -243,6 +396,22 @@ class Registry {
     for (final k in keys) {
       b.writeln('  ${jsonEncode(k)}:');
       entries[k]!.toMap().forEach((field, value) {
+        b.writeln('    $field: ${jsonEncode(value)}');
+      });
+    }
+    b
+      ..writeln(
+        '# The nightly scheduler run (machine local time) and its jobs:',
+      )
+      ..writeln('# podship scheduler status | run-once | install.')
+      ..writeln('scheduler:')
+      ..writeln('  at: ${jsonEncode(scheduler.at)}')
+      ..writeln('jobs:');
+    final ids = jobs.keys.toList()..sort();
+    if (ids.isEmpty) b.writeln('  {}');
+    for (final id in ids) {
+      b.writeln('  ${jsonEncode(id)}:');
+      jobs[id]!.toMap().forEach((field, value) {
         b.writeln('    $field: ${jsonEncode(value)}');
       });
     }

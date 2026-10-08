@@ -99,25 +99,12 @@ void main() {
     );
   });
 
-  test('systemd and launchd schedules use the same time', () {
-    final u = systemdUnits(config, prod);
-    expect(u.timer, contains('OnCalendar=*-*-* 03:30:00 America/Mexico_City'));
+  test('backup now falls back to the script when no systemd unit exists', () {
+    final script = backupNow(prod.env);
+    expect(script, contains('systemctl cat demo-backup.service'));
     expect(
-      u.service,
-      contains(
-        'ExecStart=/srv/podship/lib/backup.sh /srv/podship/etc/demo-backup.conf',
-      ),
-    );
-    final plist = launchdPlist(
-      config,
-      prod,
-      path: '/opt/homebrew/bin:/usr/bin',
-    );
-    expect(
-      plist,
-      contains(
-        '<key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer>',
-      ),
+      script,
+      contains('/srv/podship/lib/backup.sh /srv/podship/etc/demo-backup.conf'),
     );
   });
 

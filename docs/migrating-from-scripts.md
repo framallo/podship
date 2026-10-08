@@ -121,7 +121,7 @@ podship backup pull --env production
 
 New backups go to `daily/` and `encrypted/`. The old folders stay where they are, and you can still read them. The new encrypted copies use the owner's SSH keys as age recipients, so there is no separate age key to keep safe. The old age identity stays in `offsite.identities` only to read the old archives.
 
-`podship backup pull --env production --install-agent` replaces the old launchd agent.
+`podship backup pull --env production --schedule` writes the pull job into this machine's registry; `podship scheduler install` registers the one agent that runs it (and retires the old launchd agent).
 
 ## Step 5: add staging
 

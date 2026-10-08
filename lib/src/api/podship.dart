@@ -28,7 +28,10 @@ import '../integrations/planner.dart';
 import '../integrations/ses.dart';
 import '../ops/release_ops.dart';
 import '../ops/resolve.dart';
+import '../ops/scheduler_ops.dart';
 import '../ops/scripts.dart';
+import '../scheduler/agent.dart';
+import '../scheduler/scheduler.dart';
 import '../ops/secrets.dart';
 import '../ops/server_ops.dart';
 import '../ops/state.dart';
@@ -734,8 +737,6 @@ class Podship {
     (ctx, rec) async {
       final e = config.env(envName);
       final (:state, :r) = await _load(ctx, e);
-      final macos =
-          !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
       if (e.domains.isNotEmpty &&
           (e.proxy.remoteManaged || e.dns.provider == DnsProvider.cloudflare)) {
         ctx.log.warn(
@@ -759,9 +760,8 @@ class Podship {
               : planDomain(ctx, r, [
                   for (final d in e.domains) d.host,
                 ], remove: true).steps,
-          scheduleSteps: e.backup == null
-              ? const []
-              : planSchedule(ctx, r, macos: macos, remove: true).steps,
+          // The registry rewrite drops the environment's jobs too.
+          scheduleSteps: const [],
         ),
       );
     },
@@ -842,16 +842,193 @@ class Podship {
     },
   );
 
+  /// Writes the nightly backup job into the server's registry (and installs
+  /// the scripts and settings it runs with). The machine's scheduler agent
+  /// runs it; nothing is registered with launchd or systemd here.
   Operation backupSchedule(String envName, {bool remove = false}) =>
       _op('backup schedule', envName, {'remove': remove}, (ctx, rec) async {
         final e = config.env(envName);
-        final macos =
-            !dryRun && (await ctx.query(e, 'uname -s')).trim() == 'Darwin';
         final (:state, :r) = await _load(ctx, e);
-        if (r.backupSchedule != null) rec.data['schedule'] = r.backupSchedule;
-        rec.data['scheduler'] = macos ? 'launchd' : 'systemd';
-        await ctx.run(planSchedule(ctx, r, macos: macos, remove: remove));
+        final reg = state.registry;
+        await ctx.run(
+          planSchedule(
+            ctx,
+            r,
+            registry: reg,
+            registryText: state.registryText,
+            remove: remove,
+          ),
+        );
+        rec.data['job'] = backupJob(ctx, r).id;
+        rec.data['at'] = reg.scheduler.at;
+        if (remove || dryRun) return;
+        final st = await schedulerStatus(ctx, SchedulerTarget.ofEnv(e));
+        if (st.agentLoaded) {
+          ctx.log.info(
+            'the scheduler of ${e.host} runs it nightly at ${reg.scheduler.at}',
+          );
+        } else {
+          ctx.log.warn(
+            'the scheduler agent is not installed on ${e.host}: '
+            'run `podship scheduler install --env ${e.name}`',
+          );
+        }
       });
+
+  /// Writes (or removes) the off-site pull job of [envName] in this
+  /// machine's registry. The scheduler of this machine runs it nightly.
+  Operation backupPullSchedule(String envName, {bool remove = false}) => _op(
+    'backup pull schedule',
+    envName,
+    {'remove': remove},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      if (e.backup?.offsiteDir == null) {
+        throw ConfigException(
+          'environments.${e.name}.backup.offsite.dir is not set',
+        );
+      }
+      final t = SchedulerTarget.local(config);
+      final text = await readRegistryText(ctx, t);
+      final reg = Registry.parse(text);
+      await ctx.run(
+        planPullSchedule(
+          ctx,
+          e,
+          t,
+          registry: reg,
+          registryText: text,
+          remove: remove,
+        ),
+      );
+      rec.data['job'] = pullJob(ctx, e).id;
+      rec.data['home'] = t.home;
+      if (remove || dryRun) return;
+      final st = await schedulerStatus(ctx, t);
+      if (st.agentLoaded) {
+        ctx.log.info(
+          'the scheduler of this machine runs it nightly at ${reg.scheduler.at}',
+        );
+      } else {
+        ctx.log.warn(
+          'the scheduler agent is not installed on this machine: run `podship scheduler install`',
+        );
+      }
+    },
+    history: false,
+    lock: false,
+  );
+
+  // --------------------------------------------------------------- scheduler
+
+  /// The machine a scheduler command addresses: the server of [envName], or
+  /// this machine when it is null.
+  SchedulerTarget schedulerTarget(String? envName) => envName == null
+      ? SchedulerTarget.local(config)
+      : SchedulerTarget.ofEnv(config.env(envName));
+
+  /// Installs (or updates) the single scheduler agent of a machine: puts the
+  /// podship binary there, imports the per-environment agents podship used
+  /// to install into the registry and retires them, and registers the agent
+  /// once. Idempotent.
+  Operation schedulerInstall({
+    String? envName,
+    String? at,
+    String? binary,
+  }) => _op(
+    'scheduler install',
+    envName,
+    {'at': at},
+    (ctx, rec) async {
+      final t = schedulerTarget(envName);
+      final replaces = <String>{
+        for (final e in config.environments.values)
+          if (e.host == t.host && e.podshipHome == t.home)
+            ...?e.backup?.replaces,
+      };
+      final plan = await planSchedulerInstall(
+        ctx,
+        t,
+        at: at,
+        binary: binary,
+        replaces: replaces.toList(),
+      );
+      rec.data['at'] = plan.at;
+      rec.data['imported'] = [for (final u in plan.imported) u.name];
+      await ctx.run(plan.plan);
+      for (final u in plan.imported) {
+        ctx.log.info('migrated $u');
+      }
+      ctx.log.ok(
+        'scheduler of ${t.label}: nightly at ${plan.at}, '
+        '${plan.imported.length} agent(s) migrated; '
+        'jobs: podship scheduler status${envName == null ? '' : ' --env $envName'}',
+      );
+    },
+    history: envName != null,
+    lock: false,
+  );
+
+  Operation schedulerUninstall({String? envName}) => _op(
+    'scheduler uninstall',
+    envName,
+    const {},
+    (ctx, rec) async {
+      final t = schedulerTarget(envName);
+      final macos = dryRun || await isMacos(ctx, t);
+      await ctx.run(planSchedulerUninstall(t, macos: macos));
+    },
+    history: envName != null,
+    lock: false,
+  );
+
+  /// Runs one job now on the machine that holds it.
+  Operation schedulerRun(String jobId, {String? envName}) => _op(
+    'scheduler run',
+    envName,
+    {'job': jobId},
+    (ctx, rec) async {
+      final t = schedulerTarget(envName);
+      final reg = Registry.parse(await readRegistryText(ctx, t));
+      final job = reg.jobs[jobId];
+      if (job == null) {
+        throw Aborted(
+          'no job "$jobId" on ${t.label}. Jobs: ${reg.jobs.keys.join(', ')}',
+        );
+      }
+      if (dryRun) {
+        ctx.log.info('would run ${job.id} on ${t.label}');
+        return;
+      }
+      if (t.isLocal) {
+        final run = await JobRunner(
+          t.home,
+          echo: (l) => ctx.log.output(l),
+        ).runJob(job);
+        rec.data.addAll(run.toJson());
+        if (!run.ok) throw Aborted('${job.id} failed: ${run.error}');
+        return;
+      }
+      final code = await ctx.ssh.lines(
+        t.host,
+        '${t.header()}${shq(schedulerBin(t.home))} scheduler run-once ${shq(jobId)} --home ${shq(t.home)}\n',
+        (l, err) => ctx.log.output(l, stderr: err),
+      );
+      if (code != 0) {
+        throw Aborted('${job.id} failed on ${t.host} (exit $code)');
+      }
+    },
+    history: envName != null,
+    lock: false,
+  );
+
+  /// The scheduler of a machine: agent, run time, jobs with their last run.
+  Future<SchedulerStatus> schedulerStatusOf({String? envName}) =>
+      schedulerStatus(_readCtx, schedulerTarget(envName));
+
+  /// The jobs of a machine with their last run, in run order.
+  Future<List<Map<String, Object?>>> schedules({String? envName}) async =>
+      (await schedulerStatusOf(envName: envName)).jobs;
 
   /// Copies the encrypted backups to this machine and checks the newest.
   Operation backupPull(String envName) => _op(

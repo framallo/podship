@@ -277,8 +277,41 @@ const operations = <OperationSpec>[
   ),
   OperationSpec(
     'backup.schedule',
-    'Install (or with remove, remove) the daily backup.',
-    params: [ParamSpec('remove', 'boolean', 'Remove the schedule.')],
+    'Write (or with remove, remove) the nightly backup job in the server registry. The machine\'s scheduler runs it.',
+    params: [ParamSpec('remove', 'boolean', 'Remove the job.')],
+  ),
+  OperationSpec(
+    'scheduler.install',
+    'Install or update the single scheduler agent of the environment\'s server: binary, import of older per-environment agents, registration. Idempotent.',
+    params: [
+      ParamSpec(
+        'at',
+        'string',
+        'The time of the nightly run, HH:MM machine local time (default: the registry\'s, 03:00).',
+      ),
+    ],
+  ),
+  OperationSpec(
+    'scheduler.run',
+    'Run one scheduled job now on the server that holds it (run_job).',
+    params: [
+      ParamSpec(
+        'job',
+        'string',
+        'The job id, like backup:shop/production or pull:shop/production.',
+        required: true,
+      ),
+    ],
+  ),
+  OperationSpec(
+    'scheduler.status',
+    'The scheduler of the environment\'s server: agent, nightly run time, jobs with their last run, log tail.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'scheduler.list',
+    'The scheduled jobs of the environment\'s server with their last run (list_schedules).',
+    mutating: false,
   ),
   OperationSpec(
     'env.set',
@@ -814,6 +847,14 @@ Stream<Map<String, Object?>> dispatch(
         );
       case 'backup.schedule':
         op = api.backupSchedule(env!, remove: b('remove'));
+      case 'scheduler.install':
+        op = api.schedulerInstall(envName: env!, at: s('at'));
+      case 'scheduler.run':
+        op = api.schedulerRun(s('job')!, envName: env!);
+      case 'scheduler.status':
+        value = (await api.schedulerStatusOf(envName: env!)).toJson();
+      case 'scheduler.list':
+        value = await api.schedules(envName: env!);
       case 'env.set':
         op = api.envSet(env!, {
           for (final e in ((p['values'] as Map?) ?? const {}).entries)

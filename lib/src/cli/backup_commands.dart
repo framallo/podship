@@ -2,8 +2,6 @@
 
 import 'dart:io';
 
-import '../ops/context.dart';
-import '../remote/ssh.dart';
 import '../protocol/protocol.dart';
 import 'base.dart';
 
@@ -121,37 +119,46 @@ class BackupRestoreCommand extends PodshipCommand {
 class BackupScheduleCommand extends PodshipCommand {
   BackupScheduleCommand() {
     argParser
-      ..addFlag('remove', negatable: false, help: 'Remove the schedule.')
+      ..addFlag('remove', negatable: false, help: 'Remove the backup job.')
       ..addFlag(
         'show',
         negatable: false,
-        help: 'Show the schedule and the last run.',
+        help: 'Show the job, its last run and the scheduler of the server.',
       );
   }
   @override
   String get name => 'schedule';
   @override
   String get description =>
-      'Install the daily backup (systemd timer on Linux, launchd on macOS). Replaces a unit with the same name.';
+      'Write the nightly backup job into the server registry. The server\'s podship scheduler runs it (no launchd or systemd unit per environment).';
   @override
   bool get mutating => true;
   @override
   Future<int> execute() async {
     final e = env;
     if (argResults!['show'] == true) {
-      final u = e.backup?.unit ?? (throw Aborted('no backup settings'));
-      stdout.write(
-        await ctx.query(e, '''
-if [ "\$(uname -s)" = Darwin ]; then
-  launchctl print gui/\$(id -u)/${shq(u)} 2>/dev/null | grep -E "state|last exit|path" || echo "not installed"
-  tail -n 15 ${shq('${e.podshipHome}/log/$u.log')} 2>/dev/null || true
-else
-  systemctl list-timers ${shq('$u.timer')} --no-pager || true
-  systemctl cat ${shq('$u.service')} 2>/dev/null | grep ExecStart || true
-  journalctl -u ${shq(u)} -n 15 --no-pager -o cat || true
-fi
-'''),
+      final st = await api.schedulerStatusOf(envName: e.name);
+      final mine = [
+        for (final j in st.jobs)
+          if (j['project'] == config.project && j['env'] == e.name) j,
+      ];
+      if (json) {
+        printJson({...st.toJson(), 'jobs': mine});
+        return 0;
+      }
+      stdout.writeln(
+        'scheduler on ${e.host}: ${st.agentLoaded ? 'installed' : 'NOT installed'}, '
+        'nightly at ${st.registry.scheduler.at}'
+        '${st.state['last_tick'] == null ? '' : ', last run ${st.state['last_tick']}'}',
       );
+      if (mine.isEmpty) {
+        stdout.writeln(
+          'no job for ${config.project}/${e.name}: run `podship backup schedule --env ${e.name}`',
+        );
+      }
+      for (final j in mine) {
+        stdout.writeln(formatJob(j));
+      }
       return 0;
     }
     return runOp(
@@ -160,14 +167,31 @@ fi
   }
 }
 
+/// One line per job: id, enabled, last run and its outcome.
+String formatJob(Map<String, Object?> j) {
+  final last = j['last_run'];
+  final ok = j['last_ok'];
+  return '${'${j['id']}'.padRight(40)} '
+      '${j['enabled'] == false ? 'off     ' : 'nightly '} '
+      '${last == null ? 'never ran' : 'last $last ${ok == true ? 'ok' : 'FAILED${j['last_error'] == null ? '' : ' (${j['last_error']})'}'}'
+                '${j['last_stamp'] == null ? '' : ' stamp ${j['last_stamp']}'}'}';
+}
+
 class BackupPullCommand extends PodshipCommand {
   BackupPullCommand() {
-    argParser.addFlag(
-      'install-agent',
-      negatable: false,
-      help:
-          'Install a launchd agent on this Mac that pulls at 10:00, 16:00 and 22:00.',
-    );
+    argParser
+      ..addFlag(
+        'schedule',
+        negatable: false,
+        help:
+            'Do not pull now: write the nightly pull job into this machine\'s registry (its podship scheduler runs it).',
+      )
+      ..addFlag(
+        'remove',
+        negatable: false,
+        help: 'With --schedule: remove the pull job.',
+      )
+      ..addFlag('install-agent', negatable: false, hide: true);
   }
   @override
   String get name => 'pull';
@@ -179,68 +203,17 @@ class BackupPullCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final e = env;
-    if (argResults!['install-agent'] == true) return _installAgent(e.name);
+    if (argResults!['install-agent'] == true) {
+      log.info(
+        '--install-agent is now --schedule: the pull is a job of this machine\'s scheduler',
+      );
+    }
+    if (argResults!['schedule'] == true ||
+        argResults!['install-agent'] == true) {
+      return runOp(
+        api.backupPullSchedule(e.name, remove: argResults!['remove'] == true),
+      );
+    }
     return runOp(api.backupPull(e.name));
-  }
-
-  Future<int> _installAgent(String envName) async {
-    if (!Platform.isMacOS) throw Aborted('--install-agent is for macOS');
-    final which = await Process.run('bash', ['-lc', 'command -v podship']);
-    final bin = (which.stdout as String).trim();
-    if (bin.isEmpty) throw Aborted('podship is not on PATH');
-    final label = 'dev.podship.pull.${config.project}.$envName';
-    final home = Platform.environment['HOME']!;
-    final plist = '$home/Library/LaunchAgents/$label.plist';
-    final logFile = '$home/Library/Logs/$label.log';
-    final text =
-        '''
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Written by podship: pulls the encrypted ${config.project} $envName backups. -->
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$label</string>
-  <key>ProgramArguments</key>
-  <array><string>$bin</string><string>backup</string><string>pull</string><string>--env</string><string>$envName</string><string>--yes</string></array>
-  <key>WorkingDirectory</key><string>${config.root}</string>
-  <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>${File(bin).parent.path}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
-  <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Hour</key><integer>22</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>StandardOutPath</key><string>$logFile</string>
-  <key>StandardErrorPath</key><string>$logFile</string>
-</dict>
-</plist>
-''';
-    if (dryRun) {
-      stdout.writeln('Would write $plist:\n$text');
-      return 0;
-    }
-    final uid = (await Process.run('id', ['-u'])).stdout.toString().trim();
-    final f = File(plist);
-    final loaded =
-        (await Process.run('launchctl', [
-          'print',
-          'gui/$uid/$label',
-        ])).exitCode ==
-        0;
-    // macOS shows "can run in the background" every time an agent is
-    // registered again: register only when the plist changed or it is not
-    // loaded.
-    if (loaded && f.existsSync() && f.readAsStringSync() == text) {
-      log.ok('$label unchanged and loaded; log: $logFile');
-      return 0;
-    }
-    f.writeAsStringSync(text);
-    await Process.run('launchctl', ['bootout', 'gui/$uid/$label']);
-    final r = await Process.run('launchctl', ['bootstrap', 'gui/$uid', plist]);
-    if (r.exitCode != 0) throw Aborted('launchctl: ${r.stderr}');
-    log.ok('installed $label; log: $logFile');
-    return 0;
   }
 }

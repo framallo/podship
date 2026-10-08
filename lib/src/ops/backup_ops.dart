@@ -10,7 +10,9 @@ import '../remote/ssh.dart';
 import 'context.dart';
 import 'deploy.dart';
 import 'resolve.dart';
+import 'scheduler_ops.dart';
 import 'scripts.dart';
+import '../server/registry.dart';
 
 /// Expands `~` in a local path.
 String expandHome(String path) => path.startsWith('~/')
@@ -146,100 +148,45 @@ Plan planRestore(
   );
 }
 
-/// Plans `backup schedule`: systemd on Linux, launchd on macOS. An
-/// existing unit with the same name is replaced in place (adopted), so a
-/// server never runs two schedules for one environment.
+/// Plans `backup schedule`: the scripts, settings and recipients on the
+/// server, and the backup job in its registry. No launchd, no systemd: the
+/// machine's scheduler agent runs the job at its nightly run.
 Plan planSchedule(
   Ctx ctx,
   ResolvedEnv r, {
-  required bool macos,
+  required Registry registry,
+  required String registryText,
   bool remove = false,
 }) {
   final env = r.env;
-  final b = _need(env);
+  _need(env);
+  final job = backupJob(ctx, r);
   if (remove) {
-    return Plan('remove the backup schedule of ${env.name}', [
+    registry.removeJob(job.id);
+    return Plan('remove the backup job of ${env.name}', [
       RemoteStep(
-        'Disable ${b.unit}',
+        'Remove ${job.id} from the registry',
         env.host,
-        macos
-            ? '${ctx.header(env)}launchctl bootout gui/\$(id -u)/${shq(b.unit)} 2>/dev/null || true\nrm -f ~/Library/LaunchAgents/${shq('${b.unit}.plist')}\n'
-            : '${ctx.header(env)}systemctl disable --now ${shq('${b.unit}.timer')} || true\nrm -f /etc/systemd/system/${shq('${b.unit}.timer')} /etc/systemd/system/${shq('${b.unit}.service')}\nsystemctl daemon-reload\n',
+        ctx.header(env) + writeRegistry(env, registryText, registry.render()),
       ),
     ]);
   }
-  final setup = backupSetup(ctx.config, r);
-  if (macos) {
-    final plist = launchdPlist(
-      ctx.config,
-      r,
-      path:
-          '${env.remotePath ?? '/opt/homebrew/bin'}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-    );
-    return Plan('backup schedule for ${env.name} (launchd)', [
+  registry.putJob(job);
+  return Plan(
+    'backup schedule for ${env.name} (nightly scheduler run at ${registry.scheduler.at})',
+    [
       RemoteStep(
         'Install scripts, settings and recipients',
         env.host,
-        ctx.header(env) + setup,
+        ctx.header(env) + backupSetup(ctx.config, r),
       ),
-      for (final old in b.replaces)
-        RemoteStep(
-          'Disable the old schedule $old',
-          env.host,
-          // Unloaded and renamed, so it does not come back at the next login.
-          'launchctl bootout gui/\$(id -u)/${shq(old)} 2>/dev/null || true\n'
-              'f="\$HOME/Library/LaunchAgents/"${shq('$old.plist')}\n'
-              '[ -f "\$f" ] && mv "\$f" "\$f.disabled-by-podship" || true\n',
-        ),
       RemoteStep(
-        'Install launch agent ${b.unit} (${r.backupSchedule}, Mac local time)',
+        'Write ${job.id} into the registry',
         env.host,
-        '${ctx.header(env)}mkdir -p ${shq('${env.podshipHome}/log')}\n'
-            // macOS shows "can run in the background" every time an agent is
-            // registered again. Write to a temp file, and register only when
-            // the plist changed or the agent is not loaded.
-            '${writeFile('\$HOME/Library/LaunchAgents/${b.unit}.plist.new', plist).replaceAll("'\$HOME/Library", '"\$HOME"\'/Library')}'
-            'dst="\$HOME/Library/LaunchAgents/${b.unit}.plist"\n'
-            'if [ -f "\$dst" ] && cmp -s "\$dst.new" "\$dst" && launchctl print gui/\$(id -u)/${shq(b.unit)} >/dev/null 2>&1; then\n'
-            '  rm -f "\$dst.new"; echo "${b.unit}: unchanged, still loaded"\n'
-            'else\n'
-            '  mv -f "\$dst.new" "\$dst"\n'
-            '  launchctl bootout gui/\$(id -u)/${shq(b.unit)} 2>/dev/null || true\n'
-            '  launchctl bootstrap gui/\$(id -u) "\$dst"\n'
-            'fi\n'
-            'launchctl print gui/\$(id -u)/${shq(b.unit)} | grep -E "state|path" | head -3\n',
+        ctx.header(env) + writeRegistry(env, registryText, registry.render()),
       ),
-    ]);
-  }
-  final units = systemdUnits(ctx.config, r);
-  return Plan('backup schedule for ${env.name} (systemd)', [
-    RemoteStep(
-      'Install scripts, settings and recipients',
-      env.host,
-      ctx.header(env) + setup,
-    ),
-    for (final old in b.replaces)
-      RemoteStep(
-        'Disable the old schedule $old (its files stay)',
-        env.host,
-        'systemctl disable --now ${shq('$old.timer')} 2>/dev/null || true\n'
-            'systemctl is-active ${shq('$old.timer')} || echo "$old is off"\n',
-      ),
-    RemoteStep(
-      'Install ${b.unit}.service and .timer (${r.backupSchedule})',
-      env.host,
-      '${ctx.header(env)}'
-          'mkdir -p ${shq(env.etcDir)}\nfor f in ${shq('${b.unit}.service')} ${shq('${b.unit}.timer')}; do\n'
-          '  if [ -f /etc/systemd/system/\$f ]; then cp /etc/systemd/system/\$f ${shq(env.etcDir)}/\$f.before-podship-\$(date +%Y%m%d%H%M%S); fi\n'
-          'done\n'
-          'mkdir -p ${shq(env.etcDir)}\n'
-          '${writeFile('/etc/systemd/system/${b.unit}.service', units.service)}'
-          '${writeFile('/etc/systemd/system/${b.unit}.timer', units.timer)}'
-          'systemctl daemon-reload\n'
-          'systemctl enable --now ${shq('${b.unit}.timer')}\n'
-          'systemctl list-timers ${shq('${b.unit}.timer')} --no-pager\n',
-    ),
-  ]);
+    ],
+  );
 }
 
 /// Plans `backup pull`: copy the encrypted backups to this machine, never
