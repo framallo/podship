@@ -22,6 +22,7 @@ import '../release/layout.dart';
 import '../release/release.dart';
 import '../remote/ssh.dart';
 import 'backup_ops.dart';
+import 'bluegreen.dart';
 import 'context.dart';
 import 'inputs.dart';
 import 'resolve.dart';
@@ -334,6 +335,7 @@ void writeReleaseMeta({
         composeFiles: files,
         ports: r.ports,
         remotePath: env.remotePath,
+        blueGreenState: blueGreenBlocker(env) == null ? l.state : null,
       ),
     );
   Process.runSync('chmod', ['755', sh.path]);
@@ -633,13 +635,29 @@ Plan planDeploy({
             '-e SERVERPOD_APPLY_MIGRATIONS=true ${env.serverService}\n',
       ),
   ];
+  final bgBlock = blueGreenBlocker(env);
+  final bg = bgBlock == null
+      ? blueGreenSteps(ctx, r, id, old: old, action: 'deploy')
+      : null;
+  if (env.switchMode == SwitchMode.blueGreen && bgBlock != null) {
+    steps.add(
+      ActionStep(
+        'Switch mode: in place',
+        bgBlock,
+        () async => ctx.log.warn(bgBlock),
+      ),
+    );
+  }
   final switchIndex = steps.length;
   steps.addAll([
-    RemoteStep(
-      'Switch to $id',
-      env.host,
-      ctx.header(env) + switchTo(l, id, action: 'deploy', from: old),
-    ),
+    if (bg != null)
+      bg.start
+    else
+      RemoteStep(
+        'Switch to $id',
+        env.host,
+        ctx.header(env) + switchTo(l, id, action: 'deploy', from: old),
+      ),
     HealthStep(
       'Health check',
       env.host,
@@ -681,6 +699,7 @@ Plan planDeploy({
       ctx.header(env) + setStatus(l, id, 'ok') + prune(l, toPrune),
     ),
   );
+  if (bg != null) steps.add(bg.stopOld);
   if (env.build.prune && !isLocalHost(env.host) && images != null) {
     final kept = [
       for (final x in [...state.ids, id])
@@ -719,7 +738,9 @@ Plan planDeploy({
       env.host,
       ctx.header(env) + setStatus(l, id, 'failed'),
     ),
-    if (old != null) ...[
+    if (bg != null)
+      ...bg.recovery
+    else if (old != null) ...[
       RemoteStep(
         'Roll back to $old',
         env.host,

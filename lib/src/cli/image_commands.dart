@@ -37,6 +37,11 @@ class ImagesCheckCommand extends PodshipCommand {
         allowed: ['load', 'registry', 'ghcr'],
         help: 'Override build.ship for this check.',
       )
+      ..addFlag(
+        'gate',
+        help:
+            'Run the release gate (tests.gate.image) on this machine before shipping.',
+      )
       ..addFlag('keep-images', help: 'Leave the check images on the server.');
   }
 
@@ -100,7 +105,7 @@ class ImagesCheckCommand extends PodshipCommand {
         release: release,
         imgRoot: imgRoot,
         sha: git.sha,
-        runGate: false,
+        runGate: argResults!['gate'] as bool,
         export: () => exportCommit(config.root, git.sha, imgRoot),
       );
       await c.run(Plan('images check ${e.name} ($sha7)', steps));

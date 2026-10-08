@@ -367,13 +367,22 @@ Future<void> runImageGate(
       if (r.exitCode != 0) throw Aborted('gate: copy failed: ${r.stderr}');
     }
     await runLocalScript(ctx, stackDownScript(id));
+    // Without services of its own, the gate gets the check's stack:
+    // Postgres with throwaway passwords.
+    final def = defaultStack(
+      env,
+      passwordKeys: {
+        for (final x in config.environments.values) ...x.secrets.passwordKeys,
+      },
+    );
+    final own = gate.services.isNotEmpty;
     final up = await runLocalScript(
       ctx,
       stackUpScript(
         id: id,
         serverImage: serverImage,
-        server: gate.server,
-        services: gate.services,
+        server: own ? gate.server : gate.server.withEnv(def.env),
+        services: own ? gate.services : def.services,
       ),
     );
     if (up != 0) throw Aborted('gate: the release image did not start');

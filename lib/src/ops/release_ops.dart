@@ -11,6 +11,7 @@ import '../release/layout.dart';
 import '../release/release.dart';
 import '../remote/ssh.dart';
 import 'backup_ops.dart';
+import 'bluegreen.dart';
 import 'context.dart';
 import 'deploy.dart';
 import 'resolve.dart';
@@ -29,6 +30,24 @@ import 'state.dart';
 }) {
   final env = r.env;
   final l = EnvLayout(env);
+  if (blueGreenBlocker(env) == null) {
+    final bg = blueGreenSteps(ctx, r, id, old: old, action: action);
+    return (
+      steps: [
+        bg.start,
+        HealthStep(
+          'Health check',
+          env.host,
+          r.healthUrls,
+          publicUrls: r.publicHealthUrls,
+          attempts: env.health.attempts,
+          intervalSeconds: env.health.intervalSeconds,
+        ),
+        bg.stopOld,
+      ],
+      recovery: bg.recovery,
+    );
+  }
   return (
     steps: [
       RemoteStep(

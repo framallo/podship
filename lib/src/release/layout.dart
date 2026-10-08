@@ -288,6 +288,7 @@ String composeSh({
   required List<String> composeFiles,
   Map<String, int> ports = const {},
   String? remotePath,
+  String? blueGreenState,
 }) {
   final files = [
     for (final f in composeFiles) '-f ${shq(p.posix.join(releaseDir, f))}',
@@ -300,6 +301,25 @@ String composeSh({
   if (remotePath != null) b.writeln('export PATH=${shq(remotePath)}:"\$PATH"');
   for (final e in ports.entries) {
     b.writeln('export PODSHIP_PORT_${_envName(e.key)}=${e.value}');
+  }
+  if (blueGreenState != null) {
+    // Blue/green: the project is the active color unless the caller names
+    // one; the color's override (no host ports, the front network) comes
+    // last.
+    b
+      ..writeln(
+        'proj="\${PODSHIP_COMPOSE_PROJECT:-\$(cat ${shq('$blueGreenState/active-project')} 2>/dev/null || echo ${shq(composeProject)})}"',
+      )
+      ..writeln('bg=()')
+      ..writeln(
+        '[ -f ${shq('$releaseDir/.podship/')}"bg-\$proj.yml" ] && bg=(-f ${shq('$releaseDir/.podship/')}"bg-\$proj.yml")',
+      )
+      ..writeln(
+        'exec docker compose -p "\$proj" '
+        '--project-directory ${shq(releaseDir)} '
+        '--env-file ${shq('$releaseDir/.env')} $files \${bg[@]+"\${bg[@]}"} "\$@"',
+      );
+    return b.toString();
   }
   b.writeln(
     'exec docker compose -p ${shq(composeProject)} '
