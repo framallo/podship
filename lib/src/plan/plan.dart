@@ -4,6 +4,7 @@
 // stops. Otherwise the [Executor] runs it step by step. Tests check plans
 // without running them.
 
+import '../config/config.dart';
 import 'dart:async';
 
 /// One thing a command does.
@@ -101,6 +102,24 @@ class HealthStep extends Step {
   @override
   String describe() =>
       '[health] $host: ${remoteUrls.join(' or ')}${publicUrls.isEmpty ? '' : ', then ${publicUrls.join(' or ')}'}'
+      ' ($attempts × ${intervalSeconds}s)';
+}
+
+/// Checks public URLs from this machine: status, content type and body
+/// (`health.public_checks`). Retries until all pass or the attempts end.
+class PublicChecksStep extends Step {
+  const PublicChecksStep(
+    super.title,
+    this.checks, {
+    this.attempts = 20,
+    this.intervalSeconds = 6,
+  });
+  final List<PublicCheck> checks;
+  final int attempts;
+  final int intervalSeconds;
+  @override
+  String describe() =>
+      '[public checks] ${checks.map((c) => c.describe()).join('; ')}'
       ' ($attempts × ${intervalSeconds}s)';
 }
 

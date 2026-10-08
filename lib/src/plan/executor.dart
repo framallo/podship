@@ -1,3 +1,4 @@
+import 'dart:convert';
 // Runs plans and reports what happens as events.
 
 import 'dart:io';
@@ -5,6 +6,7 @@ import 'dart:io';
 import '../api/events.dart';
 import '../remote/ssh.dart';
 import '../util/log.dart';
+import '../config/config.dart';
 import 'plan.dart';
 
 /// Runs the steps of a [Plan] in order.
@@ -75,6 +77,8 @@ class Executor {
         if (code != 0) throw StepError(step, 'rsync exit code $code');
       case HealthStep():
         await _health(step);
+      case PublicChecksStep():
+        await _publicChecks(step);
       case ActionStep():
         await step.action();
       case ParallelStep():
@@ -114,6 +118,19 @@ class Executor {
     }
   }
 
+  Future<void> _publicChecks(PublicChecksStep step) async {
+    var problems = <String>[];
+    for (var i = 0; i < step.attempts; i++) {
+      problems = [for (final c in step.checks) ?await publicCheckProblem(c)];
+      if (problems.isEmpty) {
+        log.info('public checks pass: ${step.checks.length}');
+        return;
+      }
+      await Future<void>.delayed(Duration(seconds: step.intervalSeconds));
+    }
+    throw StepError(step, 'public checks failed: ${problems.join('; ')}');
+  }
+
   Future<void> _health(HealthStep step) async {
     final script =
         '''
@@ -143,6 +160,38 @@ exit 1
       await Future<void>.delayed(Duration(seconds: step.intervalSeconds));
     }
     throw StepError(step, 'not healthy: ${step.publicUrls.first}');
+  }
+}
+
+/// Why [check] fails now, or null when it passes.
+Future<String?> publicCheckProblem(PublicCheck check) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  try {
+    final req = await client.openUrl(check.method, Uri.parse(check.url));
+    req.followRedirects = false;
+    final res = await req.close().timeout(const Duration(seconds: 15));
+    final body = await res
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(const Duration(seconds: 15));
+    final code = res.statusCode;
+    final okStatus = check.status.isEmpty
+        ? code >= 200 && code < 300
+        : check.status.contains(code);
+    if (!okStatus) return '${check.url}: status $code';
+    final type = res.headers.value(HttpHeaders.contentTypeHeader) ?? '';
+    if (check.contentType != null &&
+        !type.toLowerCase().contains(check.contentType!.toLowerCase())) {
+      return '${check.url}: content type "$type", wanted "${check.contentType}"';
+    }
+    if (check.contains != null && !body.contains(check.contains!)) {
+      return '${check.url}: the body lacks "${check.contains}"';
+    }
+    return null;
+  } catch (e) {
+    return '${check.url}: $e';
+  } finally {
+    client.close(force: true);
   }
 }
 

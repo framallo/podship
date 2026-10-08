@@ -777,10 +777,15 @@ class HealthConfig {
     this.publicFallbackUrls = const [],
     this.attempts = 20,
     this.intervalSeconds = 6,
+    this.publicChecks = const [],
   });
 
   /// A URL that is fetched ON THE SERVER, usually a loopback port.
   final String url;
+
+  /// Checks of public URLs after the switch, from this machine: status,
+  /// content type, body. A failure rolls the deploy back.
+  final List<PublicCheck> publicChecks;
 
   /// An optional public URL that is fetched from this machine.
   final String? publicUrl;
@@ -791,6 +796,42 @@ class HealthConfig {
   final List<String> publicFallbackUrls;
   final int attempts;
   final int intervalSeconds;
+}
+
+/// One public check after the switch (`health.public_checks`): the URL
+/// must answer with one of [status] (default: any 2xx), a `Content-Type`
+/// that contains [contentType], and a body that contains [contains].
+class PublicCheck {
+  PublicCheck({
+    required this.url,
+    this.status = const [],
+    this.contentType,
+    this.contains,
+    this.method = 'GET',
+  });
+
+  final String url;
+
+  /// Accepted status codes; empty: any 2xx.
+  final List<int> status;
+  final String? contentType;
+  final String? contains;
+  final String method;
+
+  PublicCheck withUrl(String u) => PublicCheck(
+    url: u,
+    status: status,
+    contentType: contentType,
+    contains: contains,
+    method: method,
+  );
+
+  String describe() => [
+    '$method $url',
+    if (status.isNotEmpty) 'status ${status.join('|')}',
+    if (contentType != null) 'type ~ $contentType',
+    if (contains != null) 'body has "$contains"',
+  ].join(', ');
 }
 
 /// Where the secrets of an environment live on the server.
@@ -1560,6 +1601,20 @@ class PodshipConfig {
         publicFallbackUrls: h.strs('public_fallback_urls'),
         attempts: h.integer('attempts', 20),
         intervalSeconds: h.integer('interval', 6),
+        publicChecks: [
+          for (final c in h.maps('public_checks'))
+            PublicCheck(
+              url: c.str('url'),
+              status: c._get('status') == null
+                  ? const []
+                  : c._get('status') is int
+                  ? [c.integer('status')]
+                  : [for (final x in c.strs('status')) int.parse(x)],
+              contentType: c.optStr('content_type'),
+              contains: c.optStr('contains'),
+              method: c.str('method', 'GET').toUpperCase(),
+            ),
+        ],
       ),
       secrets: SecretsConfig(
         envFile: s.str('env_file', 'shared/.env'),

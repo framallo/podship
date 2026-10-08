@@ -674,6 +674,13 @@ Plan planDeploy({
         attempts: env.health.attempts,
         intervalSeconds: env.health.intervalSeconds,
       ),
+    if (options.publicCheck && env.health.publicChecks.isNotEmpty)
+      PublicChecksStep(
+        'Public checks',
+        [for (final c in env.health.publicChecks) c.withUrl(r.sub(c.url))],
+        attempts: env.health.attempts,
+        intervalSeconds: env.health.intervalSeconds,
+      ),
   ]);
   final postSwitch = env.remotePostSwitch ?? config.compose.remotePostSwitch;
   if (postSwitch.isNotEmpty && !options.skipHooks) {
