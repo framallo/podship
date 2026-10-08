@@ -194,6 +194,7 @@ String overrideYaml({
   String? sharedNetwork,
   String? serverService,
   OverrideExtras? extras,
+  String? commit,
 }) {
   final services = <String, Map<String, Object?>>{};
   Map<String, Object?> svc(String name) => services.putIfAbsent(name, () => {});
@@ -258,6 +259,19 @@ String overrideYaml({
         });
         svc(s)['environment'] = env;
       }
+    }
+  }
+  // The server knows what runs: the release and its git commit, for an
+  // about page, a footer or a preview caption (generic names; an app may
+  // copy them to its own).
+  if (commit != null) {
+    final known = {'PODSHIP_COMMIT': commit, 'PODSHIP_RELEASE': release};
+    for (final name in [
+      server,
+      if (services.containsKey('$server-replica')) '$server-replica',
+    ]) {
+      final env = (svc(name)['environment'] as Map<String, Object?>?) ?? {};
+      svc(name)['environment'] = {...env, ...known};
     }
   }
   final b = StringBuffer()

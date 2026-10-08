@@ -112,6 +112,19 @@ services:
         expect(o, isNot(contains('postgres')));
       },
     );
+    test('the server gets the release and its commit', () {
+      final o = overrideYaml(
+        composeProject: 'x',
+        release: 'R1',
+        built: ['server'],
+        serverService: 'server',
+        commit: 'abc1234def',
+      );
+      expect(o, contains('"PODSHIP_COMMIT": "abc1234def"'));
+      expect(o, contains('"PODSHIP_RELEASE": "R1"'));
+      final none = overrideYaml(composeProject: 'x', release: 'R', built: []);
+      expect(none, isNot(contains('PODSHIP_COMMIT')));
+    });
     test('the shared database network is attached to the server', () {
       final o = overrideYaml(
         composeProject: 'x',

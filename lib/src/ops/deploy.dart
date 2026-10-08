@@ -311,6 +311,7 @@ void writeReleaseMeta({
       sharedNetwork: shared ? DatabaseConfig.sharedNetwork : null,
       serverService: env.serverService,
       extras: extras,
+      commit: git.sha,
     ),
   );
   if (sp.replicas > 1) {
