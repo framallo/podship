@@ -534,6 +534,118 @@ enum Scheduler {
   launchd,
 }
 
+/// Where the images of an environment are built.
+enum BuildLocation {
+  /// `local` when this machine can compile for the server, else
+  /// `local-docker`, else `remote`.
+  auto,
+
+  /// The Serverpod server is compiled on this machine (`dart build cli`,
+  /// cross-compiled for the server's CPU when needed) and copied into a
+  /// slim runtime image. Other services are built by Docker on this
+  /// machine.
+  local,
+
+  /// Every image is built by Docker on this machine
+  /// (`docker buildx build --platform <server platform>`).
+  localDocker,
+
+  /// The server builds the images from the uploaded files (the old way).
+  remote,
+}
+
+/// How the server gets the images that this machine built.
+enum ShipMethod {
+  /// `load`, or nothing when the server is this machine.
+  auto,
+
+  /// `docker save`, only the layers the server does not have, `docker load`.
+  load,
+
+  /// A registry on this machine; the server pulls through an ssh tunnel.
+  registry,
+
+  /// GitHub Container Registry (`build.ghcr`).
+  ghcr,
+}
+
+/// How the Serverpod server is compiled.
+enum CompileMode {
+  /// `dart build cli`: a native executable. Production always uses it.
+  aot,
+
+  /// `dart compile kernel`: faster to compile, but the image carries the
+  /// Dart VM. Not for production.
+  jit,
+}
+
+/// How a release replaces the running one.
+enum SwitchMode {
+  /// `docker compose up -d` in the same compose project: containers are
+  /// recreated in place (a few seconds without service).
+  inPlace,
+
+  /// The new release starts next to the old one in its own compose project
+  /// (blue or green); a front proxy moves the traffic when the new one is
+  /// healthy; then the old one stops.
+  blueGreen,
+}
+
+/// A build context on this machine for a service whose `build_contexts`
+/// entry is a path on the server.
+class LocalContext {
+  LocalContext({this.path, this.git, this.ref = 'main'});
+
+  /// A folder on this machine.
+  final String? path;
+
+  /// A git URL that podship clones to `~/.podship/cache/src/<service>`.
+  final String? git;
+  final String ref;
+}
+
+/// The `build:` settings of one environment.
+class EnvBuild {
+  EnvBuild({
+    this.location = BuildLocation.auto,
+    this.mode = CompileMode.aot,
+    this.ship = ShipMethod.auto,
+    this.platform,
+    this.contexts = const {},
+    this.ghcr,
+    this.registryPort = 5480,
+    this.prune = true,
+  });
+
+  final BuildLocation location;
+  final CompileMode mode;
+  final ShipMethod ship;
+
+  /// The Docker platform of the server, like `linux/amd64`. Null: ask the
+  /// server's Docker.
+  final String? platform;
+
+  /// Local build contexts by service.
+  final Map<String, LocalContext> contexts;
+
+  /// The GHCR prefix for `ship: ghcr`, like `ghcr.io/owner`.
+  final String? ghcr;
+
+  /// The loopback port of the podship registry on this machine.
+  final int registryPort;
+
+  /// Whether a deploy that did not build on the server removes the
+  /// server's build cache and old images afterwards.
+  final bool prune;
+
+  static String locationName(BuildLocation l) => switch (l) {
+    BuildLocation.auto => 'auto',
+    BuildLocation.local => 'local',
+    BuildLocation.localDocker => 'local-docker',
+    BuildLocation.remote => 'remote',
+  };
+}
+
 /// How migrations are applied.
 enum MigrationMode {
   /// The server applies them when it starts (`--apply-migrations` in the
@@ -942,7 +1054,10 @@ class EnvConfig {
     this.egress,
     DnsConfig? dns,
     this.email,
-  }) : dns = dns ?? DnsConfig(),
+    EnvBuild? build,
+    this.switchMode = SwitchMode.inPlace,
+  }) : build = build ?? EnvBuild(),
+       dns = dns ?? DnsConfig(),
        serverpod = serverpod ?? ServerpodSettings(),
        secrets = secrets ?? SecretsConfig(),
        database = database ?? DatabaseConfig(),
@@ -1012,6 +1127,12 @@ class EnvConfig {
 
   /// The app's email sender (SES), when set.
   final EmailConfig? email;
+
+  /// Where and how the images are built and shipped.
+  final EnvBuild build;
+
+  /// How a release replaces the running one.
+  final SwitchMode switchMode;
 
   bool get isProduction => name == 'production';
   String get registryPath => '$podshipHome/registry.yaml';
@@ -1501,6 +1622,14 @@ class PodshipConfig {
               ]),
             )
           : null,
+      build: _parseEnvBuild(name, e),
+      switchMode: switch (e.str('switch', 'in_place')) {
+        'in_place' => SwitchMode.inPlace,
+        'blue_green' => SwitchMode.blueGreen,
+        final x => throw ConfigException(
+          'environments.$name.switch: unknown "$x" (in_place or blue_green)',
+        ),
+      },
       scheduler: switch (e.str('scheduler', 'auto')) {
         'auto' => Scheduler.auto,
         'systemd' => Scheduler.systemd,
@@ -1509,6 +1638,89 @@ class PodshipConfig {
           'environments.$name.scheduler: unknown "$x"',
         ),
       },
+    );
+  }
+
+  static EnvBuild _parseEnvBuild(String name, _Reader e) {
+    if (!e.has('build')) return EnvBuild();
+    final raw = e._get('build');
+    final b = raw is String
+        ? _Reader(null, 'environments.$name.build')
+        : e.map('build');
+    final loc = raw is String ? raw : b.str('location', 'auto');
+    final location = switch (loc) {
+      'auto' => BuildLocation.auto,
+      'local' => BuildLocation.local,
+      'local-docker' || 'local_docker' => BuildLocation.localDocker,
+      'remote' => BuildLocation.remote,
+      final x => throw ConfigException(
+        'environments.$name.build.location: unknown "$x" (auto, local, local-docker or remote)',
+      ),
+    };
+    final mode = switch (b.str('mode', 'aot')) {
+      'aot' => CompileMode.aot,
+      'jit' => CompileMode.jit,
+      final x => throw ConfigException(
+        'environments.$name.build.mode: unknown "$x" (aot or jit)',
+      ),
+    };
+    if (mode == CompileMode.jit && name == 'production') {
+      throw ConfigException(
+        'environments.production.build.mode: production is always aot',
+      );
+    }
+    final ship = switch (b.str('ship', 'auto')) {
+      'auto' => ShipMethod.auto,
+      'load' => ShipMethod.load,
+      'registry' => ShipMethod.registry,
+      'ghcr' => ShipMethod.ghcr,
+      final x => throw ConfigException(
+        'environments.$name.build.ship: unknown "$x" (auto, load, registry or ghcr)',
+      ),
+    };
+    final ghcr = b.optStr('ghcr');
+    if (ship == ShipMethod.ghcr && ghcr == null) {
+      throw ConfigException(
+        'environments.$name.build.ship is ghcr: set build.ghcr (like ghcr.io/owner)',
+      );
+    }
+    final platform = b.optStr('platform');
+    if (platform != null &&
+        !RegExp(r'^linux/(amd64|arm64)$').hasMatch(platform)) {
+      throw ConfigException(
+        'environments.$name.build.platform must be linux/amd64 or linux/arm64',
+      );
+    }
+    final cm = b.map('contexts');
+    final contexts = <String, LocalContext>{};
+    for (final k in cm.keys) {
+      final v = cm._get(k);
+      if (v is String) {
+        contexts[k] = LocalContext(path: v);
+      } else {
+        final m = cm.map(k);
+        final path = m.optStr('path'), git = m.optStr('git');
+        if ((path == null) == (git == null)) {
+          throw ConfigException(
+            'environments.$name.build.contexts.$k: set path or git',
+          );
+        }
+        contexts[k] = LocalContext(
+          path: path,
+          git: git,
+          ref: m.str('ref', 'main'),
+        );
+      }
+    }
+    return EnvBuild(
+      location: location,
+      mode: mode,
+      ship: ship,
+      platform: platform,
+      contexts: contexts,
+      ghcr: ghcr,
+      registryPort: b.integer('registry_port', 5480),
+      prune: b.boolean('prune', true),
     );
   }
 

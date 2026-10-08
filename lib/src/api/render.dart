@@ -20,7 +20,11 @@ String? renderEventText(
     PlanReady() => null,
     StepStarted() => c(
       '1;36',
-      '${e.recovery ? '↺' : '▶'} ${e.recovery ? '' : '${e.index}/${e.total} '}${e.title}',
+      '${e.recovery
+          ? '↺'
+          : e.total == 0
+          ? '  ▸'
+          : '▶'} ${e.recovery || e.total == 0 ? '' : '${e.index}/${e.total} '}${e.title}',
     ),
     StepFinished() =>
       verbose ? c('2', '  ${e.title}: ${secs(e.duration)}') : null,

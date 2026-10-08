@@ -77,6 +77,40 @@ class Executor {
         await _health(step);
       case ActionStep():
         await step.action();
+      case ParallelStep():
+        await _parallel(step);
+    }
+  }
+
+  /// Runs the lanes of [step] at the same time. Each sub-step is reported
+  /// as `lane: title` with its own time, so `history --verbose` shows the
+  /// stages of every lane.
+  Future<void> _parallel(ParallelStep step) async {
+    final watch = Stopwatch()..start();
+    final errors = <Object>[];
+    var n = 0;
+    Future<void> lane(Lane l) async {
+      for (final s in l.steps) {
+        final index = 1000 + n++;
+        final title = '${l.name}: ${s.title}';
+        final t0 = watch.elapsed;
+        log.emit(StepStarted(index, 0, title));
+        try {
+          await runStep(s);
+        } catch (e) {
+          log.emit(StepFailed(index, title, '$e'));
+          errors.add(
+            e is StepError ? StepError(s, '${l.name}: ${e.message}') : e,
+          );
+          return;
+        }
+        log.emit(StepFinished(index, title, watch.elapsed - t0));
+      }
+    }
+
+    await Future.wait(step.lanes.map(lane));
+    if (errors.isNotEmpty) {
+      throw StepError(step, errors.join('; '));
     }
   }
 

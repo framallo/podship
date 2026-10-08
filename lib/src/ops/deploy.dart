@@ -1,10 +1,12 @@
 // deploy: build, upload, switch, check health, roll back on failure.
 //
-// Images are built ON THE SERVER, from the uploaded files. Two reasons:
-// the server's CPU architecture often differs from the developer's machine
-// (arm64 laptops, x86_64 servers), and an rsync of changed source files is
-// much smaller than `docker save` of full images. The server also keeps the
-// Docker layer cache between deploys.
+// Images are built on THIS machine when it can (build.location: local or
+// local-docker, see ../images/): the server binary is compiled here
+// (cross-compiled when the server's CPU differs), put in a slim runtime
+// image, and shipped to the server, which only runs it. The tests, the
+// image build and the pre-deploy backup run at the same time; the switch
+// waits for all three. build.location: remote keeps the old way: the
+// server builds from the uploaded files.
 
 import 'dart:convert';
 import 'dart:io';
@@ -14,6 +16,7 @@ import 'package:path/path.dart' as p;
 import '../config/config.dart';
 import '../api/events.dart';
 import '../files/ignore.dart';
+import '../images/images.dart';
 import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../release/release.dart';
@@ -83,7 +86,12 @@ class DeployOptions {
     this.fullTests = false,
     this.tests,
     this.inputs,
+    this.images,
   });
+
+  /// Where the images are built and how they reach the server (see
+  /// [computeImagePlan]). Null: the server builds them.
+  final ImagePlan? images;
 
   /// Overrides `build.source`.
   final SourceMode? source;
@@ -417,6 +425,47 @@ Plan planDeploy({
         if (inputs.reuses(app)) app.output: inputs.webReuse[app.name]!,
   };
 
+  final images = options.images;
+  final local = images != null && images.buildsLocally;
+  // The server image carries the web builds: they are built in the image
+  // lane, from the cache on this machine when unchanged.
+  final webInImage = local && images.local.containsKey(env.serverService);
+  final remoteServices = local ? images.remote.keys.toList() : const <String>[];
+  final suites = config.tests.forEnv(env.name);
+  final testStep =
+      !options.skipTests &&
+          config.tests.runner == TestRunner.local &&
+          suites.isNotEmpty
+      ? ActionStep(
+          'Run tests (${suites.map((s) => s.name).join(', ')})',
+          'on this machine, in ${source == SourceMode.git ? 'the export' : 'the project'}; a failure stops the deploy',
+          () => _runTests(
+            ctx,
+            env,
+            git.sha,
+            options.tests ?? TestRun(),
+            () => runSuitesLocally(
+              ctx,
+              suites,
+              buildRoot,
+              '$snapshot.tests',
+              parallel: config.tests.parallel,
+              plan: inputs.suites,
+            ),
+          ),
+        )
+      : null;
+  final backupStep =
+      env.backup != null && env.backup!.beforeDeploy && !options.skipBackup
+      ? RemoteStep(
+          'Back up the database before the switch',
+          env.host,
+          '${ctx.header(env)}'
+              '${state.dbRunning ? '' : 'echo "no database running yet: no backup"; exit 0\n'}'
+              '${backupSetup(config, r)}${backupNow(env)}',
+        )
+      : null;
+  final imgRoot = '$snapshot.image';
   final steps = <Step>[
     if (source == SourceMode.git)
       ActionStep(
@@ -424,28 +473,51 @@ Plan planDeploy({
         'git archive ${git.sha} → $snapshot',
         () => exportCommit(root, git.sha, snapshot),
       ),
-    if (!options.skipTests &&
-        config.tests.runner == TestRunner.local &&
-        config.tests.forEnv(env.name).isNotEmpty)
+    if (local) ...[
       ActionStep(
-        'Run tests (${config.tests.forEnv(env.name).map((s) => s.name).join(', ')})',
-        'on this machine, in ${source == SourceMode.git ? 'the export' : 'the project'}; a failure stops the deploy',
-        () => _runTests(
-          ctx,
-          env,
-          git.sha,
-          options.tests ?? TestRun(),
-          () => runSuitesLocally(
-            ctx,
-            config.tests.forEnv(env.name),
-            buildRoot,
-            '$snapshot.tests',
-            parallel: config.tests.parallel,
-            plan: inputs.suites,
+        'Build location: ${images.decision.name}',
+        images.decision.reason,
+        () async {
+          ctx.log.info(images.decision.reason);
+          ctx.log.info('images reach ${env.host} by: ${images.shipReason}');
+          for (final e in images.remote.entries) {
+            ctx.log.info('${e.key} builds on the server: ${e.value}');
+          }
+          if (images.jitRefused != null) ctx.log.warn(images.jitRefused!);
+        },
+      ),
+      ParallelStep('Tests, images and backup', [
+        if (testStep != null) Lane('tests', [testStep]),
+        Lane(
+          'images',
+          imageLane(
+            ctx: ctx,
+            env: env,
+            plan: images,
+            release: id,
+            imgRoot: imgRoot,
+            webHashes: inputs.webHashes,
+            skipWeb: options.skipWeb,
+            export: () async {
+              if (source == SourceMode.git) {
+                await exportCommit(root, git.sha, imgRoot);
+              } else {
+                await selectInto(
+                  from: root,
+                  to: imgRoot,
+                  rules: config.build.files,
+                  inPlace: false,
+                );
+              }
+            },
           ),
         ),
-      ),
-    if (!options.skipWeb)
+        if (backupStep != null)
+          Lane('backup', [agentStep(ctx, env), backupStep]),
+      ]),
+    ] else
+      ?testStep,
+    if (!options.skipWeb && !webInImage)
       for (final app in config.build.flutterWeb)
         if (inputs.reuses(app))
           ActionStep(
@@ -486,7 +558,7 @@ Plan planDeploy({
           releaseRoot: snapshot,
           id: id,
           git: git.shipping(source),
-          web: options.skipWeb ? const {} : inputs.webHashes,
+          web: options.skipWeb || webInImage ? const {} : inputs.webHashes,
         );
       },
     ),
@@ -501,11 +573,12 @@ Plan planDeploy({
     RemoteStep(
       'Create release $id',
       env.host,
-      ctx.header(env) + makeReleaseScript(r, id, reuse: reuse),
+      ctx.header(env) +
+          makeReleaseScript(r, id, reuse: webInImage ? const {} : reuse),
     ),
     if (!options.skipTests &&
         config.tests.runner == TestRunner.container &&
-        config.tests.forEnv(env.name).isNotEmpty)
+        suites.isNotEmpty)
       ActionStep(
         'Run tests in containers on ${env.host}',
         'from the release files; a failure stops the deploy before the build',
@@ -517,7 +590,7 @@ Plan planDeploy({
           () => runSuitesInContainers(
             ctx,
             env,
-            config.tests.forEnv(env.name),
+            suites,
             l.release(id),
             '$snapshot.tests',
             parallel: config.tests.parallel,
@@ -525,27 +598,28 @@ Plan planDeploy({
           ),
         ),
       ),
-    RemoteStep(
-      'Build images on the server',
-      env.host,
-      ctx.header(env) +
-          [
-            ...(env.remotePreBuild ?? config.compose.remotePreBuild),
-            '${shq(l.composeSh(id))} build',
-          ].join('\n'),
-    ),
-    if (env.backup != null &&
-        env.backup!.beforeDeploy &&
-        !options.skipBackup) ...[
-      agentStep(ctx, env),
+    if (!local)
       RemoteStep(
-        'Back up the database before the switch',
+        'Build images on the server',
         env.host,
-        '${ctx.header(env)}'
-            '${state.dbRunning ? '' : 'echo "no database running yet: no backup"; exit 0\n'}'
-            '${backupSetup(config, r)}${backupNow(env)}',
+        ctx.header(env) +
+            [
+              if (images != null) 'echo ${shq(images.decision.reason)}',
+              ...(env.remotePreBuild ?? config.compose.remotePreBuild),
+              '${shq(l.composeSh(id))} build',
+            ].join('\n'),
+      )
+    else if (remoteServices.isNotEmpty)
+      RemoteStep(
+        'Build ${remoteServices.join(', ')} on the server',
+        env.host,
+        ctx.header(env) +
+            [
+              ...(env.remotePreBuild ?? config.compose.remotePreBuild),
+              '${shq(l.composeSh(id))} build ${remoteServices.map(shq).join(' ')}',
+            ].join('\n'),
       ),
-    ],
+    if (!local && backupStep != null) ...[agentStep(ctx, env), backupStep],
     if (env.migrations == MigrationMode.maintenance)
       RemoteStep(
         'Apply migrations',
@@ -605,6 +679,33 @@ Plan planDeploy({
       ctx.header(env) + setStatus(l, id, 'ok') + prune(l, toPrune),
     ),
   );
+  if (env.build.prune && !isLocalHost(env.host) && images != null) {
+    final kept = [
+      for (final x in [...state.ids, id])
+        if (!toPrune.contains(x)) x,
+    ];
+    steps.add(
+      ActionStep(
+        'Server hygiene on ${env.host}',
+        'remove images no kept release uses${local && remoteServices.isEmpty ? ', the Dart SDK images and the build cache' : ''}; report the disk saved',
+        () async {
+          try {
+            await serverHygiene(
+              ctx,
+              env,
+              services: images.local.keys.isEmpty
+                  ? images.remote.keys.toList()
+                  : [...images.local.keys, ...images.remote.keys],
+              keepReleases: kept,
+              buildCache: local && remoteServices.isEmpty,
+            );
+          } catch (e) {
+            ctx.log.warn('server hygiene: $e');
+          }
+        },
+      ),
+    );
+  }
   if (!options.skipHooks) {
     for (final cmd in config.build.postDeploy) {
       steps.add(LocalStep('Post-deploy hook', ['bash', '-c', cmd], cwd: root));

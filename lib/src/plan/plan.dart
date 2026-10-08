@@ -114,6 +114,27 @@ class ActionStep extends Step {
   String describe() => '[local] $what';
 }
 
+/// One lane of a [ParallelStep]: steps that run in order.
+class Lane {
+  const Lane(this.name, this.steps);
+  final String name;
+  final List<Step> steps;
+}
+
+/// Lanes that run at the same time. The step fails when a lane fails,
+/// after every lane has stopped.
+class ParallelStep extends Step {
+  const ParallelStep(super.title, this.lanes);
+  final List<Lane> lanes;
+  @override
+  String describe() => [
+    '[parallel] ${lanes.map((l) => l.name).join(' | ')}',
+    for (final l in lanes)
+      for (final s in l.steps)
+        '  ${l.name}: ${s.title} — ${s.describe().split('\n').first}',
+  ].join('\n    ');
+}
+
 /// A plan: steps, and the steps that undo a failure.
 class Plan {
   Plan(

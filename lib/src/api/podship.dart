@@ -19,6 +19,7 @@ import '../edit/passwords.dart';
 import '../ops/backup_ops.dart';
 import '../ops/db_ops.dart';
 import '../ops/context.dart';
+import '../images/images.dart';
 import '../ops/deploy.dart';
 import '../ops/domain_ops.dart';
 import '../ops/app_ops.dart';
@@ -392,6 +393,11 @@ class Podship {
           for (final x in inputs.suites!.prior.entries) x.key: x.value.sha,
         };
       }
+      final images = await computeImagePlan(
+        ctx: ctx,
+        env: e,
+        sha: source == SourceMode.git ? git.sha : null,
+      );
       final snap = await createExportDir('podship-release-');
       try {
         final plan = planDeploy(
@@ -411,6 +417,7 @@ class Podship {
             fullTests: options.fullTests,
             tests: run,
             inputs: inputs,
+            images: images,
           ),
         );
         final id = plan.title.split(' as ').last;
@@ -441,6 +448,7 @@ class Podship {
           }
           rethrow;
         } finally {
+          rec.data['images'] = images.report.toJson();
           if (run.results.isNotEmpty) {
             rec.data['tests'] = {
               'ok': run.ok,
@@ -475,6 +483,8 @@ class Podship {
         }
       } finally {
         await snap.delete(recursive: true);
+        final img = Directory('${snap.path}.image');
+        if (img.existsSync()) await img.delete(recursive: true);
       }
     },
   );
