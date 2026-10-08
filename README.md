@@ -64,7 +64,7 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `launch` | The first deploy of an environment, from bootstrap to backup schedule. |
 | `doctor` | Checks local tools, ssh, Docker and compose on each server, disk, ports, the registry and DNS. |
 | `link` | Registers the environment in the server registry: ports, domains, database and backup slot. |
-| `deploy` | Builds Flutter web locally, uploads the files, builds images on the server, backs up the database, switches, checks health, rolls back on failure, and prunes old releases. Flags: `--ref`, `--worktree`, `--skip-web`, `--skip-backup`, `--skip-hooks`, `--full-tests`, `--no-public-check`. See [Faster deploys](#faster-deploys). |
+| `deploy` | Runs the tests, builds the images on this machine (see [Build location](#build-location)) and ships them, backs up the database (the three at the same time), uploads the release files, switches (in place or [blue/green](#zero-downtime)), checks health, rolls back on failure, prunes old releases and cleans the server. Flags: `--ref`, `--worktree`, `--skip-web`, `--skip-backup`, `--skip-hooks`, `--full-tests`, `--no-public-check`. See [Faster deploys](#faster-deploys). |
 | `rollback` | Switches to the previous release, or to `--to <release>`. Code only. `--with-db <stamp>` also restores that backup first. |
 | `promote <from> <to>` | Runs on `<to>` the exact release of `<from>`: the same files and the same images, with no build. Between servers with different CPU architectures it stops and tells you to deploy the same commit instead. |
 | `restart [service…]` | Recreates the containers of the current release, for example after `env set`. |
@@ -89,6 +89,8 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `domain add/remove/list` | Routes domains through a Cloudflare Tunnel or Caddy, and prints the DNS record you need. With `--provider cloudflare` (or `dns.provider: cloudflare`), also creates the record and the Access app, after a plan and an approval (`--plan`, `--plan-id`). |
 | `server bootstrap` | Installs Docker, compose, age, zstd, the firewall rules and podship's folders. Safe to run again. |
 | `server status` | Every project on the server: registry, containers, CPU and memory, disk. |
+| `images check` | Builds the current commit here, ships it, starts the server image on a test port with a throwaway Postgres, checks `/health`, removes it all. `--ship`, `--gate`, `--services`. |
+| `images prune` | Removes old images, the Dart SDK images and the build cache on the server; reports the disk saved. |
 | `projects list` | The server registry. |
 | `access list/add/remove` | Per-person ssh keys on a server, marked `podship:<name>` in `authorized_keys`. |
 | `ci setup` | Creates an ssh deploy key for CI, gives it access, and prints a GitHub Actions workflow. |
@@ -185,26 +187,23 @@ Some files never ship, whatever the rules say: `.git/`, `.dart_tool/`, `.env`, `
 ## How a deploy works
 
 ```
-local                                   server (<dir>)
------                                   --------------
+podship machine (laptop, build Mac)              server (<dir>)
+-----------------------------------              --------------
 git archive <commit> → temp folder
-flutter build web (each app)
-pre_deploy hooks
-select files, write .podship/  ──rsync──▶ .podship/upload/
-                                        cp -al → releases/<id>/   (hard links: unchanged files cost nothing)
-                                        link .env and passwords.yaml to the secrets files
-                                        remote_pre_build; compose build (images <project>-<service>:<id>)
-                                        back up the database
-                                        compose up -d; current → releases/<id>
-                                        health check (server URL, then public URL)
-                                        on failure: compose up the previous release; current → previous
-                                        mark the release ok; prune old releases and their images
+ ┌ tests (suites, by hash)
+ ├ images: web (cache) · dart build cli
+ │   (cross-compiled) · other services ·
+ │   runtime image · release gate · ship  ──────▶ docker load (only missing layers)
+ └ backup ───────────────────────────────────────▶ back up the database
+select files, write .podship/  ──rsync──▶ .podship/upload/ → releases/<id>/ (hard links)
+                                          compose up (in place) or start blue/green + flip
+                                          health check (server URL, then public URL)
+                                          on failure: back to the previous release
+                                          mark ok; prune releases; server hygiene
 post_deploy hooks
 ```
 
-**Images are built on the server.** Developer machines are often arm64 and servers x86_64, and an rsync of changed source files is far smaller than a saved image. The server also keeps the Docker layer cache between deploys. `promote` moves the images that were already built and tested.
-
-**The switch recreates containers.** It is not blue-green: the app is down for the seconds Docker needs to start the new containers. The reverse proxy points at fixed loopback ports, so it needs no change.
+The three lanes (tests, images, backup) run at the same time; the switch waits for all three. `history --verbose` shows each lane's steps (`images: Compile the server…`).
 
 **Migrations.** With `migrations: on_start`, the server applies them when it starts (Serverpod's `--apply-migrations`, or `SERVERPOD_APPLY_MIGRATIONS=true`). With `maintenance`, podship runs the server once with `SERVERPOD_SERVER_ROLE=maintenance` before the switch, so a failed migration stops the deploy before traffic moves. A code rollback does not undo migrations. To go back in data too, use `rollback --with-db <stamp>`.
 
@@ -218,8 +217,79 @@ A deploy does only the work that the commit needs:
 - **Unchanged test suites are skipped.** Each suite has the same kind of hash (its `dir`, path dependencies, lock, `tests.suites[].inputs`, the command). A passing run writes `<podship_home>/history/<project>/tests/by-hash/<suite>-<hash>.json`; the next deploy whose suite has that hash skips it and reports `tests server: unchanged since <sha>, skipped`. The commit's own test record still says `ok`, with `same_as: <sha>` on the skipped suite, so the production gate works as before. `deploy --full-tests` runs everything; `skip_unchanged: false` on a suite does too.
 - **Suites run at the same time** (`tests.parallel`, default `true`): each one in its own folder. Set `parallel: false` for suites that share a resource.
 - **The upload sends changed content only.** rsync runs with `--checksum`: `git archive` gives every file the commit's time, so a new commit would otherwise re-send everything.
-- **Images build from cache.** The server keeps the BuildKit cache between releases. Order the Dockerfile so dependencies come first (`COPY pubspec.lock` and `pubspec.yaml`, `RUN --mount=type=cache,target=/root/.pub-cache dart pub get`, then the sources, then the compile), and copy `web/`, `config/` and `migrations/` straight from the build context into the final image, so a web-only change does not recompile the server. Pin base images.
+- **Images build from cache.** With `build: remote`, the server keeps the BuildKit cache between releases (with a local build, this machine does). Order the Dockerfile so dependencies come first (`COPY pubspec.lock` and `pubspec.yaml`, `RUN --mount=type=cache,target=/root/.pub-cache dart pub get`, then the sources, then the compile), and copy `web/`, `config/` and `migrations/` straight from the build context into the final image, so a web-only change does not recompile the server. Pin base images.
 - **Stage timings.** Every history record has `data.steps` (title and duration of each step). `podship history --verbose` prints them; `last_deploy` through a console or MCP returns the newest one.
+
+## Build location
+
+The server only runs the app. Images are built on the machine that runs podship, which has more CPU and disk and keeps the caches. `build:` per environment:
+
+```yaml
+environments:
+  staging:
+    build: local                 # or a map:
+    # build:
+    #   location: auto           # auto (default) | local | local-docker | remote
+    #   mode: aot                # aot | jit (jit is refused for production)
+    #   ship: auto               # auto (= load) | load | registry | ghcr
+    #   platform: linux/amd64    # default: ask the server's Docker
+    #   contexts:                # services whose build_contexts are server paths
+    #     pacewright: {git: git@github.com:you/pacewright.git, ref: main}
+    #   prune: true              # server hygiene after a healthy deploy
+```
+
+- **local**: `dart build cli --target-os linux --target-arch <server arch>` compiles the Serverpod server on this machine. Dart 3.8 and later cross-compile for Linux, native assets included (sqlite3, argon2), so an arm64 Mac compiles for an x86_64 VPS without emulation. podship then keeps the final stage of the project's own Dockerfile and replaces each `COPY --from=<build stage>` with the files from this machine: `/runtime/` comes from the build stage's image (`COPY --from=dart:3.12.2 /runtime/ /`), `…/build/bundle/` is the compiled bundle, other paths map back to the context. FROM, ENV, RUN, ENTRYPOINT stay as written. No Dart SDK reaches the server.
+- **local-docker**: `docker buildx build --platform <server platform>` of the project's Dockerfiles on this machine. Used when Dart cannot compile for the server, or when asked. RUN steps of another CPU run emulated.
+- **remote**: the old way, the server builds from the uploaded files. Used when asked, or as the fallback with the reason in the log: no Docker or no `docker buildx` on this machine, or a server that does not run Linux containers.
+
+Other built services (a browser image, a daemon) are built here with buildx at their compose `platform:` (or the server's). A service whose `build_contexts` entry is a server path builds on the server unless `build.contexts` gives it a local path or a git URL (cloned to `~/.podship/cache/src`).
+
+What makes a repeat deploy cheap: the web builds come from `~/.podship/cache/web` by input hash; a server image with the same inputs (sources, lock, Dockerfile, web hashes, platform, Dart version) is tagged again without a compile; buildx's cache makes other images a cache hit; an image whose ID the server has is only tagged there.
+
+`podship images check --env vps` builds the current commit here, ships it, starts the server image on the server in a throwaway stack (its own network and Postgres, throwaway Serverpod passwords, a test port on loopback), checks `/health`, and removes it all. No release, no switch, no DNS. `--ship registry` compares shipping methods; `--gate` runs the release gate first.
+
+## Images
+
+How images reach the server (`build.ship`):
+
+- **load** (default): `docker save`, then only the layers the server lacks, `zstd`, ssh, `docker load`. podship reads each layer's DiffID from the image config, asks the server for the DiffIDs of its images, and leaves those blobs out. This needs the containerd image store on the server (Docker 29 default, Docker Desktop, Colima); otherwise every layer travels. If a trimmed load fails, podship sends the whole archive.
+- **registry**: a `registry:2` container on this machine (`podship-registry`, 127.0.0.1 only, htpasswd bcrypt login in `~/.podship/registry/`, mode 0600). The server pulls by digest through an ssh reverse tunnel; the password goes on stdin, the server logs out after. Docker Desktop servers cannot reach the tunnel (their daemon's 127.0.0.1 is a VM): podship uses load there and says so.
+- **ghcr**: push to `build.ghcr` with this machine's Docker login; the server logs in with `gh auth token` on stdin, pulls, logs out.
+- With `host: local` nothing ships: the images are already in the server's Docker.
+
+Measured on the VPS link (x86_64, 43 MB of new layers): load 10–11 s, registry 37 s. Load is the default.
+
+**Server hygiene.** After a healthy deploy that built nothing on the server, podship removes images of this environment that no kept release uses, dangling images, the Dart SDK images and the build cache, and logs the disk saved (`docker system df` before and after). `podship images prune --env X` does it on demand (`--dry-run` prints the script). Never on `host: local`, where the builds happen.
+
+**Release gate in containers.** `tests.gate` takes a map with an `image:` entry. The new image runs on this machine with its services (default: Postgres with throwaway passwords), and a test-runner container runs the project's command against it, before the image ships. The runner image is built by podship once and cached: Debian, Flutter (this machine's version, or `flutter:`), and a browser with its driver: Chrome for Testing and its chromedriver (pinned, `chrome:`) on amd64, Debian's Chromium and chromium-driver on arm64 (Chrome for Testing has no Linux arm64 build). chromedriver listens on 4444; `PODSHIP_GATE_SERVER` is the server's URL; `artifacts` are copied to `~/.podship/artifacts/<project>/<env>/<release>/`. No host chromedriver, no SDK on the server.
+
+```yaml
+tests:
+  gate:
+    environments: [production]     # environments that only take tested commits (the old list)
+    image:
+      environments: [staging]      # deploys that run the gate (empty: all)
+      dir: app
+      command: flutter drive --driver=test_driver/integration_test.dart --target=integration_test/gate_test.dart -d web-server --browser-name=chrome --driver-port=4444 --headless --dart-define=API=$PODSHIP_GATE_SERVER/
+      seed: dart run tool/seed.dart  # optional; seed_in: runner (default) or server
+      services:                      # optional; default: Postgres
+        postgres: {image: "postgres:16-alpine", env: {POSTGRES_PASSWORD: gate}, ready: pg_isready -U postgres}
+      server:                        # optional
+        entrypoint: [./bin/server, --mode=staging, --apply-migrations]
+        env: {SERVERPOD_PASSWORD_database: gate}
+        port: 8082
+        health: /health
+      artifacts: [build/e2e]
+      timeout: 1800
+```
+
+## Zero-downtime
+
+`switch: blue_green` on an environment. The new release starts next to the running one in its own compose project (`<project>-blue` or `-green`) with no host ports; it joins the network `<project>-front` with aliases like `green-server`. podship waits until `/health` and `/readyz` answer inside the new server container, then rewrites the config of the front (`<project>-front`, nginx `stream`, owns the environment's loopback ports) and reloads it: open connections finish, new ones go to the new color. The old color stops (kept, so a rollback starts it fast). `rollback` flips the same way; a failed health check flips back.
+
+Both colors share the data: the database must run outside the release (`database.mode: shared`), and named volumes keep the base project's names (`<project>_<volume>`), so backups see the same volumes. Without a shared database podship switches in place and says why. The first blue/green deploy stops the base project right before the front takes its ports (a second or two); later flips drop nothing. Measured on a test project at 50 requests per second: 0 failed requests across a flip; in place, a 3.6 s gap.
+
+**In place** (the default) recreates the containers: the app is down for the seconds Docker needs to start them. The proxy points at fixed loopback ports, so it needs no change.
 
 ## Backups
 
