@@ -84,6 +84,14 @@ String stackDownScript(String id) =>
     '[ -z "\$ids" ] || docker rm -f \$ids >/dev/null\n'
     'docker network rm podship-$id >/dev/null 2>&1 || true\n';
 
+/// The Serverpod passwords a server with the auth module reads at start.
+const serverpodPasswordKeys = [
+  'serviceSecret',
+  'emailSecretHashPepper',
+  'jwtHmacSha512PrivateKey',
+  'jwtRefreshTokenHashPepper',
+];
+
 /// The default services of a check: Postgres with a throwaway password,
 /// named like the compose database service, with the env's database name.
 ({List<StackService> services, Map<String, String> env}) defaultStack(
@@ -110,7 +118,7 @@ String stackDownScript(String id) =>
     env: {
       // Throwaway values for the other Serverpod passwords the server
       // reads at startup (secrets.password_keys of any environment).
-      for (final k in passwordKeys)
+      for (final k in {...serverpodPasswordKeys, ...passwordKeys})
         if (k != 'database') 'SERVERPOD_PASSWORD_$k': secret(),
       'SERVERPOD_PASSWORD_database': pw,
     },
