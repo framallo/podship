@@ -490,7 +490,11 @@ NotifyConfig _parseNotify(_Reader n, Map<String, String> env) {
   }
   return NotifyConfig(
     events: events,
-    channels: channels,
+    // Without a channels: block, the machine that runs the CLI gets a
+    // desktop notification (the channel does nothing outside macOS).
+    channels: n.has('channels')
+        ? channels
+        : [NotifyChannel(name: 'macos', kind: 'macos')],
     bell: n.boolean('bell', true),
     enabled: n.boolean('enabled', true),
   );
