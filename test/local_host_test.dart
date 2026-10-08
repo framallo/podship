@@ -11,6 +11,7 @@ import 'package:podship/src/plan/plan.dart';
 import 'package:podship/src/remote/assets.g.dart';
 import 'package:podship/src/remote/ssh.dart';
 import 'package:podship/src/util/log.dart';
+import 'package:podship/src/util/temp.dart';
 import 'package:test/test.dart';
 
 import 'fixtures.dart';
@@ -205,5 +206,16 @@ void main() {
       contains('/b/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*.tar.age'),
     );
     expect(script, isNot(contains('/b/*.tar.age 2>/dev/null | sort')));
+  });
+
+  test('release exports live under /tmp, so socket paths stay short', () async {
+    final d = await createExportDir('podship-release-');
+    addTearDown(() => d.delete(recursive: true));
+    if (!Platform.isWindows) {
+      expect(d.path, startsWith('/tmp/podship-release-'));
+    }
+    // A Postgres socket inside a server package still fits in 104 bytes.
+    final socket = '${d.path}/shop_server/.serverpod/test/pgdata/.s.PGSQL.5432';
+    expect(socket.length, lessThan(104));
   });
 }

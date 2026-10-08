@@ -38,6 +38,7 @@ import '../release/layout.dart';
 import '../remote/ssh.dart';
 import '../server/registry.dart';
 import '../util/log.dart';
+import '../util/temp.dart';
 import '../protocol/tokens.dart';
 import '../providers/providers.dart';
 import 'events.dart';
@@ -337,7 +338,7 @@ class Podship {
       final run = TestRun();
       final (:state, :r) = await _load(ctx, e);
       rec.previousRelease = state.current;
-      final snap = await Directory.systemTemp.createTemp('podship-release-');
+      final snap = await createExportDir('podship-release-');
       try {
         final plan = planDeploy(
           ctx: ctx,
