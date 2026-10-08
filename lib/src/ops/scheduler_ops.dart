@@ -149,8 +149,10 @@ Future<SchedulerStatus> schedulerStatus(Ctx ctx, SchedulerTarget t) async =>
     );
 
 /// The podship binary to put on a machine: `--binary`, this executable
-/// when it is a compiled podship, else a fresh `dart compile exe` of the
-/// package. Returns the local path.
+/// when it is a compiled podship, else a `dart compile exe` of the package.
+/// A compile of a clean git checkout is cached by commit under
+/// `~/.cache/podship/bin`, so two installs from the same source upload the
+/// same bytes and the second one is a no-op. Returns the local path.
 Future<String> localBinary(Ctx ctx, {String? binary}) async {
   if (binary != null) {
     if (!File(binary).existsSync()) throw Aborted('$binary does not exist');
@@ -168,11 +170,22 @@ Future<String> localBinary(Ctx ctx, {String? binary}) async {
     );
   }
   final root = p.dirname(p.dirname(lib.toFilePath()));
-  final out = p.join(
-    Directory.systemTemp.createTempSync('podship-bin-').path,
-    'podship',
-  );
+  final rev = await _cleanRevision(root);
+  final out = rev == null
+      ? p.join(
+          Directory.systemTemp.createTempSync('podship-bin-').path,
+          'podship',
+        )
+      : p.join(
+          Platform.environment['HOME'] ?? Directory.systemTemp.path,
+          '.cache',
+          'podship',
+          'bin',
+          'podship-$rev',
+        );
+  if (rev != null && File(out).existsSync()) return out;
   ctx.log.info('compiling podship for the scheduler agent');
+  Directory(p.dirname(out)).createSync(recursive: true);
   final r = await Process.run('dart', [
     'compile',
     'exe',
@@ -182,6 +195,25 @@ Future<String> localBinary(Ctx ctx, {String? binary}) async {
   ]);
   if (r.exitCode != 0) throw Aborted('dart compile exe failed: ${r.stderr}');
   return out;
+}
+
+/// The commit of [root] when it is a git checkout with no local changes.
+Future<String?> _cleanRevision(String root) async {
+  try {
+    final st = await Process.run('git', ['-C', root, 'status', '--porcelain']);
+    if (st.exitCode != 0 || '${st.stdout}'.trim().isNotEmpty) return null;
+    final rev = await Process.run('git', [
+      '-C',
+      root,
+      'rev-parse',
+      '--short=12',
+      'HEAD',
+    ]);
+    final sha = '${rev.stdout}'.trim();
+    return rev.exitCode == 0 && sha.isNotEmpty ? sha : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 String _sha256File(String path) =>
