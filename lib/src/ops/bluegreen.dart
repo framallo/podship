@@ -8,7 +8,9 @@
 // `stream`, so HTTP, WebSockets and anything else pass unchanged). When
 // the new color answers /health (and /readyz) from inside its container,
 // podship rewrites the front config and reloads nginx: open connections
-// finish on the old workers, new ones go to the new color. Then the old
+// finish on the old workers, new ones go to the new color. (The front
+// mounts the config folder, not the file: a file mount keeps the old inode
+// after an atomic rewrite.) Then the old
 // color stops. Rollback is the same flip back.
 //
 // Both colors must share the data: the database runs outside the release
@@ -218,11 +220,11 @@ String flipScript({
     for (final p in ports) '-p ${p.hostIp}:${p.published}:${p.published}',
   }.join(' ');
   return '''
-${writeFile(conf, frontConf(ports, color))}if docker inspect $front >/dev/null 2>&1; then
-  docker exec $front nginx -t -q
-  docker exec $front nginx -s reload
+${writeFile(conf, frontConf(ports, color))}if docker container inspect $front >/dev/null 2>&1; then
+  docker exec $front nginx -t -q -c /etc/podship-front/nginx.conf
+  docker exec $front nginx -s reload -c /etc/podship-front/nginx.conf
 else
-$stopBase  docker run -d --name $front --restart unless-stopped --label podship.front=$composeProject --network ${frontNetwork(composeProject)} $publish -v ${shq(conf)}:/etc/nginx/nginx.conf:ro nginx:1.27-alpine >/dev/null
+$stopBase  docker run -d --name $front --restart unless-stopped --label podship.front=$composeProject --network ${frontNetwork(composeProject)} $publish -v ${shq('${l.state}/front')}:/etc/podship-front:ro nginx:1.27-alpine nginx -c /etc/podship-front/nginx.conf -g 'daemon off;' >/dev/null
 fi
 echo ${colorProject(composeProject, color)} > ${shq('${l.state}/active-project')}
 echo "front → $color"
