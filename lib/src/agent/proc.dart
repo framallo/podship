@@ -74,11 +74,18 @@ class SystemProc implements Proc {
     final outDone = stdoutFile != null
         ? proc.stdout.pipe(File(stdoutFile).openWrite()).then((_) => '')
         : proc.stdout.transform(utf8.decoder).join();
-    if (stdinFile != null) {
-      await File(stdinFile).openRead().pipe(proc.stdin);
-    } else {
-      if (stdinText != null) proc.stdin.write(stdinText);
-      await proc.stdin.close();
+    // A reader may stop before the end of its stdin (`pg_restore --list`
+    // reads only the table of contents of a dump). The broken pipe that
+    // follows is not an error: the exit code tells what happened.
+    try {
+      if (stdinFile != null) {
+        await File(stdinFile).openRead().pipe(proc.stdin);
+      } else {
+        if (stdinText != null) proc.stdin.write(stdinText);
+        await proc.stdin.close();
+      }
+    } on Object catch (e) {
+      if (!isBrokenPipe(e)) rethrow;
     }
     final out = await outDone;
     await errDone;
@@ -129,4 +136,15 @@ class SystemProc implements Proc {
 
   @override
   Future<void> sleep(Duration d) => Future.delayed(d);
+}
+
+/// True for the error a writer gets when its reader closed the pipe
+/// (EPIPE: 32 on Linux and macOS).
+bool isBrokenPipe(Object e) {
+  final os = switch (e) {
+    SocketException(:final osError) => osError,
+    FileSystemException(:final osError) => osError,
+    _ => null,
+  };
+  return os?.errorCode == 32 || e.toString().contains('Broken pipe');
 }
