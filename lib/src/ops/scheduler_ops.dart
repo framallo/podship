@@ -234,7 +234,8 @@ uname -sm
   if (remoteArch != arch) {
     throw Aborted(
       '${t.label} is $remoteArch and this machine is $arch: compile podship '
-      'there and pass --binary, or install podship on its PATH',
+      'for that OS and CPU (dart compile exe on such a machine) and pass '
+      '--binary <file>',
     );
   }
   if (remoteSha == _sha256File(local)) return 'unchanged';
