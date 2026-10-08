@@ -9,6 +9,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../config/config.dart';
@@ -16,6 +17,7 @@ import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../remote/ssh.dart';
 import '../ops/context.dart';
+import '../ops/inputs.dart';
 import 'archive.dart';
 import 'dockerfile.dart';
 import 'registry.dart';
@@ -67,6 +69,7 @@ class ImagePlan {
     this.jit = false,
     this.jitRefused,
     this.mainTarget = 'bin/main.dart',
+    this.serverKey,
     ImageReport? report,
   }) : report = report ?? ImageReport();
 
@@ -95,6 +98,10 @@ class ImagePlan {
 
   /// The entry point of the server, from the Dockerfile.
   final String mainTarget;
+
+  /// A hash of the server image's inputs except the web builds (git mode
+  /// only); with the web hashes it names a reusable server image.
+  final String? serverKey;
   final ImageReport report;
 
   bool get buildsLocally => decision.local && local.isNotEmpty;
@@ -250,6 +257,21 @@ Future<ImagePlan> computeImagePlan({
       );
     }
   }
+  String? serverKey;
+  if (sha != null && runtime != null && serverBuild != null) {
+    final paths = await packageInputs(config.root, sha, config.serverPackage);
+    serverKey = await inputsHash(
+      config.root,
+      sha,
+      [...paths, serverBuild.dockerfilePath],
+      salt: [
+        'platform=$platform',
+        'jit=$jit',
+        runtime.text,
+        ?await dartVersionTag(),
+      ],
+    );
+  }
   String ship;
   String shipReason;
   if (isLocalHost(env.host)) {
@@ -294,6 +316,7 @@ Future<ImagePlan> computeImagePlan({
     jit: jit,
     jitRefused: jitRefused,
     mainTarget: mainTarget,
+    serverKey: serverKey,
     report: report,
   );
 }
@@ -352,13 +375,32 @@ List<Step> imageLane({
   final config = ctx.config;
   final report = plan.report;
   final platform = plan.decision.platform;
-  final steps = <Step>[
-    ActionStep(
-      'Export for the image build',
-      'a second export of the commit in $imgRoot',
-      export,
-    ),
-  ];
+  final web = <Step>[], compile = <Step>[], others = <Lane>[];
+  final serverImage = <Step>[];
+  // A server image with the same inputs (sources, lock, Dockerfile, web
+  // builds, platform, toolchain) is tagged again instead of rebuilt.
+  final key = plan.serverKey == null || plan.runtime == null
+      ? null
+      : sha256
+            .convert(
+              utf8.encode(
+                '${plan.serverKey}|${(webHashes.entries.toList()..sort((a, b) => a.key.compareTo(b.key))).map((e) => '${e.key}=${e.value}').join(',')}',
+              ),
+            )
+            .toString()
+            .substring(0, 24);
+  final keyFile = key == null
+      ? null
+      : File(
+          p.join(
+            cacheDir(),
+            'images',
+            config.project,
+            '${env.composeProject}-${env.serverService}',
+            key,
+          ),
+        );
+  var reuse = false;
   Future<void> timed(String key, Future<void> Function() f) async {
     final w = Stopwatch()..start();
     try {
@@ -371,11 +413,12 @@ List<Step> imageLane({
   if (!skipWeb && plan.local.containsKey(env.serverService)) {
     for (final app in config.build.flutterWeb) {
       final hash = webHashes[app.name];
-      steps.add(
+      web.add(
         ActionStep(
           'Flutter web: ${app.name}',
           'from the cache on this machine when the inputs did not change; else flutter build web',
           () => timed('web_${app.name}', () async {
+            if (reuse) return;
             final out = p.join(imgRoot, app.output);
             final cached = hash == null
                 ? null
@@ -416,7 +459,7 @@ List<Step> imageLane({
   if (rt != null) {
     final pkg = p.join(imgRoot, config.serverPackage);
     final bundle = p.join(imgRoot, '.podship-image', 'bundle');
-    steps.add(
+    compile.add(
       ActionStep(
         plan.jit
             ? 'Compile the server to kernel (JIT)'
@@ -425,6 +468,7 @@ List<Step> imageLane({
             ? 'dart compile kernel ${plan.mainTarget}'
             : 'dart build cli --target ${plan.mainTarget} --target-os linux --target-arch ${platform.dartArch}',
         () => timed('compile', () async {
+          if (reuse) return;
           final out = p.join(imgRoot, '.podship-image', 'out');
           Directory(bundle).createSync(recursive: true);
           if (plan.jit) {
@@ -503,47 +547,102 @@ List<Step> imageLane({
     final dockerfile = useRuntime
         ? p.join(imgRoot, '.podship-image', 'Dockerfile')
         : p.join(ctxDir, s.dockerfile ?? 'Dockerfile');
-    steps.add(
-      ActionStep(
-        'Build image ${e.key} for $svcPlatform',
-        'docker buildx build --platform $svcPlatform -t $name'
-            '${useRuntime ? ' (runtime stage only: the server was compiled here)' : ''}',
-        () => timed('image_${e.key}', () async {
-          if (lc?.git != null) await _syncGitContext(ctx, ctxDir, lc!);
-          await _run(ctx, 'docker', [
-            'buildx',
-            'build',
-            '--platform',
-            svcPlatform,
-            '--provenance=false',
-            '--load',
-            '-t',
-            name,
-            '-f',
-            dockerfile,
-            for (final a in s.args.entries) ...[
-              '--build-arg',
-              '${a.key}=${a.value}',
-            ],
-            if (s.target != null && !useRuntime) ...['--target', s.target!],
-            ctxDir,
-          ], what: 'docker buildx build ${e.key}');
-          final size = await Process.run('docker', [
+    final step = (ActionStep(
+      'Build image ${e.key} for $svcPlatform',
+      'docker buildx build --platform $svcPlatform -t $name'
+          '${useRuntime ? ' (runtime stage only: the server was compiled here)' : ''}',
+      () => timed('image_${e.key}', () async {
+        if (useRuntime && reuse) {
+          final id = keyFile!.readAsStringSync().trim();
+          await _run(ctx, 'docker', ['tag', id, name]);
+          ctx.log.info('image ${e.key}: unchanged inputs, tagged $id again');
+          return;
+        }
+        if (lc?.git != null) await _syncGitContext(ctx, ctxDir, lc!);
+        await _run(ctx, 'docker', [
+          'buildx',
+          'build',
+          '--platform',
+          svcPlatform,
+          '--provenance=false',
+          '--load',
+          '-t',
+          name,
+          '-f',
+          dockerfile,
+          for (final a in s.args.entries) ...[
+            '--build-arg',
+            '${a.key}=${a.value}',
+          ],
+          if (s.target != null && !useRuntime) ...['--target', s.target!],
+          ctxDir,
+        ], what: 'docker buildx build ${e.key}');
+        final size = await Process.run('docker', [
+          'image',
+          'inspect',
+          '--format',
+          '{{.Size}}',
+          name,
+        ]);
+        final n = int.tryParse('${size.stdout}'.trim());
+        if (n != null) {
+          report.sizes[e.key] = n;
+          ctx.log.info('image ${e.key}: ${mb(n)}');
+        }
+        if (useRuntime && keyFile != null) {
+          final id = await Process.run('docker', [
             'image',
             'inspect',
             '--format',
-            '{{.Size}}',
+            '{{.Id}}',
             name,
           ]);
-          final n = int.tryParse('${size.stdout}'.trim());
-          if (n != null) {
-            report.sizes[e.key] = n;
-            ctx.log.info('image ${e.key}: ${mb(n)}');
-          }
-        }),
-      ),
-    );
+          keyFile.parent.createSync(recursive: true);
+          keyFile.writeAsStringSync('${id.stdout}'.trim());
+          _keepNewest(keyFile.parent.path, 5, files: true);
+        }
+      }),
+    ));
+    if (useRuntime) {
+      serverImage.add(step);
+    } else {
+      others.add(Lane(e.key, [step]));
+    }
   }
+  final steps = <Step>[
+    ActionStep(
+      'Export for the image build',
+      'a second export of the commit in $imgRoot',
+      () async {
+        await export();
+        if (keyFile != null && keyFile.existsSync()) {
+          final id = keyFile.readAsStringSync().trim();
+          final r = await Process.run('docker', ['image', 'inspect', id]);
+          reuse = r.exitCode == 0;
+          if (reuse) {
+            ctx.log.info(
+              'server image: same inputs as $id; no web build, no compile',
+            );
+          }
+        }
+      },
+    ),
+  ];
+  final lanes = [
+    if (web.isNotEmpty) Lane('web', web),
+    if (compile.isNotEmpty) Lane('compile', compile),
+    ...others,
+  ];
+  if (lanes.length > 1) {
+    steps.add(
+      ParallelStep('Build ${lanes.map((l) => l.name).join(', ')}', lanes),
+    );
+  } else {
+    for (final l in lanes) {
+      steps.addAll(l.steps);
+    }
+  }
+  steps.addAll(serverImage);
   final images = [
     for (final s in plan.local.keys) imageName(env.composeProject, s, release),
   ];
@@ -589,11 +688,14 @@ Future<void> _copyTree(String from, String to) async {
   if (r.exitCode != 0) throw Aborted('copy $from → $to failed: ${r.stderr}');
 }
 
-void _keepNewest(String dir, int keep) {
+void _keepNewest(String dir, int keep, {bool files = false}) {
   final d = Directory(dir);
   if (!d.existsSync()) return;
-  final all = d.listSync().whereType<Directory>().toList()
-    ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+  final all =
+      d.listSync().where((e) => files ? e is File : e is Directory).toList()
+        ..sort(
+          (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
+        );
   for (final x in all.skip(keep)) {
     x.deleteSync(recursive: true);
   }

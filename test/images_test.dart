@@ -547,13 +547,17 @@ void main() {
         expect(par.lanes.map((l) => l.name), ['images', 'backup']);
         final img = par.lanes.first.steps.map((x) => x.title).toList();
         expect(img, [
-          'Export for the image build',
-          'Flutter web: app',
-          'Compile the server for linux/amd64',
-          'Build image server for linux/amd64',
-          'Ship images to prod-box (load)',
-        ]);
-        // The switch is still guarded after the parallel stage.
+        'Export for the image build',
+        'Build web, compile',
+        'Build image server for linux/amd64',
+        'Ship images to prod-box (load)',
+      ]);
+      final inner = par.lanes.first.steps[1] as ParallelStep;
+      expect(inner.lanes.map((l) => l.steps.map((x) => x.title).toList()), [
+        ['Flutter web: app'],
+        ['Compile the server for linux/amd64'],
+      ]);
+      // The switch is still guarded after the parallel stage.
         expect(pl.steps[pl.guardFrom!].title, startsWith('Switch to'));
       },
     );
