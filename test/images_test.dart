@@ -334,6 +334,13 @@ void main() {
       expect(blobsToSkip(imgs, {}), isEmpty);
     });
 
+    test('images the server has by ID are only tagged there', () {
+      expect(
+        retagScript({'x-server:r2': 'sha256:abc'}),
+        'docker tag sha256:abc x-server:r2\n',
+      );
+    });
+
     test('server DiffIDs parse from docker inspect output', () {
       expect(parseDiffIds('["sha256:a","sha256:b"]\n\n["sha256:a"]\nnoise\n'), {
         'sha256:a',

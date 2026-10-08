@@ -725,6 +725,12 @@ Future<void> _pruneLocalTags(
   }
 }
 
+/// The remote script that tags images the server has by ID.
+String retagScript(Map<String, String> nameToId) => [
+  for (final e in nameToId.entries) 'docker tag ${shq(e.value)} ${shq(e.key)}',
+  '',
+].join('\n');
+
 /// Sends [images] to the server of [env]: `docker save`, without the layers
 /// the server has, compressed with zstd when both ends have it, then
 /// `docker load`.
@@ -735,6 +741,38 @@ Future<void> shipByLoad(
   ServerDocker? server,
   ImageReport report,
 ) async {
+  // Images the server has already (same ID) only need a new tag there.
+  final ids = <String, String>{};
+  for (final img in images) {
+    final r = await Process.run('docker', [
+      'image',
+      'inspect',
+      '--format',
+      '{{.Id}}',
+      img,
+    ]);
+    if (r.exitCode == 0) ids[img] = '${r.stdout}'.trim();
+  }
+  final known = await ctx.query(
+    env,
+    'docker images -q --no-trunc 2>/dev/null | sort -u\n',
+  );
+  final have = known.split('\n').map((l) => l.trim()).toSet();
+  final retag = {
+    for (final e in ids.entries)
+      if (have.contains(e.value)) e.key: e.value,
+  };
+  if (retag.isNotEmpty) {
+    await ctx.query(env, retagScript(retag));
+    ctx.log.info(
+      'already on ${env.host}, tagged there: ${retag.keys.join(', ')}',
+    );
+  }
+  images = [
+    for (final i in images)
+      if (!retag.containsKey(i)) i,
+  ];
+  if (images.isEmpty) return;
   final tmp = await Directory.systemTemp.createTemp('podship-ship-');
   try {
     final tar = p.join(tmp.path, 'images.tar');
