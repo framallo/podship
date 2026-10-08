@@ -221,8 +221,22 @@ class BackupPullCommand extends PodshipCommand {
       stdout.writeln('Would write $plist:\n$text');
       return 0;
     }
-    File(plist).writeAsStringSync(text);
     final uid = (await Process.run('id', ['-u'])).stdout.toString().trim();
+    final f = File(plist);
+    final loaded =
+        (await Process.run('launchctl', [
+          'print',
+          'gui/$uid/$label',
+        ])).exitCode ==
+        0;
+    // macOS shows "can run in the background" every time an agent is
+    // registered again: register only when the plist changed or it is not
+    // loaded.
+    if (loaded && f.existsSync() && f.readAsStringSync() == text) {
+      log.ok('$label unchanged and loaded; log: $logFile');
+      return 0;
+    }
+    f.writeAsStringSync(text);
     await Process.run('launchctl', ['bootout', 'gui/$uid/$label']);
     final r = await Process.run('launchctl', ['bootstrap', 'gui/$uid', plist]);
     if (r.exitCode != 0) throw Aborted('launchctl: ${r.stderr}');

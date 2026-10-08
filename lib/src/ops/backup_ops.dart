@@ -195,9 +195,18 @@ Plan planSchedule(
         'Install launch agent ${b.unit} (${r.backupSchedule}, Mac local time)',
         env.host,
         '${ctx.header(env)}mkdir -p ${shq('${env.podshipHome}/log')}\n'
-            '${writeFile('\$HOME/Library/LaunchAgents/${b.unit}.plist', plist).replaceAll("'\$HOME/Library", '"\$HOME"\'/Library')}'
-            'launchctl bootout gui/\$(id -u)/${shq(b.unit)} 2>/dev/null || true\n'
-            'launchctl bootstrap gui/\$(id -u) "\$HOME/Library/LaunchAgents/${b.unit}.plist"\n'
+            // macOS shows "can run in the background" every time an agent is
+            // registered again. Write to a temp file, and register only when
+            // the plist changed or the agent is not loaded.
+            '${writeFile('\$HOME/Library/LaunchAgents/${b.unit}.plist.new', plist).replaceAll("'\$HOME/Library", '"\$HOME"\'/Library')}'
+            'dst="\$HOME/Library/LaunchAgents/${b.unit}.plist"\n'
+            'if [ -f "\$dst" ] && cmp -s "\$dst.new" "\$dst" && launchctl print gui/\$(id -u)/${shq(b.unit)} >/dev/null 2>&1; then\n'
+            '  rm -f "\$dst.new"; echo "${b.unit}: unchanged, still loaded"\n'
+            'else\n'
+            '  mv -f "\$dst.new" "\$dst"\n'
+            '  launchctl bootout gui/\$(id -u)/${shq(b.unit)} 2>/dev/null || true\n'
+            '  launchctl bootstrap gui/\$(id -u) "\$dst"\n'
+            'fi\n'
             'launchctl print gui/\$(id -u)/${shq(b.unit)} | grep -E "state|path" | head -3\n',
       ),
     ]);
