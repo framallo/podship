@@ -10,6 +10,7 @@ import 'console_commands.dart';
 import 'console_install.dart';
 import 'provider_commands.dart';
 import 'db_commands.dart';
+import 'image_commands.dart';
 import 'integration_commands.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
@@ -198,6 +199,11 @@ class PodshipRunner extends CommandRunner<int> {
           ServerCreateCommand(),
           ServerDestroyCommand(),
         ],
+      ),
+      GroupCommand(
+        'images',
+        'Images built on this machine and shipped to servers.',
+        [ImagesCheckCommand(), ImagesPruneCommand()],
       ),
       GroupCommand('projects', 'Projects registered on a server.', [
         ProjectsListCommand(),

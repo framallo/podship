@@ -21,6 +21,7 @@ import '../ops/inputs.dart';
 import 'archive.dart';
 import 'dockerfile.dart';
 import 'registry.dart';
+import 'stack.dart';
 import 'target.dart';
 
 /// Sizes and times of one deploy's images, for the log and the history.
@@ -36,6 +37,8 @@ class ImageReport {
   int totalBytes = 0;
   int layersSkipped = 0;
   bool fullFallback = false;
+  String? gate;
+  String? gateArtifacts;
   final Map<String, int> millis = {};
 
   Map<String, Object?> toJson() => {
@@ -52,6 +55,8 @@ class ImageReport {
       'layers_skipped': layersSkipped,
     },
     if (fullFallback) 'full_fallback': true,
+    'gate': ?gate,
+    'gate_artifacts': ?gateArtifacts,
     if (millis.isNotEmpty) 'ms': millis,
   };
 }
@@ -321,6 +326,118 @@ Future<ImagePlan> computeImagePlan({
   );
 }
 
+/// Runs the release gate: a fresh export under ~/.podship/work (Docker
+/// VMs share the home folder), the stack, the seed, the runner; artifacts
+/// to `~/.podship/artifacts/<project>/<env>/<release>`. Always removes the
+/// stack.
+Future<void> runImageGate(
+  Ctx ctx, {
+  required EnvConfig env,
+  required ImageGateConfig gate,
+  required String serverImage,
+  required String release,
+  required String? sha,
+  required ImageReport report,
+}) async {
+  final config = ctx.config;
+  final host = await probeHost();
+  final local = host.dockerPlatform ?? const DockerPlatform('linux', 'arm64');
+  final runner = await ensureRunnerImage(ctx, gate, local);
+  final id = 'gate-${release.replaceAll(RegExp(r'[^a-z0-9-]'), '-')}';
+  final work = p.join(cacheDir(), '..', 'work', '${config.project}-$release');
+  final workDir = p.normalize(work);
+  if (Directory(workDir).existsSync()) {
+    Directory(workDir).deleteSync(recursive: true);
+  }
+  Directory(workDir).createSync(recursive: true);
+  try {
+    if (sha != null) {
+      final git = await Process.start('git', [
+        'archive',
+        '--format=tar',
+        sha,
+      ], workingDirectory: config.root);
+      final tar = await Process.start('tar', ['-x', '-C', workDir]);
+      await git.stdout.pipe(tar.stdin);
+      if ((await git.exitCode) != 0 || (await tar.exitCode) != 0) {
+        throw Aborted('gate: git archive $sha failed');
+      }
+    } else {
+      final r = await Process.run('cp', ['-R', '${config.root}/.', workDir]);
+      if (r.exitCode != 0) throw Aborted('gate: copy failed: ${r.stderr}');
+    }
+    await runLocalScript(ctx, stackDownScript(id));
+    final up = await runLocalScript(
+      ctx,
+      stackUpScript(
+        id: id,
+        serverImage: serverImage,
+        server: gate.server,
+        services: gate.services,
+      ),
+    );
+    if (up != 0) throw Aborted('gate: the release image did not start');
+    if (gate.seed != null && gate.seedIn == 'server') {
+      final code = await runLines('docker', [
+        'exec',
+        'podship-$id-server',
+        'sh',
+        '-c',
+        gate.seed!,
+      ], (l, err) => ctx.log.output(l, stderr: err));
+      if (code != 0) throw Aborted('gate: the seed failed (exit code $code)');
+    }
+    final code =
+        await runLines(
+          'docker',
+          runnerArgs(id: id, image: runner, workDir: workDir, gate: gate),
+          (l, err) => ctx.log.output(l, stderr: err),
+        ).timeout(
+          Duration(seconds: gate.timeoutSeconds),
+          onTimeout: () async {
+            await Process.run('docker', ['rm', '-f', 'podship-$id-runner']);
+            return 124;
+          },
+        );
+    final out = artifactsDir(config.project, env.name, release);
+    for (final a in gate.artifacts) {
+      final src = p.join(workDir, gate.dir, a);
+      if (!FileSystemEntity.isDirectorySync(src) && !File(src).existsSync()) {
+        continue;
+      }
+      Directory(out).createSync(recursive: true);
+      await Process.run('cp', ['-R', src, out]);
+    }
+    if (Directory(out).existsSync()) {
+      ctx.log.info('gate artifacts: $out');
+      report.gateArtifacts = out;
+    }
+    if (code != 0) {
+      final logs = await Process.run('docker', [
+        'logs',
+        '--tail',
+        '40',
+        'podship-$id-server',
+      ]);
+      ctx.log.output('${logs.stdout}${logs.stderr}', stderr: true);
+      throw Aborted(
+        code == 124
+            ? 'gate: timed out after ${gate.timeoutSeconds} s'
+            : 'gate: ${gate.command} failed (exit code $code)',
+      );
+    }
+    report.gate = 'passed';
+  } catch (_) {
+    report.gate = 'failed';
+    rethrow;
+  } finally {
+    await runLocalScript(ctx, stackDownScript(id));
+    if (Directory(workDir).existsSync()) {
+      Directory(workDir).deleteSync(recursive: true);
+    }
+  }
+}
+
 /// The local folder of a build context given in `build.contexts`.
 String localContextDir(String project, String service, LocalContext c) {
   if (c.path != null) {
@@ -371,6 +488,8 @@ List<Step> imageLane({
   required Future<void> Function() export,
   Map<String, String> webHashes = const {},
   bool skipWeb = false,
+  String? sha,
+  bool runGate = true,
 }) {
   final config = ctx.config;
   final report = plan.report;
@@ -420,6 +539,11 @@ List<Step> imageLane({
           () => timed('web_${app.name}', () async {
             if (reuse) return;
             final out = p.join(imgRoot, app.output);
+            // A fresh export has no build/ folder; some generators (l10n
+            // untranslated-messages-file) expect one.
+            Directory(
+              p.join(imgRoot, app.path, 'build'),
+            ).createSync(recursive: true);
             final cached = hash == null
                 ? null
                 : p.join(cacheDir(), 'web', config.project, app.name, hash);
@@ -643,6 +767,34 @@ List<Step> imageLane({
     }
   }
   steps.addAll(serverImage);
+  final gate = config.tests.imageGate;
+  if (gate != null &&
+      runGate &&
+      gate.runsFor(env.name) &&
+      plan.local.containsKey(env.serverService)) {
+    steps.add(
+      ActionStep(
+        'Release gate (in containers)',
+        'the image with ${gate.services.map((s) => s.name).join(', ')} on this machine; '
+            '${gate.command} in the test runner; the image ships only when it passes',
+        () => timed('gate', () async {
+          await runImageGate(
+            ctx,
+            env: env,
+            gate: gate,
+            serverImage: imageName(
+              env.composeProject,
+              env.serverService,
+              release,
+            ),
+            release: release,
+            sha: sha,
+            report: report,
+          );
+        }),
+      ),
+    );
+  }
   final images = [
     for (final s in plan.local.keys) imageName(env.composeProject, s, release),
   ];

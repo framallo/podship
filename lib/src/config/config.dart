@@ -279,14 +279,122 @@ enum TestRunner {
   container,
 }
 
+/// A container next to the server in a test stack, like Postgres.
+class StackService {
+  StackService({
+    required this.name,
+    required this.image,
+    this.env = const {},
+    this.ready,
+  });
+  final String name;
+  final String image;
+  final Map<String, String> env;
+
+  /// A command (run in the container) that exits 0 when it is ready.
+  final String? ready;
+}
+
+/// How the release image runs in a test stack.
+class StackServer {
+  StackServer({
+    this.entrypoint = const [
+      './bin/server',
+      '--mode=production',
+      '--role=monolith',
+      '--apply-migrations',
+    ],
+    this.env = const {},
+    this.port = 8082,
+    this.health = '/health',
+  });
+
+  /// Replaces the image's ENTRYPOINT (a shell-form ENTRYPOINT takes no
+  /// arguments).
+  final List<String> entrypoint;
+  final Map<String, String> env;
+
+  /// The container port of [health].
+  final int port;
+  final String health;
+
+  /// This server with [extra] environment (its own values win).
+  StackServer withEnv(Map<String, String> extra) => StackServer(
+    entrypoint: entrypoint,
+    env: {...extra, ...env},
+    port: port,
+    health: health,
+  );
+}
+
+/// The release gate: the image runs on this machine with its services,
+/// and a test-runner container (Flutter, Chrome, chromedriver) runs
+/// [command] against it. The image ships only when it passes.
+class ImageGateConfig {
+  ImageGateConfig({
+    required this.command,
+    this.environments = const [],
+    this.dir = '.',
+    this.image,
+    this.flutter,
+    this.chrome,
+    this.services = const [],
+    StackServer? server,
+    this.seed,
+    this.seedIn = 'runner',
+    this.artifacts = const [],
+    this.env = const {},
+    this.timeoutSeconds = 1800,
+  }) : server = server ?? StackServer();
+
+  /// Environments whose deploys run the gate; empty means all.
+  final List<String> environments;
+
+  /// Runs in the runner, in [dir] of a fresh export of the commit.
+  final String command;
+  final String dir;
+
+  /// A runner image of the project's own; null: podship builds one with
+  /// [flutter] (default: this machine's version) and [chrome].
+  final String? image;
+  final String? flutter;
+
+  /// The Chrome for Testing version on amd64 (arm64 uses Debian's
+  /// Chromium and chromedriver: Chrome for Testing has no Linux arm64).
+  final String? chrome;
+  final List<StackService> services;
+  final StackServer server;
+
+  /// A command that fills the database before [command].
+  final String? seed;
+
+  /// `runner` (default) or `server` (`docker exec` in the server).
+  final String seedIn;
+
+  /// Paths (relative to [dir]) copied to the release artifacts.
+  final List<String> artifacts;
+
+  /// Environment of the runner.
+  final Map<String, String> env;
+  final int timeoutSeconds;
+
+  bool runsFor(String env) =>
+      environments.isEmpty || environments.contains(env);
+}
+
 class TestsConfig {
   TestsConfig({
     this.runner = TestRunner.local,
     this.suites = const [],
     this.gate = const ['production'],
     this.parallel = true,
+    this.imageGate,
   });
   final TestRunner runner;
+
+  /// The release gate that runs against the built image on this machine
+  /// (`tests.gate` in its map form). Null: none.
+  final ImageGateConfig? imageGate;
   final List<TestSuite> suites;
 
   /// Environments that only take a commit whose tests passed (in this
@@ -1300,8 +1408,13 @@ class PodshipConfig {
         'container' => TestRunner.container,
         final x => throw ConfigException('tests.runner: unknown "$x"'),
       },
-      gate: t.strs('gate', const ['production']),
+      gate: t._get('gate') is YamlMap
+          ? t.map('gate').strs('environments', const ['production'])
+          : t.strs('gate', const ['production']),
       parallel: t.boolean('parallel', true),
+      imageGate: t._get('gate') is YamlMap && t.map('gate').has('image')
+          ? _parseImageGate(t.map('gate').map('image'))
+          : null,
       suites: [
         for (final m in t.maps('suites'))
           TestSuite(
@@ -1638,6 +1751,47 @@ class PodshipConfig {
           'environments.$name.scheduler: unknown "$x"',
         ),
       },
+    );
+  }
+
+  static ImageGateConfig _parseImageGate(_Reader g) {
+    final sv = g.map('server');
+    final seedIn = g.str('seed_in', 'runner');
+    if (seedIn != 'runner' && seedIn != 'server') {
+      throw ConfigException(
+        'tests.gate.image.seed_in must be runner or server',
+      );
+    }
+    final sm = g.map('services');
+    return ImageGateConfig(
+      command: g.str('command'),
+      environments: g.strs('environments'),
+      dir: g.str('dir', '.'),
+      image: g.optStr('runner_image'),
+      flutter: g.optStr('flutter'),
+      chrome: g.optStr('chrome'),
+      services: [
+        for (final name in sm.keys)
+          StackService(
+            name: name,
+            image: sm.map(name).str('image'),
+            env: sm.map(name).strMap('env'),
+            ready: sm.map(name).optStr('ready'),
+          ),
+      ],
+      server: StackServer(
+        entrypoint: sv.has('entrypoint')
+            ? sv.strs('entrypoint')
+            : StackServer().entrypoint,
+        env: sv.strMap('env'),
+        port: sv.integer('port', 8082),
+        health: sv.str('health', '/health'),
+      ),
+      seed: g.optStr('seed'),
+      seedIn: seedIn,
+      artifacts: g.strs('artifacts'),
+      env: g.strMap('env'),
+      timeoutSeconds: g.integer('timeout', 1800),
     );
   }
 

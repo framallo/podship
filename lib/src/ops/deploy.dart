@@ -498,6 +498,8 @@ Plan planDeploy({
             imgRoot: imgRoot,
             webHashes: inputs.webHashes,
             skipWeb: options.skipWeb,
+            sha: source == SourceMode.git ? git.sha : null,
+            runGate: !options.skipTests,
             export: () async {
               if (source == SourceMode.git) {
                 await exportCommit(root, git.sha, imgRoot);

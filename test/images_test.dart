@@ -10,6 +10,7 @@ import 'package:podship/src/images/archive.dart';
 import 'package:podship/src/images/dockerfile.dart';
 import 'package:podship/src/images/images.dart';
 import 'package:podship/src/images/registry.dart';
+import 'package:podship/src/images/stack.dart';
 import 'package:podship/src/images/target.dart';
 import 'package:podship/src/ops/context.dart';
 import 'package:podship/src/ops/deploy.dart';
@@ -554,17 +555,17 @@ void main() {
         expect(par.lanes.map((l) => l.name), ['images', 'backup']);
         final img = par.lanes.first.steps.map((x) => x.title).toList();
         expect(img, [
-        'Export for the image build',
-        'Build web, compile',
-        'Build image server for linux/amd64',
-        'Ship images to prod-box (load)',
-      ]);
-      final inner = par.lanes.first.steps[1] as ParallelStep;
-      expect(inner.lanes.map((l) => l.steps.map((x) => x.title).toList()), [
-        ['Flutter web: app'],
-        ['Compile the server for linux/amd64'],
-      ]);
-      // The switch is still guarded after the parallel stage.
+          'Export for the image build',
+          'Build web, compile',
+          'Build image server for linux/amd64',
+          'Ship images to prod-box (load)',
+        ]);
+        final inner = par.lanes.first.steps[1] as ParallelStep;
+        expect(inner.lanes.map((l) => l.steps.map((x) => x.title).toList()), [
+          ['Flutter web: app'],
+          ['Compile the server for linux/amd64'],
+        ]);
+        // The switch is still guarded after the parallel stage.
         expect(pl.steps[pl.guardFrom!].title, startsWith('Switch to'));
       },
     );
@@ -599,6 +600,133 @@ void main() {
       );
       expect(d.single.bytes, 1500000000);
       expect(d.single.reclaimable, 1000000000);
+    });
+  });
+
+  group('test stack and release gate', () {
+    test('the stack starts services, waits, and runs the image', () {
+      final t = stackUpScript(
+        id: 'gate-r1',
+        serverImage: 'demo-server:r1',
+        server: StackServer(env: {'SERVERPOD_PASSWORD_database': 'x'}),
+        services: [
+          StackService(
+            name: 'postgres',
+            image: 'postgres:16-alpine',
+            env: {'POSTGRES_PASSWORD': 'x'},
+            ready: 'pg_isready -U postgres',
+          ),
+        ],
+        publish: 18099,
+      );
+      expect(
+        t,
+        contains(
+          'docker network create --label podship.stack=gate-r1 podship-gate-r1',
+        ),
+      );
+      expect(t, contains('--network-alias postgres'));
+      expect(t, contains("sh -c 'pg_isready -U postgres'"));
+      expect(t, contains('--entrypoint ./bin/server'));
+      expect(t, contains('-p 127.0.0.1:18099:8082'));
+      expect(t, contains('--apply-migrations'));
+      expect(t, contains('wget -qO- http://127.0.0.1:8082/health'));
+      expect(
+        stackDownScript('gate-r1'),
+        contains('label=podship.stack=gate-r1'),
+      );
+    });
+
+    test('a check gets throwaway Serverpod passwords', () {
+      final c = PodshipConfig.parse(sampleConfig);
+      final d = defaultStack(
+        c.env('production'),
+        passwordKeys: ['database', 'jwtRefreshTokenHashPepper'],
+      );
+      expect(d.services.single.env['POSTGRES_DB'], 'demo');
+      expect(d.env['SERVERPOD_PASSWORD_database'], startsWith('check-'));
+      expect(
+        d.env['SERVERPOD_PASSWORD_jwtRefreshTokenHashPepper'],
+        hasLength(44),
+      );
+    });
+
+    test('the runner image pins Flutter and the browser', () {
+      final amd = runnerDockerfile(
+        flutter: '3.38.1',
+        arch: 'amd64',
+        chrome: '141.0.1.2',
+      );
+      expect(
+        amd,
+        contains(
+          'chrome-for-testing-public/141.0.1.2/linux64/chrome-linux64.zip',
+        ),
+      );
+      expect(amd, contains('chromedriver-linux64.zip'));
+      expect(amd, contains('--branch 3.38.1'));
+      final arm = runnerDockerfile(flutter: '3.38.1', arch: 'arm64');
+      expect(arm, contains('chromium chromium-driver'));
+      expect(
+        runnerTag('3.38.1', 'arm64', 'x'),
+        'podship-gate-runner:flutter-3.38.1-chromium-arm64',
+      );
+    });
+
+    test('the runner starts chromedriver, seeds, then runs the command', () {
+      final g = ImageGateConfig(
+        command: 'dart run tool gate',
+        dir: 'app',
+        seed: 'dart run tool seed',
+        env: {'A': 'b'},
+      );
+      final a = runnerArgs(
+        id: 'gate-r1',
+        image: 'runner:1',
+        workDir: '/h/w',
+        gate: g,
+      );
+      expect(a, containsAllInOrder(['--network', 'podship-gate-r1']));
+      expect(a, containsAllInOrder(['-v', '/h/w:/work']));
+      expect(a, containsAllInOrder(['-w', '/work/app']));
+      expect(a, contains('PODSHIP_GATE_SERVER=http://server:8082'));
+      expect(a.last, contains('chromedriver --port=4444'));
+      expect(a.last.indexOf('seed'), lessThan(a.last.indexOf('tool gate')));
+    });
+
+    test('tests.gate: the list form and the map form', () {
+      final list = PodshipConfig.parse(sampleConfig);
+      expect(list.tests.gate, ['production']);
+      expect(list.tests.imageGate, isNull);
+      final m = PodshipConfig.parse(
+        '$sampleConfig'
+        'tests:\n'
+        '  gate:\n'
+        '    environments: [production, staging]\n'
+        '    image:\n'
+        '      environments: [production]\n'
+        '      dir: tool\n'
+        '      command: dart run bin/tool.dart gate\n'
+        '      flutter: 3.38.1\n'
+        '      services:\n'
+        '        postgres: {image: "postgres:16-alpine", env: {POSTGRES_PASSWORD: g}, ready: pg_isready}\n'
+        '      server:\n'
+        '        entrypoint: [./bin/server, --mode=staging]\n'
+        '        env: {SERVERPOD_PASSWORD_database: g}\n'
+        '        port: 8582\n'
+        '      seed: dart run bin/tool.dart seed\n'
+        '      seed_in: server\n'
+        '      artifacts: [build/e2e]\n',
+      );
+      expect(m.tests.gate, ['production', 'staging']);
+      final g = m.tests.imageGate!;
+      expect(g.runsFor('production'), isTrue);
+      expect(g.runsFor('staging'), isFalse);
+      expect(g.services.single.ready, 'pg_isready');
+      expect(g.server.port, 8582);
+      expect(g.server.entrypoint, ['./bin/server', '--mode=staging']);
+      expect(g.seedIn, 'server');
+      expect(g.artifacts, ['build/e2e']);
     });
   });
 }
