@@ -14,6 +14,7 @@ import 'project_commands.dart';
 import 'release_commands.dart';
 import 'scheduler_commands.dart';
 import 'secret_commands.dart';
+import 'self_commands.dart';
 import 'server_commands.dart';
 
 /// The version printed by `podship --version`.
@@ -57,6 +58,12 @@ class PodshipRunner extends CommandRunner<int> {
       ..addOption(
         'ssh-key',
         help: 'An ssh private key for every connection (CI).',
+      )
+      ..addFlag(
+        'notify',
+        defaultsTo: null,
+        help:
+            'Send the notifications of notify: (default: as configured). --no-notify sends none.',
       );
     for (final c in <Command<int>>[
       InitCommand(),
@@ -116,6 +123,11 @@ class PodshipRunner extends CommandRunner<int> {
       LogoutCommand(),
       WhoamiCommand(),
       OperationsCommand(),
+      GroupCommand(
+        'self',
+        'podship itself: build the compiled executable, show where it runs from.',
+        [SelfUpdateCommand(), SelfPathCommand()],
+      ),
       DestroyCommand(),
       GroupCommand('releases', 'Releases kept on the server.', [
         ReleasesListCommand(),

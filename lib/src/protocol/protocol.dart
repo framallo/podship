@@ -188,6 +188,11 @@ const operations = <OperationSpec>[
         'boolean',
         'Also check the public health URL (default true).',
       ),
+      ParamSpec(
+        'full_tests',
+        'boolean',
+        'Run every test suite, even one whose inputs passed before.',
+      ),
       _reason,
       _confirmEnv,
     ],
@@ -595,6 +600,33 @@ const operations = <OperationSpec>[
     ],
   ),
   OperationSpec(
+    'last_deploy',
+    'The newest deploy of the environment: release, outcome, duration and the time of each stage.',
+    mutating: false,
+  ),
+  OperationSpec(
+    'subscribe_events',
+    'A stream of notifications (deploy started/done/failed, rollback done, backup failed, scheduler job failed) as they happen on this server. The stream does not end; each event is a `notification` event.',
+    mutating: false,
+    needsEnv: false,
+    params: [
+      ParamSpec(
+        'events',
+        'string[]',
+        'Only these events (default: all).',
+        values: [
+          'deploy_started',
+          'deploy_done',
+          'deploy_failed',
+          'rollback_done',
+          'backup_failed',
+          'scheduler_job_failed',
+        ],
+      ),
+      ParamSpec('env', 'string', 'Only this environment.'),
+    ],
+  ),
+  OperationSpec(
     'env.list',
     'Variables (secret values hidden).',
     mutating: false,
@@ -812,6 +844,7 @@ Stream<Map<String, Object?>> dispatch(
             skipWeb: b('skip_web'),
             skipBackup: b('skip_backup'),
             publicCheck: p['public_check'] != false,
+            fullTests: b('full_tests'),
           ),
         );
       case 'rollback':
@@ -982,6 +1015,18 @@ Stream<Map<String, Object?>> dispatch(
         value = await api.releasesContaining(s('sha')!);
       case 'backup.list':
         value = [for (final x in await api.backups(env!)) x.toJson()];
+      case 'last_deploy':
+        value = (await api.lastDeploy(env!))?.toJson();
+      case 'subscribe_events':
+        final only = l('events').toSet();
+        final onlyEnv = s('env');
+        await for (final n in Notifier.stream) {
+          if (only.isNotEmpty && !only.contains(n.event.id)) continue;
+          if (onlyEnv != null && n.env != onlyEnv) continue;
+          if (n.project != req.project) continue;
+          yield {'type': 'notification', ...n.toJson()};
+        }
+        return;
       case 'history':
         value = [
           for (final h in await api.history(

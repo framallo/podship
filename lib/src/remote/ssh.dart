@@ -151,8 +151,11 @@ class Ssh {
     bool delete = true,
     void Function(String line, bool stderr)? onLine,
   }) async {
+    // --checksum: `git archive` gives every file the commit's time, so a
+    // new commit changes every mtime; by content, only changed files move.
     final args = [
       '-a',
+      '--checksum',
       '--no-owner',
       '--no-group',
       if (delete) '--delete',

@@ -13,6 +13,7 @@ import '../protocol/protocol.dart';
 import '../protocol/tokens.dart';
 import '../protocol/transport.dart';
 import '../config/config.dart';
+import '../ops/app_ops.dart' show Integrations;
 import '../ops/context.dart';
 import '../plan/plan.dart';
 import '../remote/ssh.dart';
@@ -118,9 +119,39 @@ abstract class PodshipCommand extends Command<int> {
 
   Ssh get ssh => Ssh(extraOptions: sshOptions, verbose: verbose);
 
+  /// `--notify` / `--no-notify`, or null when neither was given.
+  bool? get notifyFlag => globalResults?.wasParsed('notify') == true
+      ? globalResults!['notify'] as bool
+      : null;
+
+  /// The notifier of this command: the project's `notify:` (and the global
+  /// one), turned off by `--no-notify`, turned on by `--notify` even when
+  /// the config says `enabled: false`.
+  Notifier get notifier {
+    final flag = notifyFlag;
+    final cfg = flag == true
+        ? NotifyConfig(
+            events: config.notify.events,
+            channels: config.notify.channels,
+            bell: config.notify.bell,
+          )
+        : config.notify;
+    final integrations = Integrations();
+    return Notifier(
+      cfg,
+      enabled: flag ?? true,
+      ses: integrations.hasAws ? integrations.ses : null,
+    );
+  }
+
   /// The library, configured from the global flags.
-  Podship get api =>
-      Podship(config, sshOptions: sshOptions, dryRun: dryRun, verbose: verbose);
+  Podship get api => Podship(
+    config,
+    sshOptions: sshOptions,
+    dryRun: dryRun,
+    verbose: verbose,
+    notifier: notifier,
+  );
 
   Ctx get ctx =>
       Ctx(config: config, ssh: ssh, log: log, dryRun: dryRun, yes: yes);
@@ -203,9 +234,28 @@ abstract class PodshipCommand extends Command<int> {
   /// renders the console's events the same way.
   Future<int> runOp(Operation op) async {
     if (via == 'console') return runRemote(op.request);
-    await op.events.forEach(render);
+    final watcher = OperationWatcher();
+    await op.events.forEach((e) {
+      watcher.onEvent(e);
+      render(e);
+    });
     final r = await op.result;
+    finish(r, watcher.stages);
     return r.ok ? 0 : 1;
+  }
+
+  /// A command that took this long gets a bell and a summary line.
+  static const longCommand = Duration(seconds: 20);
+
+  /// After a long command: a terminal bell (unless `notify.bell: false` or
+  /// `--no-notify`) and one line with the outcome, the release, the time
+  /// and the slowest stages.
+  void finish(OperationResult r, List<StageTiming> stages) {
+    if (json || r.dryRun || r.duration < longCommand) return;
+    final bell =
+        notifyFlag != false && config.notify.bell && stdout.hasTerminal;
+    final line = summaryLine(r, stages);
+    (r.ok ? stdout : stderr).writeln('${bell ? '\x07' : ''}$line');
   }
 
   /// Runs [req] on the console and renders its events.
@@ -322,4 +372,27 @@ class GroupCommand extends Command<int> {
   final String name;
   @override
   final String description;
+}
+
+/// One line: `deploy staging ok: 20261008-015437-0314c97 in 282.7 s (build 149.6 s, tests 48.1 s)`.
+String summaryLine(OperationResult r, List<StageTiming> stages) {
+  String secs(Duration d) =>
+      '${(d.inMilliseconds / 1000).toStringAsFixed(1)} s';
+  final slow = [
+    for (final s in stages)
+      if (!s.recovery && s.duration.inSeconds >= 5) s,
+  ]..sort((a, b) => b.duration.compareTo(a.duration));
+  final stagesText = slow
+      .take(3)
+      .map((s) => '${shortStage(s.title)} ${secs(s.duration)}')
+      .join(', ');
+  return [
+    r.operation,
+    if (r.env != null) r.env,
+    r.ok ? 'ok:' : 'FAILED:',
+    if (r.release != null) r.release,
+    if (!r.ok && r.error != null) r.error,
+    'in ${secs(r.duration)}',
+    if (stagesText.isNotEmpty) '($stagesText)',
+  ].join(' ');
 }

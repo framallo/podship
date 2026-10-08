@@ -34,6 +34,11 @@ String? renderEventText(
     },
     SuiteStarted() => c('1;35', '◆ tests: ${e.suite} (${e.command})'),
     TestFailed() => c('31', '  ✗ ${e.suite}: ${e.test}'),
+    SuiteFinished() when e.result.unchanged => c(
+      '32',
+      '✓ tests ${e.result.suite}: unchanged since ${e.result.sameAs!.length > 7 ? e.result.sameAs!.substring(0, 7) : e.result.sameAs}, '
+          'skipped (${e.result.passed} passed then)',
+    ),
     SuiteFinished() => c(
       e.result.ok ? '32' : '31',
       '${e.result.ok ? '✓' : '✗'} tests ${e.result.suite}: ${e.result.passed} passed, '

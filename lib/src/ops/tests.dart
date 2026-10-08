@@ -18,6 +18,55 @@ import '../config/config.dart';
 import '../remote/ssh.dart';
 import 'context.dart';
 
+/// A run that passed before with the same inputs as a suite has now.
+class PriorPass {
+  PriorPass({
+    required this.sha,
+    required this.env,
+    required this.at,
+    this.passed = 0,
+  });
+
+  factory PriorPass.fromJson(Map<String, Object?> j) => PriorPass(
+    sha: '${j['sha']}',
+    env: '${j['env']}',
+    at: '${j['at']}',
+    passed: (j['passed'] as num? ?? 0).toInt(),
+  );
+
+  final String sha;
+  final String env;
+  final String at;
+  final int passed;
+}
+
+/// What the test stage knows before it runs: each suite's input hash, and
+/// the suites whose inputs passed before (they are skipped).
+class SuitePlan {
+  SuitePlan({this.hashes = const {}, this.prior = const {}});
+
+  /// Suite name → input hash (suites without a hash always run).
+  final Map<String, String> hashes;
+
+  /// Suite name → the earlier passing run with the same hash.
+  final Map<String, PriorPass> prior;
+
+  bool skips(TestSuite s) => prior.containsKey(s.name);
+}
+
+/// The result of a suite that did not run because nothing changed.
+SuiteResult _unchanged(TestSuite s, SuitePlan plan) {
+  final prior = plan.prior[s.name]!;
+  return SuiteResult(
+    suite: s.name,
+    ok: true,
+    duration: Duration.zero,
+    passed: prior.passed,
+    inputsHash: plan.hashes[s.name],
+    sameAs: prior.sha,
+  );
+}
+
 final _summary = RegExp(r'\+(\d+)(?: ~(\d+))?(?: -(\d+))?: ');
 final _failedTest = RegExp(r'^\d\d:\d\d \+\d+(?: ~\d+)? -\d+: (.*?) \[E\]\s*$');
 
@@ -48,15 +97,43 @@ final _failedTest = RegExp(r'^\d\d:\d\d \+\d+(?: ~\d+)? -\d+: (.*?) \[E\]\s*$');
 
 /// Runs [suites] on this machine in [root]. Emits suite events and writes
 /// each suite's output to [logDir]. Never throws for a failing suite.
+/// With [parallel], the suites run at the same time. Suites that [plan]
+/// marks as unchanged do not run.
 Future<List<SuiteResult>> runSuitesLocally(
   Ctx ctx,
   List<TestSuite> suites,
   String root,
-  String logDir,
-) async {
-  final out = <SuiteResult>[];
+  String logDir, {
+  bool parallel = true,
+  SuitePlan? plan,
+}) async {
   Directory(logDir).createSync(recursive: true);
+  final p0 = plan ?? SuitePlan();
+  Future<SuiteResult> one(TestSuite s) async {
+    if (p0.skips(s)) {
+      final r = _unchanged(s, p0);
+      ctx.log.emit(SuiteFinished(r));
+      return r;
+    }
+    return _runLocally(ctx, s, root, logDir, p0.hashes[s.name]);
+  }
+
+  if (parallel) return Future.wait(suites.map(one));
+  final out = <SuiteResult>[];
   for (final s in suites) {
+    out.add(await one(s));
+  }
+  return out;
+}
+
+Future<SuiteResult> _runLocally(
+  Ctx ctx,
+  TestSuite s,
+  String root,
+  String logDir,
+  String? hash,
+) async {
+  {
     ctx.log.emit(SuiteStarted(s.name, s.command));
     final watch = Stopwatch()..start();
     final logFile = File(p.join(logDir, '${s.name}.log'));
@@ -107,11 +184,11 @@ Future<List<SuiteResult>> runSuitesLocally(
       exitCode: code,
       timedOut: timedOut,
       log: logFile.path,
+      inputsHash: hash,
     );
     ctx.log.emit(SuiteFinished(r));
-    out.add(r);
+    return r;
   }
-  return out;
 }
 
 /// The script that runs one suite in a container on the server, from the
@@ -126,17 +203,45 @@ echo "PODSHIP_TEST_EXIT=\$?"
 ''';
 }
 
-/// Runs [suites] in containers on [env]'s server.
+/// Runs [suites] in containers on [env]'s server. Suites that [plan]
+/// marks as unchanged do not run.
 Future<List<SuiteResult>> runSuitesInContainers(
   Ctx ctx,
   EnvConfig env,
   List<TestSuite> suites,
   String filesDir,
-  String logDir,
-) async {
-  final out = <SuiteResult>[];
+  String logDir, {
+  bool parallel = true,
+  SuitePlan? plan,
+}) async {
   Directory(logDir).createSync(recursive: true);
+  final p0 = plan ?? SuitePlan();
+  Future<SuiteResult> one(TestSuite s) async {
+    if (p0.skips(s)) {
+      final r = _unchanged(s, p0);
+      ctx.log.emit(SuiteFinished(r));
+      return r;
+    }
+    return _runInContainer(ctx, env, s, filesDir, logDir, p0.hashes[s.name]);
+  }
+
+  if (parallel) return Future.wait(suites.map(one));
+  final out = <SuiteResult>[];
   for (final s in suites) {
+    out.add(await one(s));
+  }
+  return out;
+}
+
+Future<SuiteResult> _runInContainer(
+  Ctx ctx,
+  EnvConfig env,
+  TestSuite s,
+  String filesDir,
+  String logDir,
+  String? hash,
+) async {
+  {
     ctx.log.emit(
       SuiteStarted(
         s.name,
@@ -179,16 +284,70 @@ Future<List<SuiteResult>> runSuitesInContainers(
       exitCode: code,
       timedOut: code == 124,
       log: logFile.path,
+      inputsHash: hash,
     );
     ctx.log.emit(SuiteFinished(r));
-    out.add(r);
+    return r;
   }
-  return out;
 }
 
 /// Where a commit's test record lives on a server.
 String testRecordPath(EnvConfig env, String project, String sha) =>
     p.posix.join(env.podshipHome, 'history', project, 'tests', '$sha.json');
+
+/// Where the record of a passing run with input hash [hash] lives:
+/// `<podship_home>/history/<project>/tests/by-hash/<suite>-<hash>.json`.
+String suiteHashPath(
+  EnvConfig env,
+  String project,
+  String suite,
+  String hash,
+) => p.posix.join(
+  env.podshipHome,
+  'history',
+  project,
+  'tests',
+  'by-hash',
+  '$suite-$hash.json',
+);
+
+/// Finds, on the servers of the project, a passing run for each suite whose
+/// current input hash is in [hashes]. One ssh call per distinct server.
+Future<Map<String, PriorPass>> findPriorPasses(
+  Ctx ctx,
+  Map<String, String> hashes,
+) async {
+  final out = <String, PriorPass>{};
+  if (hashes.isEmpty) return out;
+  final seen = <String>{};
+  for (final e in ctx.config.environments.values) {
+    if (!seen.add('${e.host} ${e.podshipHome}')) continue;
+    final script = StringBuffer();
+    for (final h in hashes.entries) {
+      if (out.containsKey(h.key)) continue;
+      final path = suiteHashPath(e, ctx.config.project, h.key, h.value);
+      script.writeln(
+        'if [ -f ${shq(path)} ]; then printf \'%s\\t\' ${shq(h.key)}; tr -d \'\\n\' < ${shq(path)}; echo; fi',
+      );
+    }
+    if (script.isEmpty) break;
+    try {
+      final text = await ctx.query(e, script.toString());
+      for (final line in const LineSplitter().convert(text)) {
+        final tab = line.indexOf('\t');
+        if (tab < 1) continue;
+        final suite = line.substring(0, tab);
+        final j = jsonDecode(line.substring(tab + 1));
+        if (j is Map<String, Object?> && j['ok'] == true) {
+          out[suite] = PriorPass.fromJson(j);
+        }
+      }
+    } catch (_) {
+      // A server that does not answer only means no skip.
+    }
+  }
+  return out;
+}
 
 /// Writes the test record of [sha] (and the suite logs) on [env]'s server.
 /// Returns the record path.
@@ -224,6 +383,27 @@ Future<String> writeTestRecord(
     'mkdir -p ${shq(dir)} && cat > ${shq(path)}',
     stdin: utf8.encode('${jsonEncode(record)}\n'),
   );
+  // A passing suite with a hash lets the next deploy with the same inputs
+  // skip it. A skipped suite keeps the record of the run it stands on.
+  final byHash = StringBuffer();
+  for (final r in remote) {
+    final h = r.inputsHash;
+    if (h == null || !r.ok || r.unchanged) continue;
+    final hp = suiteHashPath(env, ctx.config.project, r.suite, h);
+    final j = jsonEncode({
+      'suite': r.suite,
+      'hash': h,
+      'sha': sha,
+      'env': env.name,
+      'at': record['at'],
+      'ok': true,
+      'passed': r.passed,
+    });
+    byHash.writeln(
+      'mkdir -p ${shq(p.posix.dirname(hp))} && printf \'%s\\n\' ${shq(j)} > ${shq(hp)}',
+    );
+  }
+  if (byHash.isNotEmpty) await ctx.query(env, byHash.toString());
   return path;
 }
 

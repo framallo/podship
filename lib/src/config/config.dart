@@ -27,6 +27,8 @@ class FlutterWebApp {
     required this.output,
     required this.baseHref,
     this.args = const [],
+    this.inputs = const [],
+    this.reuse = true,
   });
 
   /// A short name for messages.
@@ -44,6 +46,15 @@ class FlutterWebApp {
 
   /// Extra arguments for `flutter build web`.
   final List<String> args;
+
+  /// More paths (relative to the project root) whose changes need a new
+  /// build. The package folder, its `path:` dependencies and the nearest
+  /// `pubspec.lock` always count.
+  final List<String> inputs;
+
+  /// Whether a release may take the build of an earlier release whose
+  /// inputs have the same hash, instead of building again.
+  final bool reuse;
 }
 
 /// Build settings shared by all environments.
@@ -226,6 +237,8 @@ class TestSuite {
     this.timeoutSeconds = 1800,
     this.environments = const [],
     this.image,
+    this.inputs = const [],
+    this.skipUnchanged = true,
   });
 
   final String name;
@@ -242,6 +255,15 @@ class TestSuite {
 
   /// The Docker image for `runner: container` (like `dart:stable`).
   final String? image;
+
+  /// More paths (relative to the project root) whose changes need a new
+  /// run. [dir], its `path:` dependencies and the nearest `pubspec.lock`
+  /// always count.
+  final List<String> inputs;
+
+  /// Whether the suite is skipped when its inputs have the hash of a run
+  /// that passed before (`deploy --full-tests` runs it anyway).
+  final bool skipUnchanged;
 
   bool runsFor(String env) =>
       environments.isEmpty || environments.contains(env);
@@ -262,6 +284,7 @@ class TestsConfig {
     this.runner = TestRunner.local,
     this.suites = const [],
     this.gate = const ['production'],
+    this.parallel = true,
   });
   final TestRunner runner;
   final List<TestSuite> suites;
@@ -270,10 +293,207 @@ class TestsConfig {
   /// deploy, or in another environment's deploy of the same commit).
   final List<String> gate;
 
+  /// Whether the suites run at the same time (each in its own folder).
+  final bool parallel;
+
   List<TestSuite> forEnv(String env) => [
     for (final s in suites)
       if (s.runsFor(env)) s,
   ];
+}
+
+/// Something that happened and may be announced.
+enum NotifyEvent {
+  deployStarted('deploy_started'),
+  deployDone('deploy_done'),
+  deployFailed('deploy_failed'),
+  rollbackDone('rollback_done'),
+  backupFailed('backup_failed'),
+  schedulerJobFailed('scheduler_job_failed');
+
+  const NotifyEvent(this.id);
+
+  /// The name in `podship.yaml` and in JSON.
+  final String id;
+
+  static NotifyEvent? parse(String s) =>
+      values.where((e) => e.id == s).firstOrNull;
+
+  /// Every event but `deploy_started`.
+  static const defaults = [
+    deployDone,
+    deployFailed,
+    rollbackDone,
+    backupFailed,
+    schedulerJobFailed,
+  ];
+}
+
+/// One notification channel.
+class NotifyChannel {
+  NotifyChannel({
+    required this.name,
+    required this.kind,
+    this.events,
+    this.url,
+    this.secret,
+    this.to = const [],
+    this.from,
+    this.region,
+  });
+
+  /// The key under `notify.channels`.
+  final String name;
+
+  /// `macos`, `email`, `webhook` or `slack`.
+  final String kind;
+
+  /// The events this channel gets. Null: the events of `notify.events`.
+  final List<NotifyEvent>? events;
+
+  /// The webhook or Slack URL. A URL that carries a token belongs in
+  /// `~/.podship/config.yaml`, not in the committed `podship.yaml`.
+  final String? url;
+
+  /// The HMAC secret of a webhook. From `~/.podship/config.yaml` or the
+  /// variable named in `secret_env` (default `PODSHIP_WEBHOOK_SECRET`).
+  final String? secret;
+
+  /// Email recipients.
+  final List<String> to;
+
+  /// The email sender (default: the environment's `email.from`).
+  final String? from;
+
+  /// The SES region (default: the environment's `email.region`).
+  final String? region;
+
+  static const kinds = ['macos', 'email', 'webhook', 'slack'];
+
+  bool wants(NotifyEvent e, List<NotifyEvent> defaults) =>
+      (events ?? defaults).contains(e);
+
+  NotifyChannel merge(NotifyChannel over) => NotifyChannel(
+    name: name,
+    kind: over.kind,
+    events: over.events ?? events,
+    url: over.url ?? url,
+    secret: over.secret ?? secret,
+    to: over.to.isEmpty ? to : over.to,
+    from: over.from ?? from,
+    region: over.region ?? region,
+  );
+}
+
+/// `notify:` — which events reach which channels. The project file and
+/// `~/.podship/config.yaml` both may have one; the project's settings win,
+/// channel by channel.
+class NotifyConfig {
+  NotifyConfig({
+    List<NotifyEvent>? events,
+    this.channels = const [],
+    this.bell = true,
+    this.enabled = true,
+  }) : events = events ?? NotifyEvent.defaults;
+
+  /// The events channels get unless they list their own.
+  final List<NotifyEvent> events;
+  final List<NotifyChannel> channels;
+
+  /// A terminal bell when a long command ends.
+  final bool bell;
+
+  /// `enabled: false` turns every channel off (`--notify` turns it on).
+  final bool enabled;
+
+  NotifyChannel? channel(String name) =>
+      channels.where((c) => c.name == name).firstOrNull;
+
+  /// This config on top of [base] (the global one).
+  NotifyConfig over(NotifyConfig? base, {bool eventsSet = true}) {
+    if (base == null) return this;
+    final merged = <String, NotifyChannel>{
+      for (final c in base.channels) c.name: c,
+    };
+    for (final c in channels) {
+      final b = merged[c.name];
+      merged[c.name] = b == null ? c : b.merge(c);
+    }
+    return NotifyConfig(
+      events: eventsSet ? events : base.events,
+      channels: merged.values.toList(),
+      bell: bell,
+      enabled: enabled,
+    );
+  }
+
+  /// Reads `~/.podship/config.yaml` (or `$PODSHIP_HOME/config.yaml`), or
+  /// null when there is none.
+  static NotifyConfig? global({Map<String, String>? environment}) {
+    final env = environment ?? Platform.environment;
+    final home = env['PODSHIP_HOME'] ?? p.join(env['HOME'] ?? '', '.podship');
+    final f = File(p.join(home, 'config.yaml'));
+    if (!f.existsSync()) return null;
+    final Object? doc;
+    try {
+      doc = loadYaml(f.readAsStringSync());
+    } on YamlException catch (e) {
+      throw ConfigException('${f.path}: $e');
+    }
+    if (doc is! YamlMap) return null;
+    return _parseNotify(_Reader(doc, '').map('notify'), env);
+  }
+}
+
+NotifyConfig _parseNotify(_Reader n, Map<String, String> env) {
+  final events = [
+    for (final s in n.strs('events', [
+      for (final e in NotifyEvent.defaults) e.id,
+    ]))
+      NotifyEvent.parse(s) ??
+          (throw ConfigException(
+            'notify.events: unknown "$s" (${NotifyEvent.values.map((e) => e.id).join(', ')})',
+          )),
+  ];
+  final ch = n.map('channels');
+  final channels = <NotifyChannel>[];
+  for (final name in ch.keys) {
+    final c = ch.map(name);
+    final kind = c.str('kind', NotifyChannel.kinds.contains(name) ? name : '');
+    if (!NotifyChannel.kinds.contains(kind)) {
+      throw ConfigException(
+        'notify.channels.$name: kind must be one of ${NotifyChannel.kinds.join(', ')}',
+      );
+    }
+    final secretEnv = c.str('secret_env', 'PODSHIP_WEBHOOK_SECRET');
+    final urlEnv = c.optStr('url_env');
+    channels.add(
+      NotifyChannel(
+        name: name,
+        kind: kind,
+        events: c.has('events')
+            ? [
+                for (final s in c.strs('events'))
+                  NotifyEvent.parse(s) ??
+                      (throw ConfigException(
+                        'notify.channels.$name.events: unknown "$s"',
+                      )),
+              ]
+            : null,
+        url: (urlEnv == null ? null : env[urlEnv]) ?? c.optStr('url'),
+        secret: env[secretEnv] ?? c.optStr('secret'),
+        to: c.strs('to'),
+        from: c.optStr('from'),
+        region: c.optStr('region'),
+      ),
+    );
+  }
+  return NotifyConfig(
+    events: events,
+    channels: channels,
+    bell: n.boolean('bell', true),
+    enabled: n.boolean('enabled', true),
+  );
 }
 
 /// Compose settings shared by all environments.
@@ -808,10 +1028,16 @@ class PodshipConfig {
     this.consoleUrl,
     this.transport = 'ssh',
     this.github,
-  }) : tests = tests ?? TestsConfig();
+    NotifyConfig? notify,
+  }) : tests = tests ?? TestsConfig(),
+       notify = notify ?? NotifyConfig();
 
   /// GitHub on every release, when set.
   final GitHubConfig? github;
+
+  /// Notifications: the project's `notify:` on top of the one in
+  /// `~/.podship/config.yaml`.
+  final NotifyConfig notify;
 
   /// The podship console of this project, if there is one.
   final String? consoleUrl;
@@ -845,13 +1071,18 @@ class PodshipConfig {
     return e;
   }
 
-  /// Reads `podship.yaml` from [dir] or its parents.
+  /// Reads `podship.yaml` from [dir] or its parents, and the global
+  /// `~/.podship/config.yaml` under it.
   static PodshipConfig load([String? dir]) {
     var d = Directory(dir ?? Directory.current.path).absolute;
     while (true) {
       final f = File(p.join(d.path, configFileName));
       if (f.existsSync()) {
-        return parse(f.readAsStringSync(), root: d.path);
+        return parse(
+          f.readAsStringSync(),
+          root: d.path,
+          globalNotify: NotifyConfig.global(),
+        );
       }
       final parent = d.parent;
       if (parent.path == d.path) {
@@ -864,8 +1095,14 @@ class PodshipConfig {
     }
   }
 
-  /// Parses the YAML text of `podship.yaml`.
-  static PodshipConfig parse(String text, {String root = '.'}) {
+  /// Parses the YAML text of `podship.yaml`. [globalNotify] is the
+  /// `notify:` of `~/.podship/config.yaml`, under the project's own.
+  static PodshipConfig parse(
+    String text, {
+    String root = '.',
+    NotifyConfig? globalNotify,
+    Map<String, String>? environment,
+  }) {
     final Object? doc;
     try {
       doc = loadYaml(text);
@@ -898,6 +1135,8 @@ class PodshipConfig {
             output: m.str('output'),
             baseHref: m.str('base_href', '/'),
             args: m.strs('args'),
+            inputs: m.strs('inputs'),
+            reuse: m.boolean('reuse', true),
           ),
       ],
       preDeploy: b.strs('pre_deploy'),
@@ -937,6 +1176,7 @@ class PodshipConfig {
         final x => throw ConfigException('tests.runner: unknown "$x"'),
       },
       gate: t.strs('gate', const ['production']),
+      parallel: t.boolean('parallel', true),
       suites: [
         for (final m in t.maps('suites'))
           TestSuite(
@@ -946,9 +1186,16 @@ class PodshipConfig {
             timeoutSeconds: m.integer('timeout', 1800),
             environments: m.strs('environments'),
             image: m.optStr('image'),
+            inputs: m.strs('inputs'),
+            skipUnchanged: m.boolean('skip_unchanged', true),
           ),
       ],
     );
+    final notifyReader = r.map('notify');
+    final notify = _parseNotify(
+      notifyReader,
+      environment ?? Platform.environment,
+    ).over(globalNotify, eventsSet: notifyReader.has('events'));
     for (final s in tests.suites) {
       for (final e in s.environments) {
         if (!envs.containsKey(e)) {
@@ -976,6 +1223,7 @@ class PodshipConfig {
         : null;
     return PodshipConfig(
       github: github,
+      notify: notify,
       consoleUrl: r.map('console').optStr('url'),
       transport: transport,
       tests: tests,

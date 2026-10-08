@@ -32,6 +32,14 @@ dart pub global activate --source git https://github.com/framallo/podship
 
 This puts `podship` in `~/.pub-cache/bin`. Add that folder to your `PATH` if it is not there.
 
+Then build the compiled executable:
+
+```
+podship self update
+```
+
+`dart pub global` runs podship from source, so every command first resolves dependencies and compiles (close to a second before anything happens). `self update` pulls the source it runs from (or clones the repository into `~/.podship/src/podship`), runs `dart compile exe`, writes `~/.podship/bin/podship`, and replaces the launcher script pub wrote in `~/.pub-cache/bin` with a two-line shim that runs the executable. Startup drops to a few milliseconds. Run it again to update. `podship self path` says what runs.
+
 On your machine you need `git`, `ssh`, `rsync` and `bash`, `flutter` if you ship Flutter web apps, and `age` to check off-site backups. Servers need Docker with the compose plugin, `curl` and `rsync`, and for backups `age` and `zstd` (or `compression: gzip`). `podship server bootstrap` installs them on Debian and Ubuntu.
 
 ## Quick start
@@ -56,7 +64,7 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `launch` | The first deploy of an environment, from bootstrap to backup schedule. |
 | `doctor` | Checks local tools, ssh, Docker and compose on each server, disk, ports, the registry and DNS. |
 | `link` | Registers the environment in the server registry: ports, domains, database and backup slot. |
-| `deploy` | Builds Flutter web locally, uploads the files, builds images on the server, backs up the database, switches, checks health, rolls back on failure, and prunes old releases. Flags: `--ref`, `--worktree`, `--skip-web`, `--skip-backup`, `--skip-hooks`, `--no-public-check`. |
+| `deploy` | Builds Flutter web locally, uploads the files, builds images on the server, backs up the database, switches, checks health, rolls back on failure, and prunes old releases. Flags: `--ref`, `--worktree`, `--skip-web`, `--skip-backup`, `--skip-hooks`, `--full-tests`, `--no-public-check`. See [Faster deploys](#faster-deploys). |
 | `rollback` | Switches to the previous release, or to `--to <release>`. Code only. `--with-db <stamp>` also restores that backup first. |
 | `promote <from> <to>` | Runs on `<to>` the exact release of `<from>`: the same files and the same images, with no build. Between servers with different CPU architectures it stops and tells you to deploy the same commit instead. |
 | `restart [service…]` | Recreates the containers of the current release, for example after `env set`. |
@@ -86,7 +94,7 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `ci setup` | Creates an ssh deploy key for CI, gives it access, and prints a GitHub Actions workflow. |
 | `destroy` | Removes an environment: containers, volumes, images, files, routes, schedule and registry entry. `--purge-backups` also deletes its backups. |
 
-Global options: `--project-dir <dir>` (`-C`), `--ssh-key <file>`, `--yes`, `--verbose`, `--quiet`.
+Global options: `--project-dir <dir>` (`-C`), `--ssh-key <file>`, `--yes`, `--verbose`, `--quiet`, `--notify` / `--no-notify` (see [Notifications](#notifications)).
 
 ## podship.yaml
 
@@ -104,6 +112,7 @@ build:
       path: shop_flutter
       output: shop_server/web/app
       base_href: /app/
+      inputs: []                    # more folders whose changes need a new build (see Faster deploys)
   pre_deploy: []                    # local shell commands, in the export, before the upload
   post_deploy: []                   # local shell commands after a healthy deploy
   files:                            # gitignore syntax, applied last
@@ -200,6 +209,17 @@ post_deploy hooks
 **Migrations.** With `migrations: on_start`, the server applies them when it starts (Serverpod's `--apply-migrations`, or `SERVERPOD_APPLY_MIGRATIONS=true`). With `maintenance`, podship runs the server once with `SERVERPOD_SERVER_ROLE=maintenance` before the switch, so a failed migration stops the deploy before traffic moves. A code rollback does not undo migrations. To go back in data too, use `rollback --with-db <stamp>`.
 
 Every release folder has `.podship/compose.sh`, which runs `docker compose` with the right project, files and ports. On the server, `<dir>/current/.podship/compose.sh ps` works by hand.
+
+### Faster deploys
+
+A deploy does only the work that the commit needs:
+
+- **Flutter web builds are reused.** Each app has an input hash: the git tree ids of its folder, of its `path:` dependencies (read from its `pubspec.yaml`), of the nearest `pubspec.lock`, plus `flutter_web[].inputs`, the Flutter version, `base_href` and `args`. The hash goes into the release's `release.json`. When a kept, healthy release on the server has the same hash, the new release hard-links that build (`Reuse Flutter web: app`) and `flutter build web` does not run. The hash comes from the commit, so a `--worktree` deploy always builds. `reuse: false` on an app turns this off.
+- **Unchanged test suites are skipped.** Each suite has the same kind of hash (its `dir`, path dependencies, lock, `tests.suites[].inputs`, the command). A passing run writes `<podship_home>/history/<project>/tests/by-hash/<suite>-<hash>.json`; the next deploy whose suite has that hash skips it and reports `tests server: unchanged since <sha>, skipped`. The commit's own test record still says `ok`, with `same_as: <sha>` on the skipped suite, so the production gate works as before. `deploy --full-tests` runs everything; `skip_unchanged: false` on a suite does too.
+- **Suites run at the same time** (`tests.parallel`, default `true`): each one in its own folder. Set `parallel: false` for suites that share a resource.
+- **The upload sends changed content only.** rsync runs with `--checksum`: `git archive` gives every file the commit's time, so a new commit would otherwise re-send everything.
+- **Images build from cache.** The server keeps the BuildKit cache between releases. Order the Dockerfile so dependencies come first (`COPY pubspec.lock` and `pubspec.yaml`, `RUN --mount=type=cache,target=/root/.pub-cache dart pub get`, then the sources, then the compile), and copy `web/`, `config/` and `migrations/` straight from the build context into the final image, so a web-only change does not recompile the server. Pin base images.
+- **Stage timings.** Every history record has `data.steps` (title and duration of each step). `podship history --verbose` prints them; `last_deploy` through a console or MCP returns the newest one.
 
 ## Backups
 
@@ -342,6 +362,34 @@ tests:
 
 Each suite's counts, failures, duration and log go into the operation result, the history, and a per-commit record on the server (`<podship_home>/history/<project>/tests/<sha>.json`). An environment in `gate` takes a commit only if its tests passed in this deploy or in another environment's deploy of the same commit (staging, usually). Otherwise `deploy --skip-tests --reason "…"` asks you to type the environment name, and the skip is recorded. A project without suites has no gate. With `runner: container`, each suite runs in `image:` (default `dart:stable`) on the server, from the uploaded files.
 
+## Notifications
+
+podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a rollback is done, when a backup fails, and when a scheduler job fails. Channels:
+
+| Channel | What it does |
+|---|---|
+| `macos` | A notification on the machine that runs the CLI (`terminal-notifier` when installed, else `osascript display notification`). |
+| `email` | An email through SES, with the environment's `email.from` and `email.region` unless the channel sets its own. Uses the AWS credentials of `podship provider login aws`. |
+| `webhook` | A JSON `POST` with headers `X-Podship-Event`, `X-Podship-Timestamp` and, with a secret, `X-Podship-Signature: sha256=<hex>`: HMAC-SHA256 of `<timestamp>.<raw body>`. |
+| `slack` | A Slack-compatible incoming webhook (`{"text": …}`). |
+
+```yaml
+notify:
+  events: [deploy_done, deploy_failed, rollback_done, backup_failed, scheduler_job_failed]   # the default; add deploy_started
+  bell: true                              # a terminal bell after a long command
+  channels:
+    macos: {}
+    ops-mail: {kind: email, to: [ops@shop.example]}
+    slack: {url_env: SHOP_SLACK_WEBHOOK, events: [deploy_failed, backup_failed]}
+    hook:  {kind: webhook, url: https://ci.shop.example/podship, secret_env: PODSHIP_WEBHOOK_SECRET}
+```
+
+A channel's key is its name; `kind` defaults to the name when it is one of the four. Each channel takes the events of `notify.events` unless it lists its own `events`. `podship.yaml` is committed, so URLs with tokens and the webhook secret do not belong there: put them in `~/.podship/config.yaml` (the same `notify:` block; the project's settings win channel by channel), or name an environment variable with `url_env` / `secret_env` (default `PODSHIP_WEBHOOK_SECRET`). A channel that fails or does not answer in 15 s is a warning; it never fails or slows a deploy. Notifications carry no secret values.
+
+After every command that takes more than 20 s, the CLI rings the terminal bell (unless `bell: false` or `--no-notify`) and prints one line: `deploy staging ok: 20261008-020102-0314c97 in 48.2 s (build 12.1 s, backup 7.3 s, switch 9.2 s)`. `--no-notify` sends nothing; `--notify` sends even when the config says `enabled: false`.
+
+For consoles and MCP: the protocol operation `subscribe_events` (optional `events` and `env` filters) streams every notification of the server as a `notification` event and does not end; `last_deploy` returns the newest deploy record of an environment, with its stage timings. The scheduler reports a failed job with `Notification.schedulerJobFailed(...)` through the same `Notifier`.
+
 ## GitHub
 
 ```yaml
@@ -458,7 +506,8 @@ final backups = await podship.backups('production');         // List<BackupInfo>
 - **Cloudflare and SES**: plans (reads that return a `ChangeSet`) `dnsPlan`, `domainPlan`, `tunnelPlan`, `emailPlan`, `appPlan`, `teardownPlan`; operations `dnsApply`, `domainAdd`/`domainRemove` with `provider` and `planId`, `tunnelRoute`, `tunnelUnroute`, `tunnelCreate`, `emailSetup`, `emailTest`, `appSetup`, `appTeardown`; reads `dnsRecords`, `dnsDrift`, `tunnels`, `emailStatus`. `Podship(config, integrations: Integrations(secrets: …, transport: …))` takes a console's secret store and, in tests, a `FixtureTransport`.
 - **Operations**: `deploy`, `rollback`, `promote`, `restart`, `adopt`, `link`, `destroy`, `unlock`, `scale`, `loadtest`, `backupNow`, `backupDrill`, `backupRestore`, `backupSchedule`, `backupPull`, `envSet`, `envUnset`, `secretSet`, `secretUnset`, `secretCopy`, `secretCopyAll`, `secretInit`, `domainAdd`, `domainRemove`, `bootstrap`, `dbProvision`, `dbWipe`, `dbUser`, `access`, `serverCreate`, `serverDestroy`. An `Operation` starts when you first read `events` or `result`, and `op.request` is its protocol request: you can send it to a console instead of running it.
 - **Events**: `OperationStarted`, `PlanReady`, `StepStarted`, `StepFinished`, `StepFailed`, `LogLine`, `SuiteStarted`, `TestFailed`, `SuiteFinished`, `OperationFinished`. Each has `toJson()`; `eventFromJson` reads them back. Events never carry secret values.
-- **Reads**: `status`, `releases`, `currentRelease`, `overview`, `releasesContaining`, `backups`, `envList`, `envGet`, `secretList`, `projects`, `serverStatus`, `domains`, `migrateStatus`, `history`, `logs` (a stream of lines), `lockHolder`.
+- **Reads**: `status`, `releases`, `currentRelease`, `overview`, `releasesContaining`, `backups`, `envList`, `envGet`, `secretList`, `projects`, `serverStatus`, `domains`, `migrateStatus`, `history`, `lastDeploy`, `logs` (a stream of lines), `lockHolder`.
+- **Notifications**: `Podship(config, notifier: Notifier(config.notify, …))`; `Notifier.stream` is every notification of the process, `OperationWatcher` turns an operation's events into them (see [Notifications](#notifications)).
 - **`--json`**: read commands print JSON documents; commands that change something print one JSON event per line, ending with a `result` event.
 
 ### History
@@ -636,7 +685,7 @@ See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a 
 
 ## Tests
 
-Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`).
+Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`).
 
 The Cloudflare and SES integrations are tested against recorded API responses in `test/api_fixtures/` (`cloudflare_test.dart`, `ses_test.dart`, `zones_test.dart`, `changes_test.dart`, `app_test.dart`): every client call, SigV4 against AWS's published test vectors, plan rendering and plan ids, idempotency, rollback, zone resolution (including the zone of the owner's real account), drift, the approval rules of the protocol, and the CLI wiring. They never reach the network.
 

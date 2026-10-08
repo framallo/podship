@@ -20,6 +20,7 @@ import '../release/release.dart';
 import '../remote/ssh.dart';
 import 'backup_ops.dart';
 import 'context.dart';
+import 'inputs.dart';
 import 'resolve.dart';
 import 'scripts.dart';
 import 'state.dart';
@@ -78,7 +79,9 @@ class DeployOptions {
     this.skipHooks = false,
     this.publicCheck = true,
     this.skipTests = false,
+    this.fullTests = false,
     this.tests,
+    this.inputs,
   });
 
   /// Overrides `build.source`.
@@ -94,8 +97,123 @@ class DeployOptions {
   /// Skip the test stage.
   final bool skipTests;
 
+  /// Run every suite, even one whose inputs passed before.
+  final bool fullTests;
+
   /// Receives the test results while the plan runs.
   final TestRun? tests;
+
+  /// What may be reused or skipped (see [computeDeployInputs]).
+  final DeployInputs? inputs;
+}
+
+/// What a deploy knows about its inputs before it plans: the hash of each
+/// Flutter web app and of each test suite, the earlier release whose build
+/// an app can take, and the suites that passed before with the same hash.
+class DeployInputs {
+  DeployInputs({
+    this.webHashes = const {},
+    this.webReuse = const {},
+    this.suites,
+  });
+
+  /// App name → input hash (apps without a hash are always built).
+  final Map<String, String> webHashes;
+
+  /// App name → the release on the server whose build has the same hash.
+  final Map<String, String> webReuse;
+
+  /// The test suites' hashes and prior passes.
+  final SuitePlan? suites;
+
+  bool reuses(FlutterWebApp app) => webReuse.containsKey(app.name);
+}
+
+/// Computes [DeployInputs] for a deploy of [git] to [env], from the commit
+/// (never from the working tree) and the releases on the server.
+Future<DeployInputs> computeDeployInputs({
+  required Ctx ctx,
+  required EnvConfig env,
+  required GitInfo git,
+  required EnvState state,
+  required SourceMode source,
+  bool fullTests = false,
+  bool skipWeb = false,
+}) async {
+  final config = ctx.config;
+  final root = config.root;
+  if (source != SourceMode.git || git.sha == 'nogit') return DeployInputs();
+  final webHashes = <String, String>{};
+  final webReuse = <String, String>{};
+  if (!skipWeb && config.build.flutterWeb.isNotEmpty) {
+    final flutter = await flutterVersionTag();
+    for (final app in config.build.flutterWeb) {
+      final paths = await packageInputs(
+        root,
+        git.sha,
+        app.path,
+        extra: app.inputs,
+      );
+      final h = await inputsHash(
+        root,
+        git.sha,
+        paths,
+        salt: [
+          'base_href=${app.baseHref}',
+          'args=${app.args.join(' ')}',
+          'output=${app.output}',
+          ?flutter,
+        ],
+      );
+      if (h == null) continue;
+      webHashes[app.name] = h;
+      if (!app.reuse) continue;
+      // The newest healthy release with the same build, current first.
+      final candidates = [
+        ...state.releases.where((r) => r.id == state.current),
+        ...state.releases.reversed.where((r) => r.id != state.current),
+      ];
+      for (final r in candidates) {
+        if (r.status == 'ok' && r.meta?.web[app.name] == h) {
+          webReuse[app.name] = r.id;
+          break;
+        }
+      }
+    }
+  }
+  final suiteHashes = <String, String>{};
+  for (final suite in config.tests.forEnv(env.name)) {
+    final paths = await packageInputs(
+      root,
+      git.sha,
+      suite.dir,
+      extra: suite.inputs,
+    );
+    final h = await inputsHash(
+      root,
+      git.sha,
+      paths,
+      salt: [
+        'command=${suite.command}',
+        'runner=${config.tests.runner.name}',
+        'image=${suite.image ?? ''}',
+      ],
+    );
+    if (h != null) suiteHashes[suite.name] = h;
+  }
+  final skippable = {
+    for (final suite in config.tests.forEnv(env.name))
+      if (suite.skipUnchanged && suiteHashes.containsKey(suite.name))
+        suite.name: suiteHashes[suite.name]!,
+  };
+  final prior = fullTests
+      ? <String, PriorPass>{}
+      : await findPriorPasses(ctx, skippable);
+  return DeployInputs(
+    webHashes: webHashes,
+    webReuse: webReuse,
+    suites: SuitePlan(hashes: suiteHashes, prior: prior),
+  );
 }
 
 /// Test results of one deploy, filled while the plan runs.
@@ -120,6 +238,7 @@ void writeReleaseMeta({
   required GitInfo git,
   String? promotedFrom,
   Map<String, String> pinnedImages = const {},
+  Map<String, String> web = const {},
 }) {
   final env = r.env;
   final l = EnvLayout(env);
@@ -189,7 +308,7 @@ void writeReleaseMeta({
   w('status', 'pending\n');
   w(
     'release.json',
-    '${const JsonEncoder.withIndent('  ').convert(ReleaseMeta(id: id, sha: git.sha, ref: git.ref, dirty: git.dirty, createdAt: DateTime.now().toUtc().toIso8601String(), createdBy: Platform.environment['USER'] ?? '', images: images, promotedFrom: promotedFrom).toJson())}\n',
+    '${const JsonEncoder.withIndent('  ').convert(ReleaseMeta(id: id, sha: git.sha, ref: git.ref, dirty: git.dirty, createdAt: DateTime.now().toUtc().toIso8601String(), createdBy: Platform.environment['USER'] ?? '', images: images, promotedFrom: promotedFrom, web: web).toJson())}\n',
   );
   final sh = File(p.join(dir.path, 'compose.sh'))
     ..writeAsStringSync(
@@ -205,17 +324,38 @@ void writeReleaseMeta({
 }
 
 /// The remote script that turns the upload folder into release [id].
-String makeReleaseScript(ResolvedEnv r, String id, {String? from}) {
+/// [reuse] maps a path inside the release (a Flutter web build) to the
+/// release that already holds it: the files are hard-linked from there.
+String makeReleaseScript(
+  ResolvedEnv r,
+  String id, {
+  String? from,
+  Map<String, String> reuse = const {},
+}) {
   final env = r.env;
   final l = EnvLayout(env);
   final rel = l.release(id);
   final pwLink = env.secrets.passwordsLink!;
+  final reused = StringBuffer();
+  for (final e in reuse.entries) {
+    final src = shq('${l.release(e.value)}/${e.key}');
+    final dst = shq('$rel.podship-tmp/${e.key}');
+    reused.writeln(
+      '[ -d $src ] || { echo "release ${e.value} has no ${e.key} to reuse" >&2; exit 1; }',
+    );
+    reused.writeln(
+      'mkdir -p ${shq(p.posix.dirname('$rel.podship-tmp/${e.key}'))}',
+    );
+    reused.writeln('rm -rf $dst');
+    reused.writeln('_cplink $src $dst');
+    reused.writeln('echo "reused ${e.key} from release ${e.value}"');
+  }
   return '''
 cd ${shq(l.dir)}
 mkdir -p releases
 [ -e ${shq(rel)} ] && { echo "release $id already exists" >&2; exit 1; }
 _cplink ${shq(from ?? l.upload)} ${shq('$rel.podship-tmp')}
-mv ${shq('$rel.podship-tmp')} ${shq(rel)}
+${reused}mv ${shq('$rel.podship-tmp')} ${shq(rel)}
 ln -sfn ${shq(l.envFile)} ${shq('$rel/.env')}
 if [ -f ${shq(l.passwordsFile)} ]; then
   mkdir -p ${shq(p.posix.dirname('$rel/$pwLink'))}
@@ -262,6 +402,12 @@ Plan planDeploy({
   final buildRoot = source == SourceMode.git ? snapshot : root;
   final old = state.current;
   final reg = state.registry..put(r.entry);
+  final inputs = options.inputs ?? DeployInputs();
+  final reuse = {
+    if (!options.skipWeb)
+      for (final app in config.build.flutterWeb)
+        if (inputs.reuses(app)) app.output: inputs.webReuse[app.name]!,
+  };
 
   final steps = <Step>[
     if (source == SourceMode.git)
@@ -286,22 +432,33 @@ Plan planDeploy({
             config.tests.forEnv(env.name),
             buildRoot,
             '$snapshot.tests',
+            parallel: config.tests.parallel,
+            plan: inputs.suites,
           ),
         ),
       ),
     if (!options.skipWeb)
       for (final app in config.build.flutterWeb)
-        LocalStep('Build Flutter web: ${app.name}', [
-          'flutter',
-          'build',
-          'web',
-          '--release',
-          '--base-href',
-          app.baseHref,
-          '--output',
-          p.join(buildRoot, app.output),
-          ...app.args,
-        ], cwd: p.join(buildRoot, app.path)),
+        if (inputs.reuses(app))
+          ActionStep(
+            'Reuse Flutter web: ${app.name}',
+            'same sources as release ${inputs.webReuse[app.name]}: its build is linked on the server',
+            () async => ctx.log.info(
+              'web ${app.name}: unchanged since release ${inputs.webReuse[app.name]}, not built',
+            ),
+          )
+        else
+          LocalStep('Build Flutter web: ${app.name}', [
+            'flutter',
+            'build',
+            'web',
+            '--release',
+            '--base-href',
+            app.baseHref,
+            '--output',
+            p.join(buildRoot, app.output),
+            ...app.args,
+          ], cwd: p.join(buildRoot, app.path)),
     if (!options.skipHooks)
       for (final cmd in config.build.preDeploy)
         LocalStep('Pre-deploy hook', ['bash', '-c', cmd], cwd: buildRoot),
@@ -321,6 +478,7 @@ Plan planDeploy({
           releaseRoot: snapshot,
           id: id,
           git: git.shipping(source),
+          web: options.skipWeb ? const {} : inputs.webHashes,
         );
       },
     ),
@@ -335,7 +493,7 @@ Plan planDeploy({
     RemoteStep(
       'Create release $id',
       env.host,
-      ctx.header(env) + makeReleaseScript(r, id),
+      ctx.header(env) + makeReleaseScript(r, id, reuse: reuse),
     ),
     if (!options.skipTests &&
         config.tests.runner == TestRunner.container &&
@@ -354,6 +512,8 @@ Plan planDeploy({
             config.tests.forEnv(env.name),
             l.release(id),
             '$snapshot.tests',
+            parallel: config.tests.parallel,
+            plan: inputs.suites,
           ),
         ),
       ),

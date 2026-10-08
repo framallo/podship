@@ -34,6 +34,12 @@ class DeployCommand extends PodshipCommand {
         help: 'Skip the test stage (needs --reason; recorded in history).',
       )
       ..addOption('reason', help: 'Why the tests are skipped.')
+      ..addFlag(
+        'full-tests',
+        negatable: false,
+        help:
+            'Run every test suite, even one whose inputs passed before (no skip by hash).',
+      )
       ..addOption(
         'confirm',
         help:
@@ -92,6 +98,7 @@ class DeployCommand extends PodshipCommand {
           skipBackup: a['skip-backup'] == true,
           skipHooks: a['skip-hooks'] == true,
           publicCheck: a['public-check'] == true,
+          fullTests: a['full-tests'] == true,
         ),
       ),
     );
@@ -413,6 +420,16 @@ class HistoryCommand extends PodshipCommand {
           if (!r.ok) '${j['error'] ?? ''}',
         ].join('  '),
       );
+      if (verbose) {
+        final steps = (j['data'] as Map?)?['steps'] as List?;
+        for (final st in steps ?? const []) {
+          if (st is! Map) continue;
+          stdout.writeln(
+            '    ${'${((st['duration_ms'] as num? ?? 0) / 1000).toStringAsFixed(1)} s'.padLeft(8)}'
+            '  ${st['recovery'] == true ? '↺ ' : ''}${st['title']}${st['ok'] == false ? '  FAILED' : ''}',
+          );
+        }
+      }
     }
     return 0;
   }

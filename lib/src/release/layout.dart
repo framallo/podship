@@ -323,6 +323,7 @@ class ReleaseMeta {
     required this.createdBy,
     required this.images,
     this.promotedFrom,
+    this.web = const {},
   });
 
   factory ReleaseMeta.fromJson(Map<String, Object?> j) => ReleaseMeta(
@@ -334,6 +335,10 @@ class ReleaseMeta {
     createdBy: j['created_by'] as String? ?? '',
     images: [for (final i in (j['images'] as List? ?? const [])) '$i'],
     promotedFrom: j['promoted_from'] as String?,
+    web: {
+      for (final e in ((j['web'] as Map?) ?? const {}).entries)
+        '${e.key}': '${e.value}',
+    },
   );
 
   final String id;
@@ -345,6 +350,11 @@ class ReleaseMeta {
   final List<String> images;
   final String? promotedFrom;
 
+  /// The input hash of each Flutter web app build in this release, by app
+  /// name. A later release with the same hash takes the build instead of
+  /// building again.
+  final Map<String, String> web;
+
   Map<String, Object?> toJson() => {
     'id': id,
     'sha': sha,
@@ -354,5 +364,6 @@ class ReleaseMeta {
     'created_by': createdBy,
     'images': images,
     if (promotedFrom != null) 'promoted_from': promotedFrom,
+    if (web.isNotEmpty) 'web': web,
   };
 }

@@ -179,6 +179,8 @@ class SuiteResult {
     this.exitCode,
     this.timedOut = false,
     this.log,
+    this.inputsHash,
+    this.sameAs,
   });
 
   factory SuiteResult.fromJson(Map<String, Object?> j) => SuiteResult(
@@ -192,6 +194,8 @@ class SuiteResult {
     exitCode: (j['exit_code'] as num?)?.toInt(),
     timedOut: j['timed_out'] == true,
     log: j['log'] as String?,
+    inputsHash: j['inputs_hash'] as String?,
+    sameAs: j['same_as'] as String?,
   );
 
   final String suite;
@@ -209,6 +213,16 @@ class SuiteResult {
   /// Where the full output is kept.
   final String? log;
 
+  /// The hash of the suite's inputs (sources, path dependencies, lock).
+  final String? inputsHash;
+
+  /// Set when the suite did not run: its inputs had the hash of a run that
+  /// passed before, on this commit.
+  final String? sameAs;
+
+  /// Whether the suite was skipped as unchanged.
+  bool get unchanged => sameAs != null;
+
   Map<String, Object?> toJson() => {
     'suite': suite,
     'ok': ok,
@@ -220,6 +234,8 @@ class SuiteResult {
     'exit_code': ?exitCode,
     if (timedOut) 'timed_out': true,
     'log': ?log,
+    'inputs_hash': ?inputsHash,
+    'same_as': ?sameAs,
   };
 }
 

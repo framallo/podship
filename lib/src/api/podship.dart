@@ -50,13 +50,15 @@ import 'history.dart';
 import 'lock.dart';
 import 'render.dart';
 import 'models.dart';
+import '../notify/notify.dart';
 import '../protocol/protocol.dart' show OperationRequest;
 
-export '../ops/deploy.dart' show DeployOptions;
+export '../ops/deploy.dart' show DeployOptions, DeployInputs;
 export '../ops/state.dart' show ReleaseInfo;
+export '../notify/notify.dart';
 
 /// The package version, written into history records.
-const podshipVersion = '0.2.0';
+const podshipVersion = '0.3.0';
 
 /// A running operation: its events, and its result when it ends.
 class Operation {
@@ -101,12 +103,25 @@ class Podship {
     String? actor,
     Integrations? integrations,
     Ssh? ssh,
+    Notifier? notifier,
   }) : actor = actor ?? defaultActor(),
        _integrations = integrations,
-       _sshOverride = ssh;
+       _sshOverride = ssh,
+       _notifier = notifier;
 
   final Integrations? _integrations;
   final Ssh? _sshOverride;
+  final Notifier? _notifier;
+
+  /// Sends the notifications of `notify:`. Default: the project's config,
+  /// with SES through [integrations].
+  Notifier get notifier =>
+      _notifier ??
+      (_defaultNotifier ??= Notifier(
+        config.notify,
+        ses: integrations.hasAws ? integrations.ses : null,
+      ));
+  Notifier? _defaultNotifier;
 
   /// Cloudflare, SES and DoH: credentials from the secret store (a console
   /// passes its own).
@@ -124,6 +139,7 @@ class Podship {
     actor: actor ?? this.actor,
     integrations: _integrations,
     ssh: _sshOverride,
+    notifier: _notifier,
   );
 
   final PodshipConfig config;
@@ -187,13 +203,18 @@ class Podship {
   }) {
     final events = StreamController<PodshipEvent>();
     final transcript = StringBuffer();
-    void emit(PodshipEvent e) {
-      transcript.writeln(renderEventText(e, verbose: true) ?? '');
-      events.add(e);
+    final watcher = OperationWatcher();
+    final e = envName == null ? null : config.env(envName);
+    final sent = <Future<void>>[];
+    void emit(PodshipEvent e0) {
+      transcript.writeln(renderEventText(e0, verbose: true) ?? '');
+      events.add(e0);
+      for (final n in watcher.onEvent(e0)) {
+        sent.add(notifier.send(n, env: e));
+      }
     }
 
     final log = Log(emit, verbose: verbose);
-    final e = envName == null ? null : config.env(envName);
     final rec = OpRecord();
     Future<OperationResult> run() async {
       final watch = Stopwatch()..start();
@@ -232,6 +253,7 @@ class Podship {
           log.warn('could not release the lock: $x');
         }
       }
+      if (watcher.stages.isNotEmpty) rec.data['steps'] = watcher.stagesJson;
       var result = OperationResult(
         operation: name,
         ok: error == null,
@@ -260,7 +282,15 @@ class Podship {
           log.warn('could not write the history record: $x');
         }
       }
-      emit(OperationFinished(result));
+      // The final notifications are sent (with their timeouts) before the
+      // operation ends, so a CLI process does not exit with them pending.
+      final finished = OperationFinished(result);
+      transcript.writeln(renderEventText(finished, verbose: true) ?? '');
+      events.add(finished);
+      for (final n in watcher.onEvent(finished)) {
+        sent.add(notifier.send(n, env: e, log: log));
+      }
+      await Future.wait(sent);
       await events.close();
       return result;
     }
@@ -341,6 +371,23 @@ class Podship {
       final run = TestRun();
       final (:state, :r) = await _load(ctx, e);
       rec.previousRelease = state.current;
+      final inputs = await computeDeployInputs(
+        ctx: ctx,
+        env: e,
+        git: git,
+        state: state,
+        source: source,
+        fullTests: options.fullTests,
+        skipWeb: options.skipWeb,
+      );
+      if (inputs.webReuse.isNotEmpty) {
+        rec.data['web_reused'] = inputs.webReuse;
+      }
+      if (inputs.suites?.prior.isNotEmpty ?? false) {
+        rec.data['tests_unchanged'] = {
+          for (final x in inputs.suites!.prior.entries) x.key: x.value.sha,
+        };
+      }
       final snap = await createExportDir('podship-release-');
       try {
         final plan = planDeploy(
@@ -357,7 +404,9 @@ class Podship {
             skipHooks: options.skipHooks,
             publicCheck: options.publicCheck,
             skipTests: skip || options.skipTests,
+            fullTests: options.fullTests,
             tests: run,
+            inputs: inputs,
           ),
         );
         final id = plan.title.split(' as ').last;
@@ -2122,6 +2171,13 @@ du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
 
   Future<String?> currentRelease(String envName) async =>
       (await fetchState(_readCtx, config.env(envName))).current;
+
+  /// The newest deploy record of [envName]: release, outcome, duration and
+  /// the stage timings (`data.steps`). Null when nothing was deployed.
+  Future<HistoryRecord?> lastDeploy(String envName) async {
+    final list = await history(envName, limit: 50);
+    return list.reversed.where((h) => h.operation == 'deploy').firstOrNull;
+  }
 
   Future<List<BackupInfo>> backups(String envName) async {
     final ctx = _readCtx;
