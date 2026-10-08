@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -5,7 +8,6 @@ import 'package:podship/src/config/config.dart';
 import 'package:podship/src/ops/resolve.dart';
 import 'package:podship/src/ops/scripts.dart';
 import 'package:podship/src/release/layout.dart';
-import 'package:podship/src/remote/assets.g.dart';
 import 'package:podship/src/remote/ssh.dart';
 import 'package:podship/src/server/registry.dart';
 import 'package:test/test.dart';
@@ -15,72 +17,6 @@ import 'fixtures.dart';
 void main() {
   final config = PodshipConfig.parse(sampleConfig);
   final prod = resolveEnv(config, config.env('production'), Registry());
-
-  test('the embedded scripts match lib/src/remote/assets', () {
-    for (final f in Directory(
-      'lib/src/remote/assets',
-    ).listSync().whereType<File>()) {
-      expect(
-        remoteAssets[p.basename(f.path)],
-        f.readAsStringSync(),
-        reason: 'run dart run tool/embed_assets.dart',
-      );
-    }
-  });
-
-  test(
-    'every server script parses with macOS bash 3.2 and with bash',
-    () async {
-      for (final e in remoteAssets.entries) {
-        final r = await Process.run('/bin/bash', ['-n', '-c', e.value]);
-        expect(r.exitCode, 0, reason: '${e.key}: ${r.stderr}');
-      }
-    },
-  );
-
-  test(
-    'backup retention keeps today, yesterday, days, weeks and months',
-    () async {
-      final dir = Directory.systemTemp.createTempSync('podship-ret-');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      for (final s in [
-        '2026-10-06T0930',
-        '2026-10-05T0930',
-        '2026-10-05T1200',
-        '2026-09-28T0930',
-        '2026-09-01T0930',
-        '2026-08-01T0930',
-        '2026-03-01T0930',
-        '2025-01-01T0930',
-      ]) {
-        Directory(p.join(dir.path, 'daily', s)).createSync(recursive: true);
-      }
-      File(p.join(dir.path, 'conf')).writeAsStringSync(
-        'PROJECT=x\nDEST=${dir.path}\nDB_NAME=x\nKEEP_DAYS=2\nKEEP_WEEKS=2\nKEEP_MONTHS=3\n',
-      );
-      final script = File(p.join(dir.path, 'backup.sh'))
-        ..writeAsStringSync(remoteAssets['backup.sh']!);
-      final r = await Process.run(
-        '/bin/bash',
-        [script.path, p.join(dir.path, 'conf'), '--test-retention', dir.path],
-        environment: {'TODAY': '2026-10-06'},
-      );
-      expect(r.exitCode, 0, reason: '${r.stderr}');
-      final lines = (r.stdout as String).trim().split('\n');
-      expect(
-        lines,
-        containsAll([
-          'keep 2026-10-06T0930',
-          'keep 2026-10-05T0930',
-          'keep 2026-10-05T1200',
-          'keep 2026-09-28T0930',
-          'keep 2026-08-01T0930',
-          'delete 2026-03-01T0930',
-          'delete 2025-01-01T0930',
-        ]),
-      );
-    },
-  );
 
   test('the backup settings file has the layout and no secret values', () {
     final conf = backupConf(config, prod);
@@ -99,14 +35,20 @@ void main() {
     );
   });
 
-  test('backup now falls back to the script when no systemd unit exists', () {
-    final script = backupNow(prod.env);
-    expect(script, contains('systemctl cat demo-backup.service'));
-    expect(
-      script,
-      contains('/srv/podship/lib/backup.sh /srv/podship/etc/demo-backup.conf'),
-    );
-  });
+  test(
+    'backup now falls back to the podship agent when no systemd unit exists',
+    () {
+      final script = backupNow(prod.env);
+      expect(script, contains('systemctl cat demo-backup.service'));
+      expect(
+        script,
+        contains(
+          '/srv/podship/bin/podship agent backup --conf /srv/podship/etc/demo-backup.conf',
+        ),
+      );
+      expect(script, isNot(contains('backup.sh')));
+    },
+  );
 
   test('writeFile survives content that contains the heredoc tag', () async {
     final dir = Directory.systemTemp.createTempSync('podship-wf-');

@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'dart:io';
 
 import 'package:podship/src/config/config.dart';
@@ -8,7 +11,6 @@ import 'package:podship/src/ops/release_ops.dart';
 import 'package:podship/src/ops/resolve.dart';
 import 'package:podship/src/ops/state.dart';
 import 'package:podship/src/plan/plan.dart';
-import 'package:podship/src/remote/assets.g.dart';
 import 'package:podship/src/remote/ssh.dart';
 import 'package:podship/src/scheduler/agent.dart';
 import 'package:podship/src/util/log.dart';
@@ -130,16 +132,6 @@ void main() {
     );
   });
 
-  test('backups take an absolute host folder as a volume', () {
-    final backup = remoteAssets['backup.sh']!;
-    expect(backup, contains(r'if [[ "$vol" == /* ]]; then'));
-    expect(backup, contains(r'[[ -d "$vol" ]] || fail "no folder $vol"'));
-    expect(
-      remoteAssets['restore.sh'],
-      contains(r'if [[ "$vol" == /* ]]; then mkdir -p "$vol";'),
-    );
-  });
-
   test(
     'backup schedule writes the registry only: no launchctl, no systemctl',
     () {
@@ -172,7 +164,7 @@ void main() {
       expect(reg.jobs.keys, ['backup:demo/production']);
       final job = reg.jobs['backup:demo/production']!;
       expect(job.conf, '/srv/podship/etc/demo-backup.conf');
-      expect(job.script, '/srv/podship/lib/backup.sh');
+      expect(job.script, isNull);
       final write = p.steps.whereType<RemoteStep>().last.script;
       expect(write, contains('"backup:demo/production":'));
       expect(write, contains('/srv/podship/registry.yaml'));

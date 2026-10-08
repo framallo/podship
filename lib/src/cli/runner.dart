@@ -3,6 +3,7 @@
 import 'package:args/command_runner.dart';
 
 import '../api/podship.dart' show podshipVersion;
+import 'agent_commands.dart';
 import 'backup_commands.dart';
 import 'base.dart';
 import 'console_commands.dart';
@@ -164,6 +165,7 @@ class PodshipRunner extends CommandRunner<int> {
         ],
       ),
       schedulerGroup(),
+      agentGroup(),
       GroupCommand('db', 'The environment database.', [
         DbConnectCommand(),
         DbProvisionCommand(),

@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'package:podship/src/edit/dotenv.dart';
 import 'package:podship/src/edit/passwords.dart';
 import 'package:test/test.dart';

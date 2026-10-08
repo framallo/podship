@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'dart:io';
 
 import 'package:podship/src/config/config.dart';
@@ -99,6 +102,7 @@ void main() {
         'Upload files',
         'Create release 20261006-160000-a0dc2b0',
         'Build images on the server',
+        'Put podship at /srv/podship/bin/podship on prod-box',
         'Back up the database before the switch',
         'Switch to 20261006-160000-a0dc2b0',
         'Health check',
@@ -211,7 +215,9 @@ void main() {
       );
       expect(
         restore.script,
-        contains('restore --confirmed demo 2026-10-06T0330'),
+        contains(
+          '/srv/podship/bin/podship agent restore --conf /srv/podship/etc/demo-backup.conf --confirmed demo 2026-10-06T0330',
+        ),
       );
       expect(p.guardFrom, 2);
     });

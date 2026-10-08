@@ -8,6 +8,7 @@ import 'dart:isolate';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
+import '../cli/self_commands.dart' show sourceDirOfThisProcess;
 import '../config/config.dart';
 import '../plan/plan.dart';
 import '../remote/ssh.dart';
@@ -73,7 +74,6 @@ ScheduledJob backupJob(Ctx ctx, ResolvedEnv r) {
     kind: JobKind.backup,
     project: ctx.config.project,
     env: env.name,
-    script: '${env.libDir}/backup.sh',
     conf: backupConfPath(env),
     log: '${env.podshipHome}/log/${b.unit}.log',
     path: agentPath(env.remotePath),
@@ -148,96 +148,127 @@ Future<SchedulerStatus> schedulerStatus(Ctx ctx, SchedulerTarget t) async =>
       home: t.home,
     );
 
-/// The podship binary to put on a machine: `--binary`, this executable
-/// when it is a compiled podship, else a `dart compile exe` of the package.
-/// A compile of a clean git checkout is cached by commit under
-/// `~/.cache/podship/bin`, so two installs from the same source upload the
-/// same bytes and the second one is a no-op. Returns the local path.
-Future<String> localBinary(Ctx ctx, {String? binary}) async {
+/// The Dart target (`x64`, `arm64`) of a Linux `uname -sm`, or null.
+String? linuxTarget(String unameSm) {
+  final parts = unameSm.trim().split(RegExp(r'\s+'));
+  if (parts.length != 2 || parts[0] != 'Linux') return null;
+  return switch (parts[1]) {
+    'x86_64' || 'amd64' => 'x64',
+    'aarch64' || 'arm64' => 'arm64',
+    _ => null,
+  };
+}
+
+/// The podship sources of this process (for a compile), or null.
+Future<String?> podshipSourceDir() async {
+  final lib = await Isolate.resolvePackageUri(
+    Uri.parse('package:podship/podship.dart'),
+  );
+  if (lib != null && lib.scheme == 'file') {
+    return p.dirname(p.dirname(lib.toFilePath()));
+  }
+  return sourceDirOfThisProcess();
+}
+
+/// A hash of the sources that make the binary: `bin/`, `lib/` and
+/// `pubspec.lock`. Two compiles of the same sources give the same key.
+String sourceHash(String root) {
+  final files = <String>[
+    for (final d in ['bin', 'lib'])
+      if (Directory(p.join(root, d)).existsSync())
+        for (final e in Directory(
+          p.join(root, d),
+        ).listSync(recursive: true, followLinks: false))
+          if (e is File && e.path.endsWith('.dart')) e.path,
+    if (File(p.join(root, 'pubspec.lock')).existsSync())
+      p.join(root, 'pubspec.lock'),
+  ]..sort();
+  final list = StringBuffer();
+  for (final f in files) {
+    list.writeln(
+      '${sha256.convert(File(f).readAsBytesSync())} ${p.relative(f, from: root)}',
+    );
+  }
+  return sha256
+      .convert(utf8.encode(list.toString()))
+      .toString()
+      .substring(0, 16);
+}
+
+/// The podship binary to put on a machine that runs [targetUname]
+/// (`uname -sm`): `--binary`, this executable when it is a compiled
+/// podship for the same OS and CPU, else a `dart compile exe` of the
+/// sources (cross-compiled for a Linux server). Compiles are cached by a
+/// hash of the sources under `~/.cache/podship/bin`, so two installs from
+/// the same sources upload the same bytes and the second one is a no-op.
+Future<String> localBinary(
+  Ctx ctx, {
+  String? binary,
+  String? targetUname,
+}) async {
   if (binary != null) {
     if (!File(binary).existsSync()) throw Aborted('$binary does not exist');
     return binary;
   }
+  final here = (await Process.run('uname', ['-sm'])).stdout.toString().trim();
+  final same = targetUname == null || targetUname.trim() == here;
+  final cross = same ? null : linuxTarget(targetUname);
+  if (!same && cross == null) {
+    throw Aborted(
+      'the server is $targetUname and this machine is $here: compile podship '
+      'for that OS and CPU (dart compile exe on such a machine) and pass '
+      '--binary <file>',
+    );
+  }
   final (exe, pre) = podshipCommand();
-  if (pre.isEmpty) return exe;
-  final lib = await Isolate.resolvePackageUri(
-    Uri.parse('package:podship/podship.dart'),
-  );
-  if (lib == null) {
+  if (same && pre.isEmpty) return exe;
+  final root = await podshipSourceDir();
+  if (root == null) {
     throw Aborted(
       'cannot find the podship sources to compile the agent binary; '
       'pass --binary <a compiled podship>',
     );
   }
-  final root = p.dirname(p.dirname(lib.toFilePath()));
-  final rev = await _cleanRevision(root);
-  final out = rev == null
-      ? p.join(
-          Directory.systemTemp.createTempSync('podship-bin-').path,
-          'podship',
-        )
-      : p.join(
-          Platform.environment['HOME'] ?? Directory.systemTemp.path,
-          '.cache',
-          'podship',
-          'bin',
-          'podship-$rev',
-        );
-  if (rev != null && File(out).existsSync()) return out;
-  ctx.log.info('compiling podship for the scheduler agent');
+  final out = p.join(
+    Platform.environment['HOME'] ?? Directory.systemTemp.path,
+    '.cache',
+    'podship',
+    'bin',
+    'podship-${sourceHash(root)}${cross == null ? '' : '-linux-$cross'}',
+  );
+  if (File(out).existsSync()) return out;
+  ctx.log.info(
+    'compiling podship for the server${cross == null ? '' : ' (linux-$cross)'}',
+  );
   Directory(p.dirname(out)).createSync(recursive: true);
   final r = await Process.run('dart', [
     'compile',
     'exe',
+    if (cross != null) ...['--target-os', 'linux', '--target-arch', cross],
     p.join(root, 'bin', 'podship.dart'),
     '-o',
-    out,
-  ]);
+    '$out.tmp',
+  ], workingDirectory: root);
   if (r.exitCode != 0) throw Aborted('dart compile exe failed: ${r.stderr}');
+  File('$out.tmp').renameSync(out);
   return out;
-}
-
-/// The commit of [root] when it is a git checkout with no local changes.
-Future<String?> _cleanRevision(String root) async {
-  try {
-    final st = await Process.run('git', ['-C', root, 'status', '--porcelain']);
-    if (st.exitCode != 0 || '${st.stdout}'.trim().isNotEmpty) return null;
-    final rev = await Process.run('git', [
-      '-C',
-      root,
-      'rev-parse',
-      '--short=12',
-      'HEAD',
-    ]);
-    final sha = '${rev.stdout}'.trim();
-    return rev.exitCode == 0 && sha.isNotEmpty ? sha : null;
-  } catch (_) {
-    return null;
-  }
 }
 
 String _sha256File(String path) =>
     sha256.convert(File(path).readAsBytesSync()).toString();
 
+/// `uname -sm` of [t].
+Future<String> remoteUname(Ctx ctx, SchedulerTarget t) async =>
+    (await t.query(ctx, 'uname -sm\n')).trim();
+
 /// Puts [local] at `<home>/bin/podship` on [t] when it differs. Returns
 /// what happened, for the log.
 Future<String> installBinary(Ctx ctx, SchedulerTarget t, String local) async {
   final bin = schedulerBin(t.home);
-  final arch = (await Process.run('uname', ['-sm'])).stdout.toString().trim();
-  final remote = await t.query(ctx, '''
-uname -sm
-[ -x ${shq(bin)} ] && _sha256 ${shq(bin)} | cut -d" " -f1 || echo none
-''');
-  final lines = const LineSplitter().convert(remote.trim());
-  final remoteArch = lines.first.trim();
-  final remoteSha = lines.length > 1 ? lines[1].trim() : 'none';
-  if (remoteArch != arch) {
-    throw Aborted(
-      '${t.label} is $remoteArch and this machine is $arch: compile podship '
-      'for that OS and CPU (dart compile exe on such a machine) and pass '
-      '--binary <file>',
-    );
-  }
+  final remoteSha = (await t.query(
+    ctx,
+    '[ -x ${shq(bin)} ] && _sha256 ${shq(bin)} | cut -d" " -f1 || echo none\n',
+  )).trim();
   if (remoteSha == _sha256File(local)) return 'unchanged';
   if (ctx.dryRun) return 'would upload';
   await t.query(ctx, 'mkdir -p ${shq(p.posix.dirname(bin))}\n');
@@ -255,6 +286,33 @@ ${shq(bin)} --version
 ''');
   return 'installed ${v.trim()}';
 }
+
+/// Makes sure the server of [env] has this podship at `<home>/bin/podship`:
+/// the backup, drill and restore steps run there as `podship agent …`.
+/// Removes the bash scripts older podships put in `<home>/lib`.
+Future<void> ensureAgent(Ctx ctx, EnvConfig env, {String? binary}) async {
+  final t = SchedulerTarget.ofEnv(env);
+  final local = await localBinary(
+    ctx,
+    binary: binary,
+    targetUname: await remoteUname(ctx, t),
+  );
+  final what = await installBinary(ctx, t, local);
+  if (what != 'unchanged') ctx.log.info('podship on ${t.label}: $what');
+  if (!ctx.dryRun) {
+    await t.query(
+      ctx,
+      'rm -f ${shq('${env.libDir}/backup.sh')} ${shq('${env.libDir}/restore.sh')}\n',
+    );
+  }
+}
+
+/// The plan step that runs [ensureAgent].
+Step agentStep(Ctx ctx, EnvConfig env) => ActionStep(
+  'Put podship at ${schedulerBin(env.podshipHome)} on ${env.host}',
+  'upload when its checksum differs',
+  () => ensureAgent(ctx, env),
+);
 
 /// The imported units of a machine and the jobs the registry gets.
 class SchedulerInstallPlan {
@@ -281,7 +339,11 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
   List<String> replaces = const [],
 }) async {
   final macos = await isMacos(ctx, t);
-  final local = await localBinary(ctx, binary: binary);
+  final local = await localBinary(
+    ctx,
+    binary: binary,
+    targetUname: await remoteUname(ctx, t),
+  );
   final registryText = await readRegistryText(ctx, t);
   final registry = Registry.parse(registryText);
   final legacy = parseLegacyUnits(

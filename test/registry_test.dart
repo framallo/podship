@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'package:podship/src/server/registry.dart';
 import 'package:test/test.dart';
 

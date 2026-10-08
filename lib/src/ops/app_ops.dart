@@ -169,9 +169,7 @@ class EnvPlanning {
               RemoteStep(
                 'Write the registry',
                 env.host,
-                ctx.header(env) +
-                    installAssets(env) +
-                    writeRegistry(env, before, next),
+                ctx.header(env) + writeRegistry(env, before, next),
               ),
             ]),
           );

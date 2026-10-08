@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'package:podship/src/ops/domain_ops.dart';
 import 'package:podship/src/ops/resolve.dart';
 import 'package:test/test.dart';

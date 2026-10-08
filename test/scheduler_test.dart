@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -16,6 +19,9 @@ ScheduledJob backup(String project, String env, {String? conf}) => ScheduledJob(
   log: '/srv/podship/log/$project-backup.log',
   path: '/usr/bin:/bin',
 );
+
+/// Runs the fake bash script of a test job instead of `podship agent backup`.
+List<String> fakeBackup(ScheduledJob j) => ['/bin/bash', j.script!, j.conf!];
 
 ScheduledJob pull(String project, String env) => ScheduledJob(
   kind: JobKind.pull,
@@ -193,7 +199,7 @@ void main() {
     setUp(() {
       home = Directory.systemTemp.createTempSync('podship-sched-');
       marks = File(p.join(home.path, 'marks'));
-      final script = File(p.join(home.path, 'lib', 'backup.sh'))
+      final script = File(p.join(home.path, 'lib', 'fake-backup'))
         ..createSync(recursive: true)
         ..writeAsStringSync(
           '#!/bin/bash\necho "[backup] stamp 2026-10-08T0300"\necho "\$1" >> ${marks.path}\n[ "\${FAIL:-}" = 1 ] && exit 3\nexit 0\n',
@@ -230,7 +236,11 @@ void main() {
       'the first tick seeds and runs nothing; the next night runs each job once; a job already running is skipped',
       () async {
         var now = DateTime(2026, 10, 8, 15, 0);
-        final s = JobRunner(home.path, clock: () => now);
+        final s = JobRunner(
+          home.path,
+          clock: () => now,
+          backupCommand: fakeBackup,
+        );
         expect(await s.tick(), isEmpty);
         expect(marked(), isEmpty);
         var st = SchedulerState.load(home.path);
@@ -309,7 +319,11 @@ void main() {
 
     test('a failing job does not stop the others and is recorded', () async {
       var now = DateTime(2026, 10, 8, 3, 0);
-      final s = JobRunner(home.path, clock: () => now);
+      final s = JobRunner(
+        home.path,
+        clock: () => now,
+        backupCommand: fakeBackup,
+      );
       await s.tick(); // seeds
       now = DateTime(2026, 10, 9, 3, 0);
       // The first job fails (its conf makes the fake script exit 3).
@@ -338,7 +352,11 @@ void main() {
     });
 
     test('seed marks only jobs without state', () {
-      final s = JobRunner(home.path, clock: () => DateTime(2026, 10, 8, 12));
+      final s = JobRunner(
+        home.path,
+        clock: () => DateTime(2026, 10, 8, 12),
+        backupCommand: fakeBackup,
+      );
       SchedulerState(
         jobs: {'backup:a/production': JobState(lastRunDate: '2026-10-01')},
       ).save(home.path);

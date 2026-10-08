@@ -49,7 +49,7 @@ BackupConfig _need(EnvConfig env) =>
     env.backup ??
     (throw ConfigException('environments.${env.name}.backup is not set'));
 
-/// Installs scripts, settings and recipients; shared by every backup step.
+/// Installs settings and recipients; shared by every backup step.
 String backupSetup(PodshipConfig config, ResolvedEnv r) {
   final b = _need(r.env);
   return backupConfInstall(config, r) +
@@ -59,6 +59,7 @@ String backupSetup(PodshipConfig config, ResolvedEnv r) {
 }
 
 Plan planBackupNow(Ctx ctx, ResolvedEnv r) => Plan('backup ${r.env.name} now', [
+  agentStep(ctx, r.env),
   RemoteStep(
     'Back up ${r.env.database.name}',
     r.env.host,
@@ -69,11 +70,12 @@ Plan planBackupNow(Ctx ctx, ResolvedEnv r) => Plan('backup ${r.env.name} now', [
 Plan planDrill(Ctx ctx, ResolvedEnv r, String? stamp) => Plan(
   'restore drill for ${r.env.name}${stamp == null ? ' (newest backup)' : ' ($stamp)'}',
   [
+    agentStep(ctx, r.env),
     RemoteStep(
       'Restore into a throwaway container and compare row counts',
       r.env.host,
       '${ctx.header(r.env)}${backupSetup(ctx.config, r)}'
-          '${shq('${r.env.libDir}/restore.sh')} ${shq(backupConfPath(r.env))} drill ${stamp == null ? '' : shq(stamp)}\n',
+          '${agentCommand(r.env, 'drill', [?stamp])}',
     ),
   ],
 );
@@ -104,12 +106,12 @@ Plan planRestore(
           'set -o pipefail; ssh ${from.host} ${shq('tar -C ${shq(src)} -cf - .')} | '
               'ssh ${env.host} ${shq('rm -rf ${shq(dst)} && mkdir -p ${shq(dst)} && chmod 700 ${shq(dst)} && tar -x -C ${shq(dst)}')}',
         ]),
+        agentStep(ctx, env),
         RemoteStep(
           'Back up, stop, rename the database, restore${volumes ? ' (with volumes)' : ''}, start',
           env.host,
           '${ctx.header(env)}${backupSetup(ctx.config, r)}'
-              '${shq('${env.libDir}/restore.sh')} ${shq(backupConfPath(env))} restore '
-              '--confirmed ${shq(ctx.config.project)} --dir ${shq(dst)}${volumes ? ' --volumes' : ''}\n',
+              '${agentCommand(env, 'restore', ['--confirmed', ctx.config.project, '--dir', dst, if (volumes) '--volumes'])}',
         ),
       ],
     );
@@ -131,18 +133,18 @@ Plan planRestore(
             if (res.exitCode != 0) throw Aborted('scp failed: ${res.stderr}');
           },
         ),
+      agentStep(ctx, env),
       RemoteStep(
         'Back up, stop, rename the database, restore, start',
         env.host,
         '${ctx.header(env)}${backupSetup(ctx.config, r)}'
-            '${shq('${env.libDir}/restore.sh')} ${shq(backupConfPath(env))} restore '
-            '--confirmed ${shq(ctx.config.project)} '
-            '${dumpFile != null
-                ? '--dump ${shq('${env.podshipHome}/upload.dump')}'
-                : stamp == null
-                ? ''
-                : shq(stamp)}'
-            '${volumes && dumpFile == null ? ' --volumes' : ''}\n',
+            '${agentCommand(env, 'restore', [
+              '--confirmed',
+              ctx.config.project,
+              if (dumpFile != null) ...['--dump', '${env.podshipHome}/upload.dump'],
+              if (dumpFile == null && stamp != null) stamp,
+              if (volumes && dumpFile == null) '--volumes',
+            ])}',
       ),
     ],
   );
@@ -175,8 +177,9 @@ Plan planSchedule(
   return Plan(
     'backup schedule for ${env.name} (nightly scheduler run at ${registry.scheduler.at})',
     [
+      agentStep(ctx, env),
       RemoteStep(
-        'Install scripts, settings and recipients',
+        'Install settings and recipients',
         env.host,
         ctx.header(env) + backupSetup(ctx.config, r),
       ),

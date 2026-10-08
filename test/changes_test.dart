@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'package:podship/src/integrations/changes.dart';
 import 'package:podship/src/util/log.dart';
 import 'package:test/test.dart';

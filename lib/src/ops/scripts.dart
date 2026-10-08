@@ -10,8 +10,8 @@ import 'package:path/path.dart' as p;
 
 import '../config/config.dart';
 import '../release/layout.dart';
-import '../remote/assets.g.dart';
 import '../remote/ssh.dart';
+import '../scheduler/agent.dart' show schedulerBin;
 import 'resolve.dart';
 
 /// Helper functions every remote script starts with.
@@ -38,11 +38,15 @@ mv -f ${shq('$path.podship-tmp')} ${shq(path)}
 ''';
 }
 
-/// Installs the backup and restore scripts into the podship home.
-String installAssets(EnvConfig env) => [
-  for (final e in remoteAssets.entries)
-    writeFile('${env.libDir}/${e.key}', e.value, mode: '755'),
-].join();
+/// A command of the podship binary on the server of [env]:
+/// `<home>/bin/podship agent <sub> --conf <conf> <args>`.
+String agentCommand(
+  EnvConfig env,
+  String sub, [
+  List<String> args = const [],
+]) =>
+    '${shq(schedulerBin(env.podshipHome))} agent $sub --conf ${shq(backupConfPath(env))}'
+    '${args.map((a) => ' ${shq(a)}').join()}\n';
 
 /// Replaces the registry, but only if nobody changed it since podship read
 /// [previous].
@@ -144,7 +148,7 @@ String backupConf(PodshipConfig config, ResolvedEnv r, {bool encrypt = true}) {
   };
   final s = StringBuffer()
     ..writeln('# Written by podship for ${config.project}/${env.name}.')
-    ..writeln('# Read by ${env.libDir}/backup.sh and restore.sh. No secrets.');
+    ..writeln('# Read by podship agent backup, drill and restore. No secrets.');
   values.forEach((k, v) => s.writeln('$k=${shq(v)}'));
   return s.toString();
 }
@@ -153,8 +157,8 @@ String backupConf(PodshipConfig config, ResolvedEnv r, {bool encrypt = true}) {
 String backupConfPath(EnvConfig env) =>
     '${env.etcDir}/${env.backup!.unit}.conf';
 
-/// Takes a backup now: through the systemd unit when it exists, so a
-/// scheduled and a manual backup run the same way; else the script itself.
+/// Takes a backup now: through the systemd unit when it exists (servers
+/// set up before the scheduler), else with the podship binary.
 String backupNow(EnvConfig env) {
   final b = env.backup!;
   return '''
@@ -162,7 +166,7 @@ if command -v systemctl >/dev/null 2>&1 && systemctl cat ${shq('${b.unit}.servic
   systemctl start ${shq('${b.unit}.service')} || { journalctl -u ${shq(b.unit)} -n 40 --no-pager -o cat; exit 1; }
   journalctl -u ${shq(b.unit)} -n 12 --no-pager -o cat
 else
-  ${shq('${env.libDir}/backup.sh')} ${shq(backupConfPath(env))}
+  ${agentCommand(env, 'backup').trim()}
 fi
 ''';
 }

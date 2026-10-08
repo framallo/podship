@@ -4,6 +4,8 @@
 // tunnel 24fb406b…, www is a CNAME to the apex; densitylabs.io has boceto,
 // boceto-mockups, bocetos (a Single Redirect to boceto) and
 // presente-staging on the same tunnel.
+@Tags(['unit'])
+library;
 
 import 'package:podship/src/api/tunnel.dart';
 import 'package:podship/src/config/config.dart';

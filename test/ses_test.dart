@@ -1,3 +1,6 @@
+@Tags(['unit'])
+library;
+
 import 'package:podship/src/config/config.dart';
 import 'package:podship/src/integrations/changes.dart';
 import 'package:podship/src/integrations/cloudflare.dart';

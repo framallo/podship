@@ -129,7 +129,7 @@ class SchedulerSettings {
 
 /// What the scheduler runs.
 enum JobKind {
-  /// `backup.sh <conf>` on the server that holds the data.
+  /// `podship agent backup --conf <conf>` on the server that holds the data.
   backup,
 
   /// `podship backup pull` on the machine that keeps the off-site copies.
@@ -170,7 +170,8 @@ class ScheduledJob {
   final String env;
   final bool enabled;
 
-  /// Backup: the script, its settings file and its log file.
+  /// Backup: its settings file and its log file. [script] is the bash
+  /// script of older podships; registries keep it, the scheduler ignores it.
   final String? script;
   final String? conf;
   final String? log;

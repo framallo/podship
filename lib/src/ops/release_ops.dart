@@ -14,6 +14,7 @@ import 'backup_ops.dart';
 import 'context.dart';
 import 'deploy.dart';
 import 'resolve.dart';
+import 'scheduler_ops.dart' show agentStep;
 import 'scripts.dart';
 import 'state.dart';
 
@@ -101,17 +102,12 @@ Plan planRollback({
   );
   final steps = <Step>[
     if (withDb != null) ...[
-      RemoteStep(
-        'Install backup scripts',
-        env.host,
-        ctx.header(env) + backupSetup(ctx.config, r),
-      ),
+      agentStep(ctx, env),
       RemoteStep(
         'Restore database backup $withDb',
         env.host,
-        '${ctx.header(env)}${shq('${env.libDir}/restore.sh')} '
-            '${shq(backupConfPath(env))} restore '
-            '--confirmed ${shq(ctx.config.project)} ${shq(withDb)}\n',
+        '${ctx.header(env)}${backupSetup(ctx.config, r)}'
+            '${agentCommand(env, 'restore', ['--confirmed', ctx.config.project, withDb])}',
       ),
     ],
   ];
@@ -276,7 +272,7 @@ Future<Plan> planPromote({
       RemoteStep(
         'Copy files and tag images of $release',
         env.host,
-        '${ctx.header(env)}${installAssets(env)}mkdir -p ${shq(dst.releases)}\n$copyFiles$tags\n',
+        '${ctx.header(env)}mkdir -p ${shq(dst.releases)}\n$copyFiles$tags\n',
       ),
     );
   } else {
@@ -295,13 +291,7 @@ Future<Plan> planPromote({
         'set -o pipefail; ssh ${from.host} ${shq('docker save ${srcImages.join(' ')}')} | ssh ${env.host} docker load',
       ]),
     );
-    steps.add(
-      RemoteStep(
-        'Tag images',
-        env.host,
-        '${ctx.header(env)}${installAssets(env)}$tags\n',
-      ),
-    );
+    steps.add(RemoteStep('Tag images', env.host, '${ctx.header(env)}$tags\n'));
   }
   steps.addAll([
     UploadStep(
@@ -316,7 +306,8 @@ Future<Plan> planPromote({
       env.host,
       '${ctx.header(env)}${makeReleaseScript(to, release, from: stage)}rm -rf ${shq(stage)}\n',
     ),
-    if (env.backup != null && env.backup!.beforeDeploy)
+    if (env.backup != null && env.backup!.beforeDeploy) ...[
+      agentStep(ctx, env),
       RemoteStep(
         'Back up the database before the switch',
         env.host,
@@ -324,6 +315,7 @@ Future<Plan> planPromote({
             '${toState.dbRunning ? '' : 'echo "no database running yet: no backup"; exit 0\n'}'
             '${backupSetup(config, to)}${backupNow(env)}',
       ),
+    ],
   ]);
   final sw = switchSteps(
     ctx,
@@ -473,7 +465,7 @@ Plan planAdopt({
       },
     ),
     RemoteStep('Copy $composeDir and tag the running images', env.host, '''
-${ctx.header(env)}${installAssets(env)}mkdir -p ${shq(l.releases)} ${shq(stage)}
+${ctx.header(env)}mkdir -p ${shq(l.releases)} ${shq(stage)}
 rsync -a $excludes ${shq('$composeDir/')} ${shq('$stage/')}
 ${[for (final e in scan.images.entries)
       if (pinned.containsKey(e.key)) 'docker tag ${e.value} ${shq(pinned[e.key]!)}'].join('\n')}

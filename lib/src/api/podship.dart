@@ -766,9 +766,7 @@ class Podship {
         RemoteStep(
           'Write the registry',
           e.host,
-          ctx.header(e) +
-              installAssets(e) +
-              writeRegistry(e, state.registryText, reg.render()),
+          ctx.header(e) + writeRegistry(e, state.registryText, reg.render()),
         ),
       ]),
     );
@@ -835,8 +833,13 @@ class Podship {
         for (final s in plan.steps) s.title,
       ], plan.render()),
     );
-    final step = plan.steps.single as RemoteStep;
-    ctx.log.emit(StepStarted(1, 1, step.title));
+    final agent = plan.steps.first as ActionStep;
+    ctx.log.emit(StepStarted(1, 2, agent.title));
+    final a0 = DateTime.now();
+    await agent.action();
+    ctx.log.emit(StepFinished(1, agent.title, DateTime.now().difference(a0)));
+    final step = plan.steps.last as RemoteStep;
+    ctx.log.emit(StepStarted(2, 2, step.title));
     final t0 = DateTime.now();
     final code = await ctx.ssh.lines(step.host, step.script, (l, err) {
       final m = RegExp(r'PODSHIP_BACKUP_STAMP=(\S+)').firstMatch(l);
@@ -846,10 +849,10 @@ class Podship {
       ctx.log.output(l, stderr: err);
     });
     if (code != 0) {
-      ctx.log.emit(StepFailed(1, step.title, 'exit code $code'));
+      ctx.log.emit(StepFailed(2, step.title, 'exit code $code'));
       throw StepError(step, 'exit code $code');
     }
-    ctx.log.emit(StepFinished(1, step.title, DateTime.now().difference(t0)));
+    ctx.log.emit(StepFinished(2, step.title, DateTime.now().difference(t0)));
   });
 
   Operation backupDrill(String envName, {String? stamp}) =>
@@ -2187,9 +2190,10 @@ du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
     final ctx = _readCtx;
     final e = config.env(envName);
     final (:state, :r) = await _load(ctx, e);
+    await ensureAgent(ctx, e);
     final out = await ctx.query(
       e,
-      '${backupSetup(config, r)}${shq('${e.libDir}/backup.sh')} ${shq(backupConfPath(e))} --list',
+      '${backupSetup(config, r)}${agentCommand(e, 'backup', ['--list'])}',
     );
     return [
       for (final line in const LineSplitter().convert(out))

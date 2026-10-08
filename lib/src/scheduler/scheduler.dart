@@ -174,8 +174,16 @@ class JobRun {
 
 /// Runs the jobs of this machine.
 class JobRunner {
-  JobRunner(this.home, {DateTime Function()? clock, this.echo})
-    : clock = clock ?? DateTime.now;
+  JobRunner(
+    this.home, {
+    DateTime Function()? clock,
+    this.echo,
+    this.backupCommand,
+  }) : clock = clock ?? DateTime.now;
+
+  /// The command of a backup job (tests); default
+  /// `podship agent backup --conf <conf>` with this podship.
+  final List<String> Function(ScheduledJob job)? backupCommand;
 
   /// The podship home of this machine (`--home`).
   final String home;
@@ -394,10 +402,16 @@ class JobRunner {
     };
     switch (job.kind) {
       case JobKind.backup:
-        final script = job.script ?? p.join(home, 'lib', 'backup.sh');
         final conf = job.conf;
         if (conf == null) throw StateError('${job.id} has no conf');
-        return ('/bin/bash', [script, conf], env, home);
+        // `script` (the bash script of older podships) is ignored: the
+        // backup runs in this podship.
+        final custom = backupCommand?.call(job);
+        if (custom != null) {
+          return (custom.first, custom.sublist(1), env, home);
+        }
+        final (exe, pre) = podshipCommand();
+        return (exe, [...pre, 'agent', 'backup', '--conf', conf], env, home);
       case JobKind.pull:
         final dir = job.projectDir;
         if (dir == null) throw StateError('${job.id} has no project_dir');

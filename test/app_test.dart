@@ -1,6 +1,8 @@
 // app setup / teardown, domain add with Cloudflare, and the protocol's
 // approval rules, through the library with a fake ssh and recorded API
 // fixtures. Nothing here reaches a server, Cloudflare or AWS.
+@Tags(['unit'])
+library;
 
 import 'dart:convert';
 

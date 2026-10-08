@@ -22,6 +22,7 @@ import 'backup_ops.dart';
 import 'context.dart';
 import 'inputs.dart';
 import 'resolve.dart';
+import 'scheduler_ops.dart' show agentStep;
 import 'scripts.dart';
 import 'state.dart';
 import 'tests.dart';
@@ -383,7 +384,7 @@ docker compose version >/dev/null || { echo "the docker compose plugin is missin
 mkdir -p ${shq(l.releases)} ${shq(l.upload)}
 chmod 700 ${shq(l.state)}
 [ -f ${shq(l.envFile)} ] || { echo "missing ${l.envFile}: run podship secret init --env ${env.name}" >&2; exit 1; }
-${installAssets(env)}''';
+''';
 }
 
 /// Plans a deploy of [git] to [r].
@@ -533,7 +534,10 @@ Plan planDeploy({
             '${shq(l.composeSh(id))} build',
           ].join('\n'),
     ),
-    if (env.backup != null && env.backup!.beforeDeploy && !options.skipBackup)
+    if (env.backup != null &&
+        env.backup!.beforeDeploy &&
+        !options.skipBackup) ...[
+      agentStep(ctx, env),
       RemoteStep(
         'Back up the database before the switch',
         env.host,
@@ -541,6 +545,7 @@ Plan planDeploy({
             '${state.dbRunning ? '' : 'echo "no database running yet: no backup"; exit 0\n'}'
             '${backupSetup(config, r)}${backupNow(env)}',
       ),
+    ],
     if (env.migrations == MigrationMode.maintenance)
       RemoteStep(
         'Apply migrations',
@@ -663,13 +668,11 @@ Future<void> _runTests(
 }
 
 /// Writes the backup settings file (no secrets) before a backup runs.
-String backupConfInstall(PodshipConfig config, ResolvedEnv r) =>
-    installAssets(r.env) +
-    writeFile(
-      backupConfPath(r.env),
-      backupConf(config, r, encrypt: r.env.backup!.recipients.isNotEmpty),
-      mode: '600',
-    );
+String backupConfInstall(PodshipConfig config, ResolvedEnv r) => writeFile(
+  backupConfPath(r.env),
+  backupConf(config, r, encrypt: r.env.backup!.recipients.isNotEmpty),
+  mode: '600',
+);
 
 /// Exports commit [sha] of [root] into [dest] with `git archive`.
 Future<void> exportCommit(String root, String sha, String dest) async {

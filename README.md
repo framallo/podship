@@ -2,7 +2,7 @@
 
 Deploy, back up and roll back [Serverpod](https://serverpod.dev) projects on your own servers, with production and staging.
 
-podship is a command-line tool. It talks to your servers over ssh and runs everything with Docker Compose. Nothing runs on a server except Docker, a few bash scripts, and one podship scheduler agent per machine (launchd on a Mac, a systemd timer on Linux) that runs the nightly backups and off-site pulls.
+podship is a command-line tool. It talks to your servers over ssh and runs everything with Docker Compose. Nothing runs on a server except Docker, the podship binary (`<podship_home>/bin/podship`), and one podship scheduler agent per machine (launchd on a Mac, a systemd timer on Linux) that runs the nightly backups and off-site pulls.
 
 ```
 podship deploy --env staging
@@ -223,7 +223,7 @@ A deploy does only the work that the commit needs:
 
 ## Backups
 
-`backup now` runs `<podship_home>/lib/backup.sh` with the settings file `<podship_home>/etc/<unit>.conf` (paths only, no secrets). Each backup writes:
+The backup, the drill and the restore run on the server as `podship agent backup|drill|restore --conf <podship_home>/etc/<unit>.conf`, from the podship binary at `<podship_home>/bin/podship`. Every backup command first puts this podship there when its checksum differs (a Linux server gets a cross-compiled binary). The settings file holds paths only, no secrets. Each backup writes:
 
 ```
 <backup dir>/daily/<YYYY-MM-DDTHHMM>/
@@ -251,10 +251,10 @@ Retention keeps everything from today and yesterday, plus the newest backup of e
 | `backup list` | Stamps, sizes, and whether the encrypted copy exists. |
 | `backup drill [stamp]` | Restores into a throwaway Postgres container with no network and no ports, compares row counts with the counts at backup time and with the live database, and deletes the container. Tables in `drill.volatile` may differ. |
 | `backup restore [stamp \| --dump file]` | Asks you to type the project name, takes a fresh backup, stops the app services, renames the database to `<db>_before_<time>`, restores into a new one, starts the services and waits for health. To undo, swap the names back. |
-| `backup schedule` | Writes the backup job (`backup:<project>/<env>`) into the server's registry and installs the scripts and settings it runs with. The server's scheduler agent runs it every night. No launchd or systemd unit per environment. `--show` prints the job and its last run, `--remove` removes it. |
+| `backup schedule` | Writes the backup job (`backup:<project>/<env>`) into the server's registry and installs the podship binary and the settings it runs with. The server's scheduler agent runs it every night. No launchd or systemd unit per environment. `--show` prints the job and its last run, `--remove` removes it. |
 | `backup pull` | Copies new encrypted backups to `offsite.dir` on your machine (it never deletes there), and checks that the newest one decrypts with one of `offsite.identities` and that its checksums match. `--schedule` writes the pull job (`pull:<project>/<env>`) into this machine's registry instead, for its scheduler agent; `--schedule --remove` removes it. |
 
-The scripts run with bash 3.2 and BSD tools as well as GNU tools, so a Mac with Docker Desktop or colima can be a server too.
+The server needs Docker, `age` and `zstd` on its PATH; the agent itself is the podship binary, so a Mac with Docker Desktop or colima can be a server too.
 
 ## Scheduler
 
@@ -270,7 +270,6 @@ jobs:
     kind: backup
     project: shop
     env: production
-    script: /srv/podship/lib/backup.sh
     conf: /srv/podship/etc/podship-backup-shop.conf
     log: /srv/podship/log/podship-backup-shop.log
     path: /usr/local/bin:/usr/bin:/bin
@@ -685,11 +684,11 @@ See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a 
 
 ## Tests
 
-Run the unit tests with your Dart test runner, or `tool/unit.sh` (each file as a script). They cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, and the server scripts (syntax with bash 3.2, backup retention), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`).
+Run the unit tests with `dart test -t unit`, or `dart run tool/test.dart` (it prints a short result and keeps the full log in the temp folder). Agents whose hooks block `dart test` use `dart run tool/test.dart` or the very_good_cli MCP `test` tool (`dart: true`, tags `unit`). The tags are in `dart_test.yaml`. The tests cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, the server agent (`agent_test.dart`: the settings file, retention and ISO weeks, the backup, the drill and the restore with a fake process runner, and the real process pipes), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`).
 
 The Cloudflare and SES integrations are tested against recorded API responses in `test/api_fixtures/` (`cloudflare_test.dart`, `ses_test.dart`, `zones_test.dart`, `changes_test.dart`, `app_test.dart`): every client call, SigV4 against AWS's published test vectors, plan rendering and plan ids, idempotency, rollback, zone resolution (including the zone of the owner's real account), drift, the approval rules of the protocol, and the CLI wiring. They never reach the network.
 
-The integration test in `test/integration/flow_test.dart` deploys a small project to a real Docker host over ssh: a deploy, a failed deploy with automatic rollback, `rollback`, `rollback --to`, a backup, a drill, a restore, `env set`, `promote`, `status` and `destroy`. It runs only when `PODSHIP_IT_HOST` is set. `tool/it.sh` runs it and prints a short log.
+The integration test in `test/integration/flow_test.dart` deploys a small project to a real Docker host over ssh: a deploy, a failed deploy with automatic rollback, `rollback`, `rollback --to`, a backup, a drill, a restore, `env set`, `promote`, `status` and `destroy`. It runs only when `PODSHIP_IT_HOST` is set: `dart test -t integration`, or `dart run tool/test.dart integration` for a short log.
 
 ## License
 

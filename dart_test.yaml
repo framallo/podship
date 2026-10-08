@@ -1,0 +1,8 @@
+# Test tags. `dart test -t unit` runs the unit tests (no network, no
+# Docker); `dart test -t integration` runs test/integration against the
+# host in PODSHIP_IT_HOST. `dart run tool/test.dart unit|integration`
+# does the same and prints a short summary.
+tags:
+  unit:
+  integration:
+    timeout: 30m
