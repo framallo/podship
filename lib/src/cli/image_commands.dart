@@ -121,11 +121,12 @@ class ImagesCheckCommand extends PodshipCommand {
           },
         );
         final server = gate?.server ?? StackServer();
-        final services = gate?.services ?? def.services;
+        final own = gate != null && gate.services.isNotEmpty;
+        final services = own ? gate.services : def.services;
         final up = stackUpScript(
           id: id,
           serverImage: imageName(e.composeProject, e.serverService, release),
-          server: server.withEnv(def.env),
+          server: own ? server : server.withEnv(def.env),
           services: services,
           publish: port,
         );
