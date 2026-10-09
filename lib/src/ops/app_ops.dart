@@ -51,7 +51,7 @@ class Integrations {
   CloudflareApi requireCloudflare() =>
       cloudflare() ??
       (throw Aborted(
-        'no Cloudflare token: run `podship provider login cloudflare` (or set CLOUDFLARE_API_TOKEN)',
+        'no Cloudflare token: connect Cloudflare in the podship console (Settings > Integrations) and `podship login <console-url>`; or `podship provider login cloudflare`, or CLOUDFLARE_API_TOKEN',
       ));
 
   bool get hasAws => secrets.read(awsCredentialsKey) != null;
@@ -60,7 +60,7 @@ class Integrations {
     final c = secrets.read(awsCredentialsKey);
     if (c == null) {
       throw Aborted(
-        'no AWS credentials: run `podship provider login aws` (or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)',
+        'no AWS credentials: connect AWS in the podship console (Settings > Integrations) and `podship login <console-url>`; or `podship provider login aws`, or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY',
       );
     }
     return SesApi(
