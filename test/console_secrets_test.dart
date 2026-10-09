@@ -43,7 +43,7 @@ Future<HttpServer> fakeConsole({
         }),
       );
     } else {
-      req.response.statusCode = 404;
+      req.response.statusCode = 409;
       req.response.write('{"error":"notConnected"}');
     }
     await req.response.close();

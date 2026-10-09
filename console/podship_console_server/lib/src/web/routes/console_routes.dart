@@ -13,6 +13,9 @@ import '../../integrations/oidc.dart';
 import '../../workspace/workspace_service.dart';
 
 /// A JSON response that no cache keeps.
+///
+/// Routes never answer 404: Serverpod passes a 404 on to the Flutter app
+/// route, which answers 405 to a POST.
 Response jsonResponse(Object? data, {int status = 200}) => Response(
   status,
   body: Body.fromString(jsonEncode(data), mimeType: MimeType.json),
@@ -72,7 +75,7 @@ class JwksRoute extends Route {
 }
 
 /// `POST /integrations/aws/callback`: the stack's Lambda (INT-12, INT-18).
-/// A wrong or used code gets 404 and changes nothing.
+/// A wrong or used code gets 403 and changes nothing.
 class AwsCallbackRoute extends Route {
   AwsCallbackRoute() : super(methods: {Method.post});
 
@@ -86,7 +89,7 @@ class AwsCallbackRoute extends Route {
     );
     return ok
         ? jsonResponse({'ok': true})
-        : errorResponse(404, 'notFound', 'unknown or used code');
+        : errorResponse(403, 'unknownCode', 'unknown or used code');
   }
 }
 
@@ -130,7 +133,8 @@ class PodshipApiRoute extends Route {
       final p = IntegrationProvider.values
           .where((v) => v.name == name)
           .firstOrNull;
-      if (p == null) return errorResponse(404, 'notFound', 'no such provider');
+      if (p == null)
+        return errorResponse(400, 'unknownProvider', 'no such provider');
       try {
         return jsonResponse(
           await IntegrationService.credentialsFor(session, actor, p),
@@ -138,13 +142,13 @@ class PodshipApiRoute extends Route {
       } on IntegrationException catch (e) {
         return e.reason == IntegrationFailure.forbidden
             ? errorResponse(403, 'forbidden', 'owners and admins only')
-            : errorResponse(404, 'notConnected', '${p.name} is not connected');
+            : errorResponse(409, 'notConnected', '${p.name} is not connected');
       } on Object catch (e) {
         session.log('credentials ${p.name}: ${e.runtimeType}');
         return errorResponse(502, 'providerFailed', 'the provider refused');
       }
     }
-    return errorResponse(404, 'notFound', 'unknown path');
+    return errorResponse(400, 'unknownPath', 'unknown path');
   }
 }
 
@@ -161,7 +165,7 @@ abstract class InternalRoute extends Route {
     final secret = Serverpod.instance.getPassword('serviceSecret');
     final given = request.headers['x-podship-service']?.firstOrNull ?? '';
     if (secret == null || secret.isEmpty || !Secrets.equal(given, secret)) {
-      return errorResponse(404, 'notFound', 'not found');
+      return errorResponse(403, 'forbidden', 'forbidden');
     }
     final body = await _json(request);
     return handle(

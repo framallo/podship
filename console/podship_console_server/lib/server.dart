@@ -48,7 +48,10 @@ void run(List<String> args) async {
 
   final appDir = Directory(Uri(path: 'web/app').toFilePath());
   if (appDir.existsSync()) {
-    pod.webServer.addRoute(FlutterRoute(appDir), '/');
+    pod.webServer.addRoute(
+      FlutterRoute(appDir, enableWasmHeaders: false),
+      '/',
+    );
   }
 
   await pod.start();
