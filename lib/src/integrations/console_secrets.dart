@@ -141,7 +141,12 @@ class ConsoleCredentials {
     try {
       final base = url.endsWith('/') ? url : '$url/';
       final req = await c.getUrl(
-        Uri.parse('${base}podship/v1/integrations/$provider/credentials'),
+        // The CLI's AWS work (email setup, email sender) needs the full
+        // role; the console gives send-only credentials by default.
+        Uri.parse(
+          '${base}podship/v1/integrations/$provider/credentials'
+          '${provider == 'aws' ? '?scope=full' : ''}',
+        ),
       );
       req.headers
         ..set(HttpHeaders.authorizationHeader, 'Bearer $token')

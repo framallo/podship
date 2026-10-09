@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:pointycastle/export.dart' hide Padding, State;
 import 'package:podship/podship.dart' show Fixture, FixtureTransport, jsonReply;
 import 'package:podship_console_server/src/core/app_config.dart';
 import 'package:podship_console_server/src/generated/protocol.dart';
@@ -281,7 +283,32 @@ void main() {
         expect(claims['aud'], 'sts.amazonaws.com');
         expect(claims['iss'], 'https://console.test');
         final jwks = await Oidc.jwks(s);
-        expect((jwks['keys'] as List).single['kid'], header['kid']);
+        final jwk = (jwks['keys'] as List).single as Map;
+        expect(jwk['kid'], header['kid']);
+        // AWS verifies the signature with the published key: so must we.
+        BigInt big(String b64) {
+          final bytes = base64Url.decode(base64Url.normalize(b64));
+          return BigInt.parse(
+            bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+            radix: 16,
+          );
+        }
+
+        final verifier = RSASigner(SHA256Digest(), '0609608648016503040201')
+          ..init(
+            false,
+            PublicKeyParameter<RSAPublicKey>(
+              RSAPublicKey(big(jwk['n'] as String), big(jwk['e'] as String)),
+            ),
+          );
+        final sig = base64Url.decode(base64Url.normalize(parts[2]));
+        expect(
+          verifier.verifySignature(
+            Uint8List.fromList(utf8.encode('${parts[0]}.${parts[1]}')),
+            RSASignature(sig),
+          ),
+          isTrue,
+        );
         await Oidc.rotate(s);
         final after = await Oidc.jwks(s);
         expect((after['keys'] as List).single['kid'], isNot(header['kid']));

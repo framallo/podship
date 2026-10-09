@@ -313,10 +313,24 @@ class IntegrationService {
   }
 
   /// Temporary credentials for [ws] (INT-19), or throws.
+  /// The session policy of send-only credentials (the watch, sign-in
+  /// codes): the role's rights cut down to sending email.
+  static final sendOnlyPolicy = jsonEncode({
+    'Version': '2012-10-17',
+    'Statement': [
+      {
+        'Effect': 'Allow',
+        'Action': ['ses:SendEmail', 'ses:SendRawEmail'],
+        'Resource': '*',
+      },
+    ],
+  });
+
   static Future<StsCredentials> assumeAws(
     Session session,
     Workspace ws, {
     String? roleArn,
+    bool sendOnly = false,
   }) async {
     var arn = roleArn;
     if (arn == null) {
@@ -337,6 +351,7 @@ class IntegrationService {
       roleArn: arn,
       token: token,
       sessionName: 'podship-console-${ws.slug}',
+      sessionPolicy: sendOnly ? sendOnlyPolicy : null,
     );
   }
 
@@ -584,13 +599,16 @@ class IntegrationService {
         aad: _aad(row.workspaceId, row.provider),
       );
 
-  /// For the podship CLI (INT-19): the Cloudflare token, or AWS credentials
-  /// for 1 hour, in the JSON that podship's secret store uses.
+  /// For the podship CLI and the watch (INT-19): the Cloudflare token, or
+  /// AWS credentials for 1 hour, in the JSON that podship's secret store
+  /// uses. AWS credentials are send-only ([sendOnlyPolicy]) unless [full]
+  /// (`?scope=full`: `email setup`, `email sender`).
   static Future<Map<String, Object?>> credentialsFor(
     Session session,
     Actor actor,
-    IntegrationProvider p,
-  ) async {
+    IntegrationProvider p, {
+    bool full = false,
+  }) async {
     _needManage(actor);
     final ws = actor.workspace;
     final row = await _row(session, ws.id!, p);
@@ -611,7 +629,7 @@ class IntegrationService {
       await audit(session, actor, ws.id!, p, 'credential_read', ok: true);
       return {'provider': 'cloudflare', 'token': token};
     }
-    final sts = await assumeAws(session, ws);
+    final sts = await assumeAws(session, ws, sendOnly: !full);
     await audit(
       session,
       actor,
@@ -619,7 +637,9 @@ class IntegrationService {
       p,
       'credential_read',
       ok: true,
-      detail: 'sts until ${sts.expiration.toIso8601String()}',
+      detail:
+          '${full ? 'full' : 'send-only'} sts until '
+          '${sts.expiration.toIso8601String()}',
     );
     final AwsCredentials c = sts.credentials;
     return {
@@ -629,6 +649,7 @@ class IntegrationService {
       'session_token': c.sessionToken,
       'expiration': sts.expiration.toIso8601String(),
       'region': AppConfig.instance.sesRegion,
+      'scope': full ? 'full' : 'send',
     };
   }
 }

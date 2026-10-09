@@ -13,7 +13,6 @@ const _providerCommands = <String, Set<String>>{
   'dns': {'cloudflare'},
   'tunnel': {'cloudflare'},
   'domain': {'cloudflare'},
-  'status': {'cloudflare'},
 };
 
 Future<void> main(List<String> args) async {

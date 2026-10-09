@@ -138,7 +138,12 @@ class PodshipApiRoute extends Route {
       }
       try {
         return jsonResponse(
-          await IntegrationService.credentialsFor(session, actor, p),
+          await IntegrationService.credentialsFor(
+            session,
+            actor,
+            p,
+            full: request.url.queryParameters['scope'] == 'full',
+          ),
         );
       } on IntegrationException catch (e) {
         return e.reason == IntegrationFailure.forbidden

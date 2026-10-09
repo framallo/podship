@@ -34,6 +34,7 @@ class Sts {
     required String token,
     required String sessionName,
     int durationSeconds = 3600,
+    String? sessionPolicy,
   }) async {
     final body = Uri(
       queryParameters: {
@@ -43,6 +44,7 @@ class Sts {
         'RoleSessionName': sessionName,
         'WebIdentityToken': token,
         'DurationSeconds': '$durationSeconds',
+        'Policy': ?sessionPolicy,
       },
     ).query;
     final reply = await _http.send(

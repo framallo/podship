@@ -738,8 +738,26 @@ class _CloudflareCardState extends State<_CloudflareCard> {
             autofillHints: const <String>[],
             decoration: InputDecoration(
               labelText: l.intCfField,
-              errorText: _error,
-              errorMaxLines: 4,
+              // INT-23: icon and text below the field.
+              error: _error == null
+                  ? null
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 16,
+                          color: context.ps.danger,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: TextStyle(color: context.ps.danger),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
             onSubmitted: (_) => _save(),
           ),
