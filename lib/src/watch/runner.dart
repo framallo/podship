@@ -379,7 +379,9 @@ class WatchRunner {
       healAttempts: w.healAttempts,
       healBackoff: Duration(seconds: w.healBackoff),
     );
-    final notify = notifier ?? _defaultNotifier(w);
+    // Built at the first message: the secret store is read only then.
+    Notifier? built;
+    Notifier notify() => built ??= notifier ?? _defaultNotifier(w);
 
     // 1. Every check of every target, at the same time.
     final problems = <String, String?>{};
@@ -481,7 +483,7 @@ class WatchRunner {
         },
       );
       sent.add(n);
-      await _send(notify, n);
+      await _send(notify(), n);
     }
 
     final toHeal = [
@@ -527,7 +529,7 @@ class WatchRunner {
         },
       );
       sent.add(n);
-      await _send(notify, n);
+      await _send(notify(), n);
     }
 
     // 5. Recovered: once per incident, with the downtime.
@@ -570,7 +572,7 @@ class WatchRunner {
         },
       );
       sent.add(n);
-      await _send(notify, n);
+      await _send(notify(), n);
     }
     return WatchRun(
       outcomes: outcomes,
