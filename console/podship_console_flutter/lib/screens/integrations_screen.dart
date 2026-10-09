@@ -898,7 +898,10 @@ class _AwsCard extends StatelessWidget {
               style: TextStyle(color: context.ps.ink2),
             ),
           const SizedBox(height: 12),
-          OutlinedButton(onPressed: onConnect, child: Text(l.intAwsAgain)),
+          if (v?.ready == false)
+            Text(l.intAwsNotReady, style: TextStyle(color: context.ps.ink2))
+          else
+            OutlinedButton(onPressed: onConnect, child: Text(l.intAwsAgain)),
         ] else ...[
           perms,
           if (canManage && v?.ready == false)
