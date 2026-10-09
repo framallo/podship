@@ -15,6 +15,7 @@ import 'integration_commands.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
 import 'scheduler_commands.dart';
+import 'watch_commands.dart';
 import 'secret_commands.dart';
 import 'self_commands.dart';
 import 'server_commands.dart';
@@ -166,6 +167,7 @@ class PodshipRunner extends CommandRunner<int> {
         ],
       ),
       schedulerGroup(),
+      watchGroup(),
       agentGroup(),
       GroupCommand('db', 'The environment database.', [
         DbConnectCommand(),

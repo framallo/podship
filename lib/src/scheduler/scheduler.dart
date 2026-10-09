@@ -117,13 +117,19 @@ class SchedulerState {
 }
 
 /// The jobs due at [now]: enabled jobs that did not run on today's local
-/// date, in run order (backups, then pulls). One missed night is caught up
-/// with one run; several missed nights still give one run.
+/// date, once the local time is at or after the nightly time
+/// (`scheduler.at`), in run order (backups, then pulls). The agent ticks
+/// every few minutes for the watch, so the time of day matters: a tick at
+/// 00:10 runs nothing until `at`. One missed night is caught up with one
+/// run at the first tick after `at`; several missed nights still give one
+/// run.
 List<ScheduledJob> dueJobs(
   Registry registry,
   SchedulerState state,
   DateTime now,
 ) {
+  final at = registry.scheduler;
+  if (now.hour * 60 + now.minute < at.hour * 60 + at.minute) return const [];
   final today = localDate(now);
   return [
     for (final j in registry.orderedJobs)
@@ -254,6 +260,17 @@ class JobRunner {
       log('seeded ${seeded.join(', ')}: first run tonight');
     }
     return seeded;
+  }
+
+  /// Whether a [tick] would run anything now: the first tick (it seeds), or
+  /// a due job.
+  bool nightlyDue() {
+    if (!File(SchedulerState.path(home)).existsSync()) return true;
+    return dueJobs(
+      readRegistry(),
+      SchedulerState.load(home),
+      clock(),
+    ).isNotEmpty;
   }
 
   /// The nightly run. Runs every due job in order. Never throws.

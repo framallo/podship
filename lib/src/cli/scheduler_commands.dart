@@ -10,6 +10,7 @@ import 'package:args/command_runner.dart';
 
 import '../ops/context.dart';
 import '../scheduler/scheduler.dart';
+import '../watch/runner.dart';
 import 'backup_commands.dart' show formatJob;
 import 'base.dart';
 
@@ -182,13 +183,24 @@ class SchedulerTickCommand extends PodshipCommand {
         help:
             'Mark jobs without state as run today and run nothing (the install does this).',
       )
-      ..addFlag('force', negatable: false, help: 'Run every job, due or not.');
+      ..addFlag('force', negatable: false, help: 'Run every job, due or not.')
+      ..addFlag(
+        'nightly',
+        negatable: false,
+        help:
+            'Run only the nightly jobs, here (the tick starts this in the background).',
+      )
+      ..addFlag(
+        'no-watch',
+        negatable: false,
+        help: 'Skip the watch in this tick.',
+      );
   }
   @override
   String get name => 'tick';
   @override
   String get description =>
-      'The nightly run on this machine: run every job that did not run today (backups, then pulls). The agent calls it.';
+      'One run of the agent on this machine: the watch (every few minutes), then every nightly job that did not run today (backups, then pulls). The agent calls it.';
   @override
   bool get takesEnv => false;
   @override
@@ -204,9 +216,37 @@ class SchedulerTickCommand extends PodshipCommand {
       );
       return 0;
     }
-    final runs = await runner.tick(force: argResults!['force'] == true);
-    // The agent must stay alive whatever a job did.
-    return runs.any((r) => !r.ok && !r.skipped) ? 1 : 0;
+    final force = argResults!['force'] == true;
+    if (argResults!['nightly'] == true || force) {
+      final runs = await runner.tick(force: force);
+      // The agent must stay alive whatever a job did.
+      return runs.any((r) => !r.ok && !r.skipped) ? 1 : 0;
+    }
+    final watched = runner.readRegistry().watch.targets.isNotEmpty;
+    if (watched && argResults!['no-watch'] != true) {
+      await WatchRunner(home, echo: stdout.writeln).run();
+    }
+    if (!watched) {
+      // No watch on this machine: the nightly jobs run here, as before.
+      final runs = await runner.tick();
+      return runs.any((r) => !r.ok && !r.skipped) ? 1 : 0;
+    }
+    if (runner.nightlyDue()) {
+      // A backup may take minutes, and launchd does not start the next tick
+      // while this one runs: the nightly jobs go to their own process (their
+      // own lock), so the watch keeps its pace.
+      final (exe, pre) = podshipCommand();
+      await Process.start(exe, [
+        ...pre,
+        'scheduler',
+        'tick',
+        '--home',
+        home,
+        '--nightly',
+      ], mode: ProcessStartMode.detached);
+      runner.log('tick: nightly jobs started in the background');
+    }
+    return 0;
   }
 }
 

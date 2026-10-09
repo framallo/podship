@@ -88,11 +88,11 @@ void main() {
         now: DateTime.utc(2026, 10, 8),
         snapshot: '/tmp/snap',
       );
-      final prepare = plan.steps.whereType<RemoteStep>().firstWhere(
-        (x) => x.title.startsWith('Prepare'),
-      );
-      expect(prepare.script, contains('command:demo/production/shots'));
-      expect(prepare.script, contains('/srv/demo/current/tool'));
+      // The registry is written under its lock, merged with the file on
+      // the server (RegistryWriteStep), not in the prepare script.
+      final write = plan.steps.whereType<RegistryWriteStep>().single;
+      expect(write.mine, contains('command:demo/production/shots'));
+      expect(write.mine, contains('/srv/demo/current/tool'));
     });
   });
 }

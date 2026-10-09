@@ -2,7 +2,7 @@
 
 Deploy, back up and roll back [Serverpod](https://serverpod.dev) projects on your own servers, with production and staging.
 
-podship is a command-line tool. It talks to your servers over ssh and runs everything with Docker Compose. Nothing runs on a server except Docker, the podship binary (`<podship_home>/bin/podship`), and one podship scheduler agent per machine (launchd on a Mac, a systemd timer on Linux) that runs the nightly backups and off-site pulls.
+podship is a command-line tool. It talks to your servers over ssh and runs everything with Docker Compose. Nothing runs on a server except Docker, the podship binary (`<podship_home>/bin/podship`), and one podship scheduler agent per machine (launchd on a Mac, a systemd timer on Linux) that runs the nightly backups and off-site pulls, and every two minutes the watch of the public URLs (see [Watch](#watch)).
 
 ```
 podship deploy --env staging
@@ -14,6 +14,7 @@ podship backup now --env production
 ## What it does
 
 - **Releases.** Each deploy is a release with an id like `20261006-170512-a0dc2b0` (UTC time and git commit). The server keeps the last few releases, with their files and their images. `rollback` switches back in seconds, with no build.
+- **Watch and self-heal.** Every machine checks the public URLs of its environments and of the other machines every two minutes. After two failures in a row it sends one alert, starts the Docker engine if it is dead and runs `podship restart`; when the app answers again it sends "recovered" with the downtime. See [Watch](#watch).
 - **Health checks and automatic rollback.** After the switch, podship checks a health URL on the server, and optionally the public URL. If the check fails, it switches back to the previous release by itself.
 - **Environments.** `production`, `staging` or any name. Each one has its own compose project, network, database, volumes, ports, domain and secrets. They can share a server or use different servers.
 - **Many projects on one server.** A registry on each server records every project and environment. podship refuses a second user of a directory, compose project, port, domain or backup slot. It gives free ports and backup times to environments that ask for `auto`.
@@ -75,7 +76,8 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `env list/get/set/unset` | Plain variables in the environment's `.env`. |
 | `secret init/list/set/unset/copy` | Secrets in `.env` and `passwords.yaml`. `set` reads the value from stdin, a hidden prompt, `--from-file` or `--generate`. `copy --from <env>` copies values between environments without showing them. `init` creates both files with fresh random values. |
 | `backup now/list/drill/restore/schedule/pull` | See [Backups](#backups). |
-| `scheduler install/status/list/run-once/uninstall` | The nightly scheduler agent of a machine. See [Scheduler](#scheduler). |
+| `scheduler install/status/list/run-once/uninstall` | The scheduler agent of a machine (nightly jobs, and the watch every two minutes). See [Scheduler](#scheduler). |
+| `watch install/uninstall/status/history/run` | Watch the public URLs of environments from every machine, alert once per incident, heal on the machine that runs the app. See [Watch](#watch). |
 | `db connect` | `psql` on the environment database. |
 | `db migrate status` | The applied Serverpod migrations, against the newest one in the current release. |
 | `db user list/create/reset-password/delete` | Database roles for people and tools. The password is printed once. |
@@ -328,7 +330,7 @@ The server needs Docker, `age` and `zstd` on its PATH; the agent itself is the p
 
 ## Scheduler
 
-podship registers **one background agent per machine, once**: `dev.podship.scheduler` with launchd on a Mac, `podship-scheduler.timer` with systemd on Linux. The agent runs `podship scheduler tick --home <podship home>` once a night (03:00 machine local time by default) and once at load (login, reboot). Nothing else is registered per environment, and a deploy never touches launchd or systemd.
+podship registers **one background agent per machine, once**: `dev.podship.scheduler` with launchd on a Mac, `podship-scheduler.timer` with systemd on Linux. The agent runs `podship scheduler tick --home <podship home>` once a night (03:00 machine local time by default) and once at load (login, reboot). When the machine has watch targets (see [Watch](#watch)), the same agent also ticks every `watch.interval` seconds (launchd `StartInterval`, systemd `OnUnitActiveSec`): each tick runs the watch first, and the nightly jobs only when they are due. Nothing else is registered per environment, and a deploy never touches launchd or systemd.
 
 The jobs live in the machine's registry (`<podship_home>/registry.yaml`):
 
@@ -364,7 +366,7 @@ environments:
 
 A command removed from `podship.yaml` leaves the registry at the next deploy.
 
-`backup schedule` writes a backup job into the server's registry; `backup pull --schedule` writes a pull job into this machine's registry. Each run executes every job that has not run on today's local date, backups first, then pulls. A machine that was asleep or off catches up with one run when it comes back (launchd fires a missed calendar time on wake; the systemd timer is persistent); several missed nights still give one run, never a burst. Daylight-saving changes neither skip nor double a night. Each job runs under its own lock, so a job still running is skipped, and a failing job never stops the others or the agent.
+`backup schedule` writes a backup job into the server's registry; `backup pull --schedule` writes a pull job into this machine's registry. Each tick at or after the nightly time (`scheduler.at`) executes every job that has not run on today's local date, backups first, then pulls; a tick before that time (the watch ticks all day) runs no nightly job. When the machine has watch targets, the tick starts the nightly jobs in a background process (`scheduler tick --nightly`, with its own lock), so a long backup never stops the watch. A machine that was asleep or off catches up with one run at the first tick after the nightly time (launchd fires a missed calendar time on wake; the systemd timer is persistent); several missed nights still give one run, never a burst. Daylight-saving changes neither skip nor double a night. Each job runs under its own lock, so a job still running is skipped, and a failing job never stops the others or the agent.
 
 The agent keeps `<podship_home>/scheduler/state.json` (last tick, and per job the last run, its outcome and backup stamp), appends to `<podship_home>/log/scheduler.log`, and writes a history record per run under `<podship_home>/history/<project>/<env>/` (actor `podship-scheduler`), like a manual `backup now`.
 
@@ -383,6 +385,54 @@ podship scheduler uninstall --env production        # the registry and its jobs 
 Pick the run times so a machine that pulls fires after the machine that backs up: for example 03:00 on the server and 04:00 on your Mac.
 
 The protocol exposes `scheduler.list` (list_schedules), `scheduler.run` (run_job), `scheduler.status` and `scheduler.install` for consoles and MCP tools.
+
+## Watch
+
+`podship watch` makes an outage loud. Every machine with a scheduler agent checks the public URLs of the environments that run on it, and of the environments of the other machines (the cross-watch: when a whole machine is down, the other one still alerts). It is a light job of the same agent: no second background item.
+
+```
+podship watch install                  # in a project folder: all its environments
+podship watch install --env production
+podship watch status                   # every machine: targets, state, last run
+podship watch history                  # every machine: down, heal, recovered, with the downtime
+podship watch uninstall --env staging
+podship watch run --home ~/podship     # one run now on this machine (what the agent does)
+```
+
+**Checks.** A target's checks are the environment's `health.public_checks`; without them, its `public_url` (any 2xx). An environment with neither is not watched. All checks of all targets run at the same time, every `interval` seconds. When a check fails, the watch first asks two canary URLs (Google and Cloudflare); when this machine reaches neither, the run does not count.
+
+**Incidents.** One failed run is silent. After `alert_after` failed runs in a row (2: about 4 minutes) the incident opens: one "DOWN" alert, then the heal. Later failures send nothing. When the heal attempts are used up and it still fails, one "STILL DOWN" alert. The first run that passes closes the incident with one "RECOVERED" message and the downtime (from the first failed run). Targets that change state in the same run share one message.
+
+**Self-heal**, only on the machine that runs the environment, for targets with `heal` (the default, production included):
+
+1. If `docker info` does not answer, the watch starts the engine (`open -a Docker` for Docker Desktop, `colima start` for Colima) and waits up to 3 minutes. The containers come back by themselves (`restart: unless-stopped`); the watch waits up to 90 s for the local health URL.
+2. If the local health URL (`health.url`) still fails, it runs `podship restart --env <env>` from the current release (`<dir>/current/podship.yaml`, with `PODSHIP_LOCAL_ENV=<env>` so the release's host is this machine). That is podship's own restart, with its lock, its health check and its history record (actor `podship-watch`). The watch never deploys.
+3. If the local health URL passes and only the public check fails, the app is fine and the tunnel or DNS is not: the watch does not restart, and says so.
+
+At most `heal_attempts` (2) per incident, `heal_backoff` (360 s) apart.
+
+**Configuration.** The fleet and the alert channels live in `~/.podship/config.yaml` on the machine that runs `watch install`; `watch install` copies them into the `watch:` section of each machine's registry, with the targets:
+
+```yaml
+watch:
+  interval: 120          # seconds between two runs (the agent's StartInterval)
+  alert_after: 2
+  heal_attempts: 2
+  heal_backoff: 360
+  channels:              # the notify.channels syntax; none: a macOS notification
+    macos: {}
+    owner: {kind: email, to: [me@example.com], from: "podship <ops@example.com>", region: us-west-1}
+  machines:
+    studio:  {host: local, home: /Users/me/podship, engine: colima}
+    agentes: {host: agente@agentes.local, home: /Users/agente/podship, engine: docker_desktop,
+              path: /opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin}
+```
+
+In `podship.yaml`, per environment: `watch: {enabled: false}` stops watching it, `watch: {heal: false}` watches it without healing. Each deploy refreshes the target on the environment's own server from the release's `podship.yaml`; run `watch install` again to update the copies on the other machines. After the first `watch install` on a machine, run `podship scheduler install` there so its agent ticks every `interval` seconds (one plist change, so macOS shows its background notice once). Email alerts need AWS credentials on each machine: `podship provider login aws`, as the user that runs the agent.
+
+**Files on each machine.** `<podship_home>/watch/state.json` (per target: failures in a row, the open incident, heal attempts), `<podship_home>/watch/incidents.jsonl` (one JSON line per event: `down`, `engine_start`, `heal`, `still_down`, `recovered` with `downtime_s`), `<podship_home>/log/watch.log` (one line per run).
+
+The notification events are `watch_down` and `watch_recovered` (on by default).
 
 ## Several projects on one server
 
@@ -447,7 +497,7 @@ Each suite's counts, failures, duration and log go into the operation result, th
 
 ## Notifications
 
-podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a rollback is done, when a backup fails, and when a scheduler job fails. Channels:
+podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a rollback is done, when a backup fails, when a scheduler job fails, and when the watch sees an environment go down or recover (see [Watch](#watch)). Channels:
 
 | Channel | What it does |
 |---|---|
@@ -458,7 +508,7 @@ podship tells you when a deploy starts, when it is done (release, duration, heal
 
 ```yaml
 notify:
-  events: [deploy_done, deploy_failed, rollback_done, backup_failed, scheduler_job_failed]   # the default; add deploy_started
+  events: [deploy_done, deploy_failed, rollback_done, backup_failed, scheduler_job_failed, watch_down, watch_recovered]   # the default; add deploy_started
   bell: true                              # a terminal bell after a long command
   channels:
     macos: {}
@@ -768,7 +818,7 @@ See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a 
 
 ## Tests
 
-Run the unit tests with `dart test -t unit`, or `dart run tool/test.dart` (it prints a short result and keeps the full log in the temp folder). Agents whose hooks block `dart test` use `dart run tool/test.dart` or the very_good_cli MCP `test` tool (`dart: true`, tags `unit`). The tags are in `dart_test.yaml`. The tests cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, the server agent (`agent_test.dart`: the settings file, retention and ISO weeks, the backup, the drill and the restore with a fake process runner, and the real process pipes), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`).
+Run the unit tests with `dart test -t unit`, or `dart run tool/test.dart` (it prints a short result and keeps the full log in the temp folder). Agents whose hooks block `dart test` use `dart run tool/test.dart` or the very_good_cli MCP `test` tool (`dart: true`, tags `unit`). The tags are in `dart_test.yaml`. The tests cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, the server agent (`agent_test.dart`: the settings file, retention and ISO weeks, the backup, the drill and the restore with a fake process runner, and the real process pipes), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`), and the watch (`watch_test.dart`: the incident state machine with a fake clock — one silent failure, one alert, two heals with a backoff, one "still down", one "recovered" with the downtime, flaps, cross-watch targets that never heal, runs without internet —, the `watch:` registry section and its three-way merge, the fleet, a whole run of the 2026-10-08 outage with a dead engine and fake processes, and the agent's `StartInterval`).
 
 The Cloudflare and SES integrations are tested against recorded API responses in `test/api_fixtures/` (`cloudflare_test.dart`, `ses_test.dart`, `zones_test.dart`, `changes_test.dart`, `app_test.dart`): every client call, SigV4 against AWS's published test vectors, plan rendering and plan ids, idempotency, rollback, zone resolution (including the zone of the owner's real account), drift, the approval rules of the protocol, and the CLI wiring. They never reach the network.
 

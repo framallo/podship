@@ -417,7 +417,14 @@ enum NotifyEvent {
   deployFailed('deploy_failed'),
   rollbackDone('rollback_done'),
   backupFailed('backup_failed'),
-  schedulerJobFailed('scheduler_job_failed');
+  schedulerJobFailed('scheduler_job_failed'),
+
+  /// `podship watch`: an environment failed its public checks twice in a
+  /// row (or is still down after the heal attempts).
+  watchDown('watch_down'),
+
+  /// `podship watch`: a down environment passes again, with the downtime.
+  watchRecovered('watch_recovered');
 
   const NotifyEvent(this.id);
 
@@ -434,6 +441,8 @@ enum NotifyEvent {
     rollbackDone,
     backupFailed,
     schedulerJobFailed,
+    watchDown,
+    watchRecovered,
   ];
 }
 
@@ -834,6 +843,16 @@ class PublicCheck {
   ].join(', ');
 }
 
+/// `watch:` of an environment. `podship watch` checks the public URLs of
+/// every environment with [enabled]; on the environment's own server it
+/// heals the ones with [heal] (default: true, production included) by
+/// starting the Docker engine and running `podship restart`.
+class EnvWatch {
+  const EnvWatch({this.enabled = true, this.heal = true});
+  final bool enabled;
+  final bool heal;
+}
+
 /// A nightly command of an environment (`scheduled:`): [run] is argv,
 /// [cwd] a folder of the current release, [path] extra PATH entries.
 class ScheduledCommand {
@@ -1215,6 +1234,7 @@ class EnvConfig {
     this.remotePostSwitch,
     this.scheduler = Scheduler.auto,
     this.scheduled = const [],
+    this.watch = const EnvWatch(),
     this.transport,
     ServerpodSettings? serverpod,
     this.egress,
@@ -1249,6 +1269,10 @@ class EnvConfig {
 
   /// Nightly commands the scheduler runs on this environment's server.
   final List<ScheduledCommand> scheduled;
+
+  /// `watch:`: whether `podship watch` checks this environment, and heals
+  /// it on its own server.
+  final EnvWatch watch;
   final SecretsConfig secrets;
 
   /// Variables in `.env` that are not secret. Their values may be printed.
@@ -1606,9 +1630,19 @@ class PodshipConfig {
         );
       }
     }
+    final w = e.map('watch');
     return EnvConfig(
       name: name,
-      host: e.str('host'),
+      // The watch heals an environment on its own server with
+      // `PODSHIP_LOCAL_ENV=<env> podship restart`: there, the host is this
+      // machine.
+      host: Platform.environment['PODSHIP_LOCAL_ENV'] == name
+          ? 'local'
+          : e.str('host'),
+      watch: EnvWatch(
+        enabled: w.boolean('enabled', true),
+        heal: w.boolean('heal', true),
+      ),
       dir: dir,
       composeProject: composeProject,
       composeFiles: e.strs('compose_files'),

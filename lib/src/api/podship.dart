@@ -30,6 +30,7 @@ import '../integrations/ses.dart';
 import '../ops/release_ops.dart';
 import '../ops/resolve.dart';
 import '../ops/scheduler_ops.dart';
+import '../ops/watch_ops.dart';
 import '../ops/scripts.dart';
 import '../scheduler/agent.dart';
 import '../scheduler/scheduler.dart';
@@ -159,8 +160,11 @@ class Podship {
   /// Who runs the operations, for history records.
   final String actor;
 
-  /// `git config user.email`, or `$USER@host`.
+  /// `PODSHIP_ACTOR` (the watch sets `podship-watch`), else
+  /// `git config user.email`, else `$USER@host`.
   static String defaultActor() {
+    final fixed = Platform.environment['PODSHIP_ACTOR'];
+    if (fixed != null && fixed.isNotEmpty) return fixed;
     try {
       final r = Process.runSync('git', ['config', 'user.email']);
       final e = (r.stdout as String).trim();
@@ -1035,6 +1039,46 @@ class Podship {
       );
     },
     history: envName != null,
+    lock: false,
+  );
+
+  /// `watch install`: writes the watch targets of [envNames] (all
+  /// environments when empty) into the registry of every machine of the
+  /// fleet (`~/.podship/config.yaml` `watch.machines`); with [remove], takes
+  /// them out.
+  Operation watchInstall(
+    List<String> envNames, {
+    bool remove = false,
+    FleetConfig? fleet,
+  }) => _op(
+    remove ? 'watch uninstall' : 'watch install',
+    null,
+    {'envs': envNames},
+    (ctx, rec) async {
+      final f = fleet ?? FleetConfig.load();
+      final envs = envNames.isEmpty
+          ? config.environments.values.toList()
+          : [for (final n in envNames) config.env(n)];
+      final plan = await planWatchInstall(
+        ctx,
+        f,
+        envs,
+        remove: remove,
+        now: DateTime.now().toUtc().toIso8601String(),
+      );
+      if (plan.steps.isEmpty) {
+        ctx.log.ok('the watch targets are up to date');
+        return;
+      }
+      await ctx.run(plan);
+      if (dryRun) return;
+      ctx.log.ok(
+        'watch targets written; each machine picks them up at its next tick. '
+        'After a first install on a machine, run podship scheduler install there '
+        'so its agent ticks every ${f.interval} s.',
+      );
+    },
+    history: false,
     lock: false,
   );
 

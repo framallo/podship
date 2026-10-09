@@ -14,6 +14,8 @@ import 'dart:convert';
 
 import 'package:yaml/yaml.dart';
 
+import '../watch/model.dart';
+
 /// A conflict with another registry entry.
 class RegistryConflict implements Exception {
   RegistryConflict(this.message);
@@ -229,11 +231,13 @@ class Registry {
     Map<String, RegistryEntry>? entries,
     Map<String, ScheduledJob>? jobs,
     SchedulerSettings? scheduler,
+    WatchSettings? watch,
     this.portMin = 20000,
     this.portMax = 20999,
   }) : entries = entries ?? {},
        jobs = jobs ?? {},
-       scheduler = scheduler ?? SchedulerSettings();
+       scheduler = scheduler ?? SchedulerSettings(),
+       watch = watch ?? WatchSettings();
 
   /// Parses the registry text. Empty text is an empty registry.
   factory Registry.parse(String text) {
@@ -260,6 +264,7 @@ class Registry {
       entries: entries,
       jobs: jobs,
       scheduler: SchedulerSettings.fromMap(doc['scheduler'] as Map?),
+      watch: WatchSettings.fromMap(doc['watch'] as Map?),
       portMin: range is YamlList ? range[0] as int : 20000,
       portMax: range is YamlList ? range[1] as int : 20999,
     );
@@ -272,6 +277,9 @@ class Registry {
 
   /// The nightly run of this machine.
   SchedulerSettings scheduler;
+
+  /// What `podship watch` checks on this machine, and how it alerts.
+  WatchSettings watch;
   final int portMin;
   final int portMax;
 
@@ -446,6 +454,37 @@ class Registry {
     if (mine.scheduler.at != base.scheduler.at) {
       out.scheduler = mine.scheduler;
     }
+    // The watch section: its settings as one value, its targets one by one.
+    final bs = enc(base.watch.settingsMap()),
+        ms = enc(mine.watch.settingsMap());
+    if (bs != ms) {
+      final ts = enc(theirs.watch.settingsMap());
+      if (ts != bs && ts != ms) {
+        throw RegistryConflict(
+          'the watch settings changed on the server meanwhile',
+        );
+      }
+      final targets = out.watch.targets;
+      out.watch = WatchSettings.fromMap(mine.watch.toMap())
+        ..targets.clear()
+        ..targets.addAll(targets);
+    }
+    for (final k in {...base.watch.targets.keys, ...mine.watch.targets.keys}) {
+      final b = enc(base.watch.targets[k]?.toMap());
+      final m = enc(mine.watch.targets[k]?.toMap());
+      if (b == m) continue;
+      final t = enc(theirs.watch.targets[k]?.toMap());
+      if (t != b && t != m) {
+        throw RegistryConflict(
+          'watch target $k changed on the server meanwhile',
+        );
+      }
+      if (mine.watch.targets[k] == null) {
+        out.watch.targets.remove(k);
+      } else {
+        out.watch.targets[k] = mine.watch.targets[k]!;
+      }
+    }
     for (final k in changed) {
       out.check(out.entries[k]!);
     }
@@ -484,6 +523,23 @@ class Registry {
       jobs[id]!.toMap().forEach((field, value) {
         b.writeln('    $field: ${jsonEncode(value)}');
       });
+    }
+    if (!watch.isEmpty) {
+      b
+        ..writeln('# What podship watch checks every few minutes, and where it')
+        ..writeln('# alerts: podship watch status | history | install.')
+        ..writeln('watch:');
+      watch.settingsMap().forEach((field, value) {
+        b.writeln('  $field: ${jsonEncode(value)}');
+      });
+      b.writeln('  targets:');
+      final keys = watch.targets.keys.toList()..sort();
+      if (keys.isEmpty) b.writeln('    {}');
+      for (final k in keys) {
+        b.writeln(
+          '    ${jsonEncode(k)}: ${jsonEncode(watch.targets[k]!.toMap())}',
+        );
+      }
     }
     return b.toString();
   }

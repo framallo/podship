@@ -28,6 +28,7 @@ import 'context.dart';
 import 'inputs.dart';
 import 'resolve.dart';
 import 'scheduler_ops.dart' show agentStep;
+import 'watch_ops.dart' show FleetMachine, ownerTarget;
 import 'scripts.dart';
 import 'state.dart';
 import 'tests.dart';
@@ -446,6 +447,29 @@ Plan planDeploy({
         note: 'from podship.yaml scheduled:',
       ),
     );
+  }
+  // A watched environment (`podship watch install`): its target on this
+  // server follows the podship.yaml of the release (checks, heal). The
+  // cross-watch copies on other machines change with `watch install`.
+  final watchKey = '$project/${env.name}';
+  final watched = reg.watch.targets[watchKey];
+  if (watched != null && watched.owner) {
+    if (!env.watch.enabled) {
+      reg.watch.targets.remove(watchKey);
+    } else {
+      final t = ownerTarget(
+        ctx,
+        r,
+        owner: FleetMachine(
+          name: watched.machine ?? env.host,
+          host: env.host,
+          home: env.podshipHome,
+          path: watched.path,
+        ),
+        now: watched.updated,
+      );
+      if (t.checks.isNotEmpty) reg.watch.targets[watchKey] = t;
+    }
   }
   final inputs = options.inputs ?? DeployInputs();
   final reuse = {

@@ -33,11 +33,15 @@ String agentPath(String? remotePath) => [
 ].join(':');
 
 /// The launchd agent: one nightly run at [settings.at], plus a run at load
-/// (login, reboot) that catches up a missed night.
+/// (login, reboot) that catches up a missed night. With [watchInterval]
+/// (seconds; the machine has watch targets), also a run every
+/// [watchInterval] seconds for `podship watch`: the same agent, so macOS
+/// shows no second background item.
 String schedulerPlist({
   required String home,
   required SchedulerSettings settings,
   required String path,
+  int? watchInterval,
 }) =>
     '''
 <?xml version="1.0" encoding="UTF-8"?>
@@ -58,7 +62,9 @@ String schedulerPlist({
   <dict><key>PATH</key><string>$path</string></dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>${settings.hour}</integer><key>Minute</key><integer>${settings.minute}</integer></dict>
-  <key>RunAtLoad</key><true/>
+  <key>RunAtLoad</key><true/>${watchInterval == null ? '' : '''
+  <key>StartInterval</key><integer>$watchInterval</integer>
+  <key>AbandonProcessGroup</key><true/>'''}
   <key>ProcessType</key><string>Background</string>
   <key>StandardOutPath</key><string>$home/log/scheduler-agent.log</string>
   <key>StandardErrorPath</key><string>$home/log/scheduler-agent.log</string>
@@ -71,6 +77,7 @@ String schedulerPlist({
   required String home,
   required SchedulerSettings settings,
   required String path,
+  int? watchInterval,
 }) => (
   service:
       '''
@@ -89,7 +96,9 @@ Environment=PATH=$path
 ExecStart=${schedulerBin(home)} scheduler tick --home $home
 Nice=10
 IOSchedulingClass=idle
-TimeoutStartSec=3h
+TimeoutStartSec=3h${watchInterval == null ? '' : '''
+# The nightly jobs run in a background process of the tick (the watch).
+KillMode=process'''}
 ''',
   timer:
       '''
@@ -98,7 +107,9 @@ TimeoutStartSec=3h
 Description=podship scheduler, nightly at ${settings.at}
 
 [Timer]
-OnCalendar=*-*-* ${settings.at}:00
+OnCalendar=*-*-* ${settings.at}:00${watchInterval == null ? '' : '''
+OnBootSec=1min
+OnUnitActiveSec=${watchInterval}s'''}
 Persistent=true
 RandomizedDelaySec=1min
 
@@ -114,8 +125,14 @@ String installLaunchdScript({
   required String home,
   required SchedulerSettings settings,
   required String path,
+  int? watchInterval,
 }) {
-  final plist = schedulerPlist(home: home, settings: settings, path: path);
+  final plist = schedulerPlist(
+    home: home,
+    settings: settings,
+    path: path,
+    watchInterval: watchInterval,
+  );
   return '''
 mkdir -p ${shq('$home/log')} ${shq('$home/scheduler')}
 ${schedulerBin(home)} scheduler tick --home ${shq(home)} --seed
@@ -127,7 +144,7 @@ else
   mv -f "\$dst.new" "\$dst"
   launchctl bootout gui/\$(id -u)/$schedulerLabel 2>/dev/null || true
   launchctl bootstrap gui/\$(id -u) "\$dst"
-  echo "$schedulerLabel: registered (nightly at ${settings.at}, and at load)"
+  echo "$schedulerLabel: registered (nightly at ${settings.at}, and at load${watchInterval == null ? '' : '; watch every $watchInterval s'})"
 fi
 launchctl print gui/\$(id -u)/$schedulerLabel | grep -E "state =|path =" | head -2
 ''';
@@ -138,8 +155,14 @@ String installSystemdScript({
   required String home,
   required SchedulerSettings settings,
   required String path,
+  int? watchInterval,
 }) {
-  final u = schedulerSystemd(home: home, settings: settings, path: path);
+  final u = schedulerSystemd(
+    home: home,
+    settings: settings,
+    path: path,
+    watchInterval: watchInterval,
+  );
   return '''
 mkdir -p ${shq('$home/log')} ${shq('$home/scheduler')}
 ${schedulerBin(home)} scheduler tick --home ${shq(home)} --seed

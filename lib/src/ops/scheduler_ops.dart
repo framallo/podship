@@ -346,6 +346,9 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
     registry.scheduler = SchedulerSettings(at: SchedulerSettings.validTime(at));
   }
   final settings = registry.scheduler;
+  final watchInterval = registry.watch.targets.isEmpty
+      ? null
+      : registry.watch.interval;
   final next = registry.render();
   final steps = <Step>[
     ActionStep(
@@ -370,7 +373,8 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
             retireLegacyScript(legacy, replaces: replaces, macos: macos),
       ),
     RemoteStep(
-      'Register $schedulerLabel (nightly at ${settings.at}, and at load)',
+      'Register $schedulerLabel (nightly at ${settings.at}, and at load'
+      '${watchInterval == null ? '' : '; watch every $watchInterval s'})',
       t.host,
       t.header() +
           (macos
@@ -378,11 +382,13 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
                   home: t.home,
                   settings: settings,
                   path: t.path,
+                  watchInterval: watchInterval,
                 )
               : installSystemdScript(
                   home: t.home,
                   settings: settings,
                   path: t.path,
+                  watchInterval: watchInterval,
                 )),
     ),
   ];
