@@ -404,6 +404,54 @@ class Registry {
     return entries.remove(key);
   }
 
+  /// A three-way merge: the changes from [base] to [mine], applied to
+  /// [theirs] (the file now on the server). Deploys of different apps on one
+  /// server change different entries, so they merge. Throws
+  /// [RegistryConflict] when both sides changed the same entry or job in
+  /// different ways, or when a changed entry now clashes with another one
+  /// (a port, a domain, a directory).
+  static Registry merge3(Registry base, Registry mine, Registry theirs) {
+    String enc(Object? m) => jsonEncode(m);
+    final out = Registry.parse(theirs.render());
+    final changed = <String>[];
+    for (final k in {...base.entries.keys, ...mine.entries.keys}) {
+      final b = enc(base.entries[k]?.toMap());
+      final m = enc(mine.entries[k]?.toMap());
+      if (b == m) continue;
+      final t = enc(theirs.entries[k]?.toMap());
+      if (t != b && t != m) {
+        throw RegistryConflict('$k changed on the server meanwhile');
+      }
+      if (mine.entries[k] == null) {
+        out.entries.remove(k);
+      } else {
+        out.entries[k] = mine.entries[k]!;
+        changed.add(k);
+      }
+    }
+    for (final id in {...base.jobs.keys, ...mine.jobs.keys}) {
+      final b = enc(base.jobs[id]?.toMap());
+      final m = enc(mine.jobs[id]?.toMap());
+      if (b == m) continue;
+      final t = enc(theirs.jobs[id]?.toMap());
+      if (t != b && t != m) {
+        throw RegistryConflict('job $id changed on the server meanwhile');
+      }
+      if (mine.jobs[id] == null) {
+        out.jobs.remove(id);
+      } else {
+        out.jobs[id] = mine.jobs[id]!;
+      }
+    }
+    if (mine.scheduler.at != base.scheduler.at) {
+      out.scheduler = mine.scheduler;
+    }
+    for (final k in changed) {
+      out.check(out.entries[k]!);
+    }
+    return out;
+  }
+
   /// The registry as YAML. JSON values are valid YAML; one entry per block.
   String render() {
     final b = StringBuffer()

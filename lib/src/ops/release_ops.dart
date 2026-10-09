@@ -488,7 +488,15 @@ ${ctx.header(env)}mkdir -p ${shq(l.releases)} ${shq(stage)}
 rsync -a $excludes ${shq('$composeDir/')} ${shq('$stage/')}
 ${[for (final e in scan.images.entries)
       if (pinned.containsKey(e.key)) 'docker tag ${e.value} ${shq(pinned[e.key]!)}'].join('\n')}
-${writeRegistry(env, state.registryText, reg.render())}'''),
+'''),
+    RegistryWriteStep(
+      'Write the registry',
+      env.host,
+      env.registryPath,
+      header: ctx.header(env),
+      base: state.registryText,
+      mine: reg.render(),
+    ),
     UploadStep(
       'Upload release metadata',
       env.host,

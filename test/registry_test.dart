@@ -126,4 +126,72 @@ void main() {
     expect(Registry.parse('').entries, isEmpty);
     expect(Registry.parse(Registry().render()).entries, isEmpty);
   });
+
+  group('merge3: deploys of different apps on one server', () {
+    test('a change to another app meanwhile merges', () {
+      final base = Registry()
+        ..put(entry('a/production', ports: {'web': 20000}));
+      final mine = Registry.parse(base.render())
+        ..put(entry('a/production', ports: {'web': 20000}, unit: 'a-backup'));
+      final theirs = Registry.parse(base.render())
+        ..put(entry('b/production', ports: {'web': 20001}));
+      final out = Registry.merge3(base, mine, theirs);
+      expect(out.entries.keys, containsAll(['a/production', 'b/production']));
+      expect(out.entries['a/production']!.backupUnit, 'a-backup');
+      expect(out.entries['b/production']!.ports, {'web': 20001});
+    });
+
+    test('jobs and removals merge too', () {
+      final base = Registry()
+        ..put(entry('a/production'))
+        ..put(entry('c/production'));
+      final mine = Registry.parse(base.render())..remove('c/production');
+      final theirs = Registry.parse(base.render())
+        ..putJob(
+          ScheduledJob(
+            kind: JobKind.backup,
+            project: 'b',
+            env: 'production',
+            conf: '/x.conf',
+          ),
+        );
+      final out = Registry.merge3(base, mine, theirs);
+      expect(out.entries.keys, ['a/production']);
+      expect(out.jobs.keys, ['backup:b/production']);
+    });
+
+    test('the same entry changed both ways is a conflict', () {
+      final base = Registry()
+        ..put(entry('a/production', ports: {'web': 20000}));
+      final mine = Registry.parse(base.render())
+        ..put(entry('a/production', ports: {'web': 20005}));
+      final theirs = Registry.parse(base.render())
+        ..put(entry('a/production', ports: {'web': 20006}));
+      expect(
+        () => Registry.merge3(base, mine, theirs),
+        throwsA(isA<RegistryConflict>()),
+      );
+    });
+
+    test('a port taken meanwhile by another app is a conflict', () {
+      final base = Registry();
+      final mine = Registry()
+        ..put(entry('a/production', ports: {'web': 20000}));
+      final theirs = Registry()
+        ..put(entry('b/production', ports: {'web': 20000}));
+      expect(
+        () => Registry.merge3(base, mine, theirs),
+        throwsA(isA<RegistryConflict>()),
+      );
+    });
+
+    test('no change of mine keeps their file as it is', () {
+      final base = Registry()..put(entry('a/production'));
+      final theirs = Registry.parse(base.render())..put(entry('b/production'));
+      expect(
+        Registry.merge3(base, Registry.parse(base.render()), theirs).render(),
+        theirs.render(),
+      );
+    });
+  });
 }

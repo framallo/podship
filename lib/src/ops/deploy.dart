@@ -596,9 +596,15 @@ Plan planDeploy({
     RemoteStep(
       'Prepare ${env.host}:${env.dir}',
       env.host,
-      ctx.header(env) +
-          prepareScript(config, r) +
-          writeRegistry(env, state.registryText, reg.render()),
+      ctx.header(env) + prepareScript(config, r),
+    ),
+    RegistryWriteStep(
+      'Write the registry',
+      env.host,
+      env.registryPath,
+      header: ctx.header(env),
+      base: state.registryText,
+      mine: reg.render(),
     ),
     UploadStep('Upload files', env.host, snapshot, l.upload),
     RemoteStep(

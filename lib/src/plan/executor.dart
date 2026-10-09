@@ -8,6 +8,8 @@ import '../remote/ssh.dart';
 import '../util/log.dart';
 import '../config/config.dart';
 import 'plan.dart';
+import '../ops/scripts.dart' show writeRegistryLocked, readRegistryB64;
+import '../server/registry.dart';
 
 /// Runs the steps of a [Plan] in order.
 class Executor {
@@ -79,11 +81,49 @@ class Executor {
         await _health(step);
       case PublicChecksStep():
         await _publicChecks(step);
+      case RegistryWriteStep():
+        await _registry(step);
       case ActionStep():
         await step.action();
       case ParallelStep():
         await _parallel(step);
     }
+  }
+
+  /// [RegistryWriteStep]: a locked write; when another deploy changed the
+  /// file, merge into the new file and try again (at most 5 times).
+  Future<void> _registry(RegistryWriteStep step) async {
+    var base = step.base;
+    var next = step.mine;
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      final code = await ssh.lines(
+        step.host,
+        step.header + writeRegistryLocked(step.path, base, next),
+        _line,
+      );
+      if (code == 0) return;
+      if (code != 75) throw StepError(step, 'exit code $code');
+      final out = StringBuffer();
+      final read = await ssh.lines(
+        step.host,
+        step.header + readRegistryB64(step.path),
+        (l, err) => err ? _line(l, err) : out.write(l.trim()),
+      );
+      if (read != 0) throw StepError(step, 'cannot read the registry');
+      final theirs = utf8.decode(base64.decode(out.toString()));
+      try {
+        next = Registry.merge3(
+          Registry.parse(step.base),
+          Registry.parse(step.mine),
+          Registry.parse(theirs),
+        ).render();
+      } on RegistryConflict catch (e) {
+        throw StepError(step, '$e; run the command again');
+      }
+      base = theirs;
+      log.info('the registry changed meanwhile; merged (attempt $attempt)');
+    }
+    throw StepError(step, 'the registry kept changing; run the command again');
   }
 
   /// Runs the lanes of [step] at the same time. Each sub-step is reported

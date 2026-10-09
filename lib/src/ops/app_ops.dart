@@ -23,7 +23,6 @@ import '../server/registry.dart';
 import 'context.dart';
 import 'domain_ops.dart';
 import 'resolve.dart';
-import 'scripts.dart';
 import 'secrets.dart';
 import 'state.dart';
 
@@ -166,10 +165,13 @@ class EnvPlanning {
           final next = reg.render();
           await ctx.executor.run(
             Plan('link', [
-              RemoteStep(
+              RegistryWriteStep(
                 'Write the registry',
                 env.host,
-                ctx.header(env) + writeRegistry(env, before, next),
+                env.registryPath,
+                header: ctx.header(env),
+                base: before,
+                mine: next,
               ),
             ]),
           );
@@ -178,10 +180,13 @@ class EnvPlanning {
             final reg2 = Registry.parse(next)..remove(r.entry.key);
             await ctx.executor.run(
               Plan('unlink', [
-                RemoteStep(
+                RegistryWriteStep(
                   'Write the registry',
                   env.host,
-                  ctx.header(env) + writeRegistry(env, next, reg2.render()),
+                  env.registryPath,
+                  header: ctx.header(env),
+                  base: next,
+                  mine: reg2.render(),
                 ),
               ]),
             );

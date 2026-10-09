@@ -773,10 +773,13 @@ class Podship {
     final reg = state.registry..put(r.entry);
     await ctx.run(
       Plan('link ${config.project}/${e.name} on ${e.host}', [
-        RemoteStep(
+        RegistryWriteStep(
           'Write the registry',
           e.host,
-          ctx.header(e) + writeRegistry(e, state.registryText, reg.render()),
+          e.registryPath,
+          header: ctx.header(e),
+          base: state.registryText,
+          mine: reg.render(),
         ),
       ]),
     );

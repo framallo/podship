@@ -48,21 +48,33 @@ String agentCommand(
     '${shq(schedulerBin(env.podshipHome))} agent $sub --conf ${shq(backupConfPath(env))}'
     '${args.map((a) => ' ${shq(a)}').join()}\n';
 
-/// Replaces the registry, but only if nobody changed it since podship read
-/// [previous].
-String writeRegistry(EnvConfig env, String previous, String next) {
+/// One locked attempt to write the registry at [path]: exit 75 when the
+/// file is no longer [previous] (the caller merges and tries again). A lock
+/// older than 5 minutes is stale (a killed run) and is removed.
+String writeRegistryLocked(String path, String previous, String next) {
   final prevB64 = base64.encode(utf8.encode(previous));
-  final path = env.registryPath;
+  final lock = '$path.lock';
   return '''
 mkdir -p ${shq(p.posix.dirname(path))}
+find ${shq(lock)} -maxdepth 0 -mmin +5 -exec rmdir {} \\; 2>/dev/null || true
+i=0
+until mkdir ${shq(lock)} 2>/dev/null; do
+  i=\$((i + 1))
+  if [ "\$i" -gt 120 ]; then echo "the registry lock is busy: $lock" >&2; exit 1; fi
+  sleep 0.5
+done
+trap 'rmdir ${shq(lock)} 2>/dev/null || true' EXIT
 now=\$(cat ${shq(path)} 2>/dev/null || true)
 was=\$(echo ${shq(prevB64)} | base64 -d)
 if [ "\$(printf '%s' "\$now" | _sha256)" != "\$(printf '%s' "\$was" | _sha256)" ]; then
-  echo "the server registry changed while podship was planning; run the command again" >&2
-  exit 1
+  exit 75
 fi
 ${writeFile(path, next)}''';
 }
+
+/// Prints the registry at [path] as one base64 line (empty when missing).
+String readRegistryB64(String path) =>
+    'if [ -f ${shq(path)} ]; then base64 < ${shq(path)} | tr -d \'\\n\'; fi; echo\n';
 
 /// Brings release [id] up and points `current` at it.
 String switchTo(

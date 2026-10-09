@@ -62,6 +62,33 @@ class RemoteStep extends Step {
   }
 }
 
+/// Writes the server registry: [mine] replaces [base] when the file is
+/// still [base]. When another deploy changed it meanwhile, the executor
+/// reads the new file, merges [base] → [mine] into it
+/// (`Registry.merge3`) and tries again, so deploys of different apps on
+/// one server never stop each other. The write holds a lock on the server.
+class RegistryWriteStep extends Step {
+  const RegistryWriteStep(
+    super.title,
+    this.host,
+    this.path, {
+    required this.header,
+    required this.base,
+    required this.mine,
+  });
+  final String host;
+
+  /// The registry file on the server.
+  final String path;
+
+  /// The script header (set -e, PATH, helpers).
+  final String header;
+  final String base;
+  final String mine;
+  @override
+  String describe() => '[$host] write $path (merged under a lock)';
+}
+
 /// Copies a local directory to the server with rsync.
 class UploadStep extends Step {
   const UploadStep(

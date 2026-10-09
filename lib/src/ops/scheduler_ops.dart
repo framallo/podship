@@ -107,29 +107,16 @@ Plan planPullSchedule(
   return Plan(
     '${remove ? 'remove' : 'schedule'} the off-site pull of ${env.name} on ${t.label}',
     [
-      RemoteStep(
+      RegistryWriteStep(
         '${remove ? 'Remove' : 'Write'} ${job.id} ${remove ? 'from' : 'into'} ${t.registryPath}',
         t.host,
-        t.header() + writeRegistryAt(t, registryText, registry.render()),
+        t.registryPath,
+        header: t.header(),
+        base: registryText,
+        mine: registry.render(),
       ),
     ],
   );
-}
-
-/// Replaces the registry of [t], but only if nobody changed it since
-/// podship read [previous].
-String writeRegistryAt(SchedulerTarget t, String previous, String next) {
-  final prevB64 = base64.encode(utf8.encode(previous));
-  final path = t.registryPath;
-  return '''
-mkdir -p ${shq(p.posix.dirname(path))}
-now=\$(cat ${shq(path)} 2>/dev/null || true)
-was=\$(echo ${shq(prevB64)} | base64 -d)
-if [ "\$(printf '%s' "\$now" | _sha256)" != "\$(printf '%s' "\$was" | _sha256)" ]; then
-  echo "the registry changed while podship was planning; run the command again" >&2
-  exit 1
-fi
-${writeFile(path, next)}''';
 }
 
 /// Reads the registry of [t].
@@ -367,10 +354,13 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
       () async => ctx.log.info('binary: ${await installBinary(ctx, t, local)}'),
     ),
     if (next != registryText)
-      RemoteStep(
+      RegistryWriteStep(
         'Write the jobs and the run time into ${t.registryPath}',
         t.host,
-        t.header() + writeRegistryAt(t, registryText, next),
+        t.registryPath,
+        header: t.header(),
+        base: registryText,
+        mine: next,
       ),
     if (legacy.isNotEmpty || replaces.isNotEmpty)
       RemoteStep(

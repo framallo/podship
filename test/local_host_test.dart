@@ -165,9 +165,9 @@ void main() {
       final job = reg.jobs['backup:demo/production']!;
       expect(job.conf, '/srv/podship/etc/demo-backup.conf');
       expect(job.script, isNull);
-      final write = p.steps.whereType<RemoteStep>().last.script;
-      expect(write, contains('"backup:demo/production":'));
-      expect(write, contains('/srv/podship/registry.yaml'));
+      final write = p.steps.whereType<RegistryWriteStep>().last;
+      expect(write.mine, contains('"backup:demo/production":'));
+      expect(write.path, '/srv/podship/registry.yaml');
       // The old unit in backup.replaces is retired by `scheduler install`.
       final retire = retireLegacyScript(
         const [],

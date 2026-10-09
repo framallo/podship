@@ -166,10 +166,13 @@ Plan planSchedule(
   if (remove) {
     registry.removeJob(job.id);
     return Plan('remove the backup job of ${env.name}', [
-      RemoteStep(
+      RegistryWriteStep(
         'Remove ${job.id} from the registry',
         env.host,
-        ctx.header(env) + writeRegistry(env, registryText, registry.render()),
+        env.registryPath,
+        header: ctx.header(env),
+        base: registryText,
+        mine: registry.render(),
       ),
     ]);
   }
@@ -183,10 +186,13 @@ Plan planSchedule(
         env.host,
         ctx.header(env) + backupSetup(ctx.config, r),
       ),
-      RemoteStep(
+      RegistryWriteStep(
         'Write ${job.id} into the registry',
         env.host,
-        ctx.header(env) + writeRegistry(env, registryText, registry.render()),
+        env.registryPath,
+        header: ctx.header(env),
+        base: registryText,
+        mine: registry.render(),
       ),
     ],
   );

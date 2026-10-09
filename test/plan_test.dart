@@ -99,6 +99,7 @@ void main() {
         'Pre-deploy hook',
         'Select files and write release 20261006-160000-a0dc2b0',
         'Prepare prod-box:/srv/demo',
+        'Write the registry',
         'Upload files',
         'Create release 20261006-160000-a0dc2b0',
         'Build images on the server',
