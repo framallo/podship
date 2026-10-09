@@ -15,6 +15,7 @@
 // Retention prunes only after the new backup is complete. The last line is
 // `PODSHIP_BACKUP_STAMP=<stamp>`; podship and the scheduler read it.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -346,7 +347,17 @@ class BackupAgent {
             ],
             ['tar', '-x', '-C', into],
           ]);
-          if (!r.ok) fail('cannot copy volume ${v.volume}');
+          if (!r.ok) {
+            // A live service can delete files while tar reads the volume
+            // (a git repack, a temp file). Those files are not in the
+            // copy; every other error fails the backup.
+            final gone = vanishedFiles(r.stderr);
+            if (gone == null) fail('cannot copy volume ${v.volume}');
+            log(
+              'volume ${v.volume}: ${gone.length} files disappeared during '
+              'the copy and are not in it',
+            );
+          }
         }
         final arc = p.join(tmp, '${v.name}.$ext');
         final r = s.compress == 'zstd'
@@ -421,4 +432,29 @@ class BackupAgent {
       lock.closeSync();
     }
   }
+}
+
+/// The files that tar could not read because they disappeared while it
+/// ran, when that is the only kind of error in [stderr]. Null when stderr
+/// has another error, or no such file.
+List<String>? vanishedFiles(String stderr) {
+  final gone = <String>[];
+  final missing = RegExp(
+    r'^tar: (.+): (No such file or directory|File removed before we read it|file removed before we read it)$',
+  );
+  final summary = RegExp(
+    r'^tar: (error exit delayed from previous errors\.?|Exiting with failure status due to previous errors|.*: file changed as we read it)$',
+    caseSensitive: false,
+  );
+  for (final raw in const LineSplitter().convert(stderr)) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final m = missing.firstMatch(line);
+    if (m != null) {
+      gone.add(m.group(1)!);
+    } else if (!summary.hasMatch(line)) {
+      return null;
+    }
+  }
+  return gone.isEmpty ? null : gone;
 }

@@ -304,6 +304,71 @@ void main() {
       },
     );
 
+    test('files that disappear during the volume copy are skipped; other '
+        'tar errors still fail', () async {
+      ProcResult? copy(List<String> c, String? i, String err) =>
+          c.first == 'docker' && c.contains('-cf') && c.last == '.'
+          ? ProcResult(1, stderr: err)
+          : server(c, i);
+      const gone =
+          'tar: ./repos/boceto/mirror/.git/objects/pack/pack-1.pack: No such '
+          'file or directory\n'
+          'tar: ./repos/boceto/mirror/.git/objects/pack/pack-1.idx: No such '
+          'file or directory\n'
+          'tar: error exit delayed from previous errors\n';
+      final out = _Sink();
+      final stamp = await BackupAgent(
+        settingsFor(dir),
+        proc: FakeProc((c, i) => copy(c, i, gone)),
+        out: out,
+        lockDir: dir.path,
+        volumeTmp: dir.path,
+      ).backup();
+      expect(stamp, '2026-10-08T0330');
+      expect(out.text, contains('2 files disappeared during the copy'));
+
+      final dir2 = Directory.systemTemp.createTempSync('podship-agent-');
+      addTearDown(() => dir2.deleteSync(recursive: true));
+      File(p.join(dir2.path, 'recipients')).writeAsStringSync('age1xyz\n');
+      File(p.join(dir2.path, 'env')).writeAsStringSync('SECRET=1\n');
+      await expectLater(
+        BackupAgent(
+          settingsFor(dir2),
+          proc: FakeProc((c, i) => copy(c, i, 'tar: ./a: Permission denied\n')),
+          out: _Sink(),
+          lockDir: dir2.path,
+          volumeTmp: dir2.path,
+        ).backup(),
+        throwsA(
+          isA<AgentFailure>().having(
+            (e) => e.message,
+            'm',
+            contains('cannot copy volume'),
+          ),
+        ),
+      );
+    });
+
+    test('vanishedFiles reads GNU, BusyBox and bsdtar messages', () {
+      expect(
+        vanishedFiles(
+          'tar: ./x: No such file or directory\n'
+          'tar: Exiting with failure status due to previous errors\n',
+        ),
+        ['./x'],
+      );
+      expect(
+        vanishedFiles(
+          'tar: ./y: File removed before we read it\n'
+          'tar: Error exit delayed from previous errors.\n',
+        ),
+        ['./y'],
+      );
+      expect(vanishedFiles(''), isNull);
+      expect(vanishedFiles('tar: ./z: Permission denied\n'), isNull);
+      expect(vanishedFiles('docker: Error response from daemon\n'), isNull);
+    });
+
     test('a dump with too few tables fails and publishes nothing', () async {
       final s = settingsFor(dir, extra: 'MIN_TABLES=3\n');
       final out = _Sink();
