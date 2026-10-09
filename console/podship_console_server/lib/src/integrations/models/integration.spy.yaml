@@ -1,0 +1,29 @@
+### A workspace's connection to a provider (INT-1, INT-2). The credential is
+### encrypted with AES-256-GCM (INT-4); it never leaves the server for the
+### browser (INT-5).
+class: Integration
+serverOnly: true
+table: integration
+fields:
+  workspace: Workspace?, relation(onDelete=Cascade)
+  provider: IntegrationProvider
+  ### `pending` (AWS: waiting for the stack) or `connected`.
+  status: String
+  ### Encrypted credential (Cloudflare: the token; AWS: the role ARN). Null
+  ### while pending.
+  secret: String?
+  ### Last 4 characters of the credential, for the UI.
+  hint: String?
+  ### Facts without secrets, as JSON: account name and id, zones, role,
+  ### SES region and mode, stack id.
+  details: String, default='{}'
+  connectedBy: String?
+  connectedAt: DateTime?
+  lastCheckAt: DateTime?
+  lastCheckOk: bool?
+  lastError: String?
+  updatedAt: DateTime, default=now
+indexes:
+  integration_workspace_provider_idx:
+    fields: workspaceId, provider
+    unique: true

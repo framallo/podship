@@ -1,0 +1,6 @@
+### Why a connect failed. `detail` names a permission or a cause, never a
+### secret.
+exception: IntegrationException
+fields:
+  reason: IntegrationFailure
+  detail: String?

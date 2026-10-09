@@ -684,7 +684,7 @@ The protocol (version 1) is defined in `lib/src/protocol/protocol.dart`:
 
 - Operations that change DNS, tunnels, Access or SES have `"approval": "owner"` in the catalog (`domain.add`/`domain.remove`: `owner_if_cloudflare`) and name their `plan_operation` (`dns.plan`, `domain.plan`, `tunnel.plan`, `email.plan`, `app.plan`, `app.teardown.plan`). A plan returns `plan_id`. The apply runs only with `plan_id`, and only if the plan it computes again has the same id (otherwise nothing runs and the result names the new id). A request may carry `"origin": "cli" | "console" | "mcp"`; with `mcp`, these operations refuse to apply (`dry_run` and the plan operations work). So an MCP agent can plan; the owner approves the plan id in the console, which then sends the apply. `email.test` and `tunnel.create` have no plan: the console asks its usual confirmation.
 
-`dispatch(Podship, OperationRequest)` runs a request and streams its events: a console can use it directly. Operation and parameter names are stable; new versions only add. The console itself is a separate project and is not part of this repository.
+`dispatch(Podship, OperationRequest)` runs a request and streams its events: a console can use it directly. Operation and parameter names are stable; new versions only add. The console lives in `console/` (its own Dart workspace).
 
 ## podship console install
 
@@ -792,6 +792,12 @@ An IAM user (or role) for podship, with this policy (narrow `Resource` to your i
   }]
 }
 ```
+
+### The podship console (workspace integrations)
+
+The podship console (`console/`, https://podship.densitylabs.io for Density Labs) keeps the workspace's Cloudflare and AWS connections. The owner connects each provider once in Settings → Integrations, by clicks only: Cloudflare with a pre-filled API token, AWS with a CloudFormation stack that makes a role (no access keys; the console is the OIDC issuer the role trusts). Every project of the workspace uses the connection.
+
+The CLI reads them from the console before the Keychain when a console is set (`PODSHIP_CONSOLE_URL`, or `console.url` in `~/.podship/config.yaml` or `podship.yaml`) and `podship login <url>` stored a token: `GET <console>/podship/v1/integrations/{cloudflare|aws}/credentials` gives the Cloudflare token or STS credentials for 1 hour. `podship email sender --env <env>` makes the app's own send-only SES user (`<project>-ses`, under `/podship-ses/`, with the boundary `podship-ses-sender`) and stores its key as the app's secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 
 ### Where credentials live
 

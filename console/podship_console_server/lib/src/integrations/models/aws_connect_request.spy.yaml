@@ -1,0 +1,16 @@
+### The one-time code inside an AWS template (INT-12).
+class: AwsConnectRequest
+serverOnly: true
+table: aws_connect_request
+fields:
+  workspaceId: int
+  ### SHA-256 of the code.
+  codeHash: String
+  createdBy: String
+  createdAt: DateTime, default=now
+  expiresAt: DateTime
+  usedAt: DateTime?
+indexes:
+  aws_connect_code_idx:
+    fields: codeHash
+    unique: true

@@ -1,0 +1,15 @@
+emailCode:
+  - requestCode:
+  - verifyCode:
+  - redeemLink:
+jwtRefresh:
+  - refreshAccessToken:
+integrations:
+  - list:
+  - cloudflareTokenUrl:
+  - saveCloudflare:
+  - startAws:
+  - disconnect:
+  - check:
+me:
+  - get:

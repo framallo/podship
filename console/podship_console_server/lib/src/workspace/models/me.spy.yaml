@@ -1,0 +1,10 @@
+### What the app knows about the signed-in person.
+class: Me
+fields:
+  email: String
+  workspaceId: int
+  workspaceName: String
+  role: WorkspaceRole
+  ### Owners and admins may connect and disconnect (INT-3).
+  canManage: bool
+  locale: String

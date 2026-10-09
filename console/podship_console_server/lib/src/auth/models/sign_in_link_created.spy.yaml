@@ -1,0 +1,6 @@
+class: SignInLinkCreated
+serverOnly: true
+fields:
+  email: String
+  url: String
+  expiresAt: DateTime

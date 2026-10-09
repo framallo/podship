@@ -1,0 +1,18 @@
+### A personal access token for the podship CLI (`podship login`). Only the
+### SHA-256 is stored.
+class: AccessToken
+serverOnly: true
+table: access_token
+fields:
+  workspaceId: int
+  email: String
+  name: String
+  tokenHash: String
+  createdAt: DateTime, default=now
+  expiresAt: DateTime
+  lastUsedAt: DateTime?
+  revokedAt: DateTime?
+indexes:
+  access_token_hash_idx:
+    fields: tokenHash
+    unique: true

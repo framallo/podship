@@ -1,0 +1,12 @@
+### A workspace: people and projects that share the provider integrations.
+class: Workspace
+table: workspace
+fields:
+  name: String
+  ### URL-safe name, for example `density-labs`.
+  slug: String
+  createdAt: DateTime, default=now
+indexes:
+  workspace_slug_idx:
+    fields: slug
+    unique: true

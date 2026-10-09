@@ -1,0 +1,16 @@
+### A one-time sign-in link, made on the server (`/internal/sign-in-link`).
+class: SignInLink
+serverOnly: true
+table: sign_in_link
+fields:
+  id: UuidValue?, defaultPersist=random_v7
+  email: String
+  ### SHA-256 of the token in the link.
+  tokenHash: String
+  expiresAt: DateTime
+  consumedAt: DateTime?
+  createdAt: DateTime, default=now
+indexes:
+  sign_in_link_token_idx:
+    fields: tokenHash
+    unique: true

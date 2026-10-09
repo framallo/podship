@@ -3,7 +3,9 @@
 // The CLI keeps them in the system's secret store (macOS Keychain, Linux
 // Secret Service, or a 0600 file), under `provider:cloudflare` and
 // `provider:aws`. A console passes its own [SecretSource] (its encrypted
-// store). Environment variables override the store, for CI:
+// store). The CLI also reads the podship console's workspace integrations
+// (console_secrets.dart) before the Keychain. Environment variables come
+// first, for CI:
 // `CLOUDFLARE_API_TOKEN`, and `AWS_ACCESS_KEY_ID` with
 // `AWS_SECRET_ACCESS_KEY` (and `AWS_SESSION_TOKEN`).
 //
@@ -13,6 +15,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../protocol/tokens.dart';
+import 'console_secrets.dart';
 
 /// Where credentials come from.
 abstract class SecretSource {
@@ -45,6 +48,10 @@ class SystemSecrets implements SecretSource {
           });
         }
     }
+    // The workspace's integration in the podship console, when the command
+    // fetched it (ConsoleCredentials.prime); the Keychain is the fallback.
+    final console = ConsoleCredentials.read(key);
+    if (console != null) return console;
     // Not TokenStore.read: PODSHIP_TOKEN (a console token) must not stand
     // in for a provider credential.
     return _store.readStored(key);

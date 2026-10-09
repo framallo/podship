@@ -1,0 +1,9 @@
+enum: EmailCodeFailure
+values:
+  - invalidEmail
+  - invalidCode
+  - expired
+  - tooManyAttempts
+  - notFound
+  - deliveryFailed
+  - noAccess

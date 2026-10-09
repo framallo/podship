@@ -1,0 +1,21 @@
+### What the browser sees of an integration: never the credential (INT-5).
+class: IntegrationView
+fields:
+  provider: IntegrationProvider
+  ### off, pending, connected
+  status: String
+  hint: String?
+  ### Cloudflare: account name. AWS: account id.
+  account: String?
+  ### Cloudflare: number of zones.
+  zones: int?
+  ### AWS: role name, SES region and mode.
+  role: String?
+  sesRegion: String?
+  sesProduction: bool?
+  connectedBy: String?
+  connectedAt: DateTime?
+  pendingSince: DateTime?
+  lastCheckAt: DateTime?
+  lastCheckOk: bool?
+  lastError: String?

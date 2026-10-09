@@ -1,0 +1,5 @@
+enum: IntegrationProvider
+serialized: byName
+values:
+  - cloudflare
+  - aws

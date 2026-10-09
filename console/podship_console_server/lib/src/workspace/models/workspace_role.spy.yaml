@@ -1,0 +1,7 @@
+### Owners and admins connect and disconnect integrations (INT-3).
+enum: WorkspaceRole
+serialized: byName
+values:
+  - owner
+  - admin
+  - member

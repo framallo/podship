@@ -1,0 +1,12 @@
+class: WorkspaceMember
+table: workspace_member
+fields:
+  workspace: Workspace?, relation(onDelete=Cascade)
+  ### Lowercase email. The person signs in with it.
+  email: String
+  role: WorkspaceRole
+  createdAt: DateTime, default=now
+indexes:
+  workspace_member_idx:
+    fields: workspaceId, email
+    unique: true

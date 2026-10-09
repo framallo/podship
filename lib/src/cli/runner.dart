@@ -12,6 +12,7 @@ import 'provider_commands.dart';
 import 'db_commands.dart';
 import 'image_commands.dart';
 import 'integration_commands.dart';
+import 'email_sender_command.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
 import 'scheduler_commands.dart';
@@ -100,6 +101,7 @@ class PodshipRunner extends CommandRunner<int> {
         EmailStatusCommand(),
         EmailSetupCommand(),
         EmailTestCommand(),
+        EmailSenderCommand(),
       ]),
       GroupCommand(
         'app',

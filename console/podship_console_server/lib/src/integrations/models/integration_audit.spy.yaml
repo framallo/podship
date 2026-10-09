@@ -1,0 +1,19 @@
+### One row per connect, disconnect, refused credential and credential read
+### (INT-7). Never holds a secret (INT-6).
+class: IntegrationAudit
+serverOnly: true
+table: integration_audit
+fields:
+  workspaceId: int
+  provider: IntegrationProvider
+  ### connect, connect_refused, disconnect, credential_read, aws_template,
+  ### aws_callback, aws_stack_deleted, check_failed
+  action: String
+  ### The person's email or `token <name>` or `aws`.
+  actor: String
+  ok: bool
+  detail: String, default=''
+  createdAt: DateTime, default=now
+indexes:
+  integration_audit_ws_idx:
+    fields: workspaceId, createdAt

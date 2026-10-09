@@ -1,0 +1,4 @@
+### Error while requesting or redeeming a sign-in code or link.
+exception: EmailCodeException
+fields:
+  reason: EmailCodeFailure

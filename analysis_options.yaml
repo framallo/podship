@@ -1,5 +1,10 @@
 include: package:lints/recommended.yaml
 
+# The console (console/) is its own Dart workspace with its own options.
+analyzer:
+  exclude:
+    - console/**
+
 linter:
   rules:
     - prefer_single_quotes

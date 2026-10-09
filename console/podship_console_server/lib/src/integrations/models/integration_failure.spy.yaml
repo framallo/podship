@@ -1,0 +1,9 @@
+enum: IntegrationFailure
+serialized: byName
+values:
+  - forbidden
+  - empty
+  - invalid
+  - inactive
+  - missingPermission
+  - unreachable

@@ -1,0 +1,17 @@
+### The console's OIDC signing key (RS256). AWS trusts tokens signed with the
+### active key. Disconnecting AWS retires it (INT-16).
+class: OidcKey
+serverOnly: true
+table: oidc_key
+fields:
+  kid: String
+  ### Encrypted private key (JSON of the RSA numbers).
+  privateKey: String
+  ### Public JWK as JSON.
+  publicJwk: String
+  createdAt: DateTime, default=now
+  retiredAt: DateTime?
+indexes:
+  oidc_key_kid_idx:
+    fields: kid
+    unique: true

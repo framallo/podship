@@ -1,0 +1,17 @@
+### A pending 6-digit code. Never stores the code in clear.
+class: EmailCodeRequest
+serverOnly: true
+table: email_code_request
+fields:
+  id: UuidValue?, defaultPersist=random_v7
+  email: String
+  ### Argon2 hash of the code.
+  codeHash: String
+  expiresAt: DateTime
+  attempts: int, default=0
+  consumedAt: DateTime?
+  locale: String, default='en'
+  createdAt: DateTime, default=now
+indexes:
+  email_code_request_email_idx:
+    fields: email

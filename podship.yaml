@@ -1,0 +1,115 @@
+# podship: deploys, backups and rollbacks of the podship console
+# (console/, decision podship-design 2026-10-09-integrations-phase-1).
+# The CLI and library at the root of this repo are not deployed; the console
+# server depends on them by path.
+#
+# No secrets here: they live only on the Mac Studio (`podship secret list
+# --env production`).
+#   production: the Mac Studio itself (host: local, Docker from Colima),
+#               Cloudflare tunnel mac-studio, https://podship.densitylabs.io
+project: podship-console
+server_package: console/podship_console_server
+
+build:
+  source: git            # exports the commit; uncommitted changes never ship
+  ref: main
+  flutter_web:
+    - name: app
+      path: console/podship_console_flutter
+      output: console/podship_console_server/web/app
+      base_href: /
+
+tests:
+  runner: local
+  suites:
+    - name: console-server
+      dir: console/podship_console_server
+      # The export has no passwords.yaml (a secret): test-only values first.
+      command: "dart run tool/console_tool.dart test-passwords --write config/passwords.yaml && dart test --concurrency=1"
+      timeout: 1800
+      environments: [production]
+    - name: console-app
+      dir: console/podship_console_flutter
+      command: flutter test --concurrency=1
+      timeout: 1200
+      environments: [production]
+    - name: podship-unit
+      dir: .
+      command: dart test test/console_secrets_test.dart test/iam_test.dart
+      timeout: 900
+      environments: [production]
+
+compose:
+  files: [docker-compose.console.yml]
+
+environments:
+  production:
+    host: local                                  # this Mac: no ssh
+    dir: /Users/framallo/services/podship-console
+    compose_project: podship-console
+    podship_home: /Users/framallo/podship
+    remote_path: /opt/homebrew/bin:/usr/local/bin
+    # web: nginx on loopback, the tunnel's origin. Boceto 8350/8351, Presente 8360.
+    ports: {web: 8370}
+    health:
+      url: http://127.0.0.1:{port:web}/health
+      public_url: https://podship.densitylabs.io/health
+      public_checks:
+        - url: https://podship.densitylabs.io/health
+          content_type: application/json
+          contains: '"ok":true'
+        - url: https://podship.densitylabs.io/assets/assets/config.json
+          content_type: application/json
+          contains: '"apiUrl":"https://podship.densitylabs.io/rpc/"'
+        # AWS reads these before it trusts the console (OIDC issuer).
+        - url: https://podship.densitylabs.io/.well-known/openid-configuration
+          content_type: application/json
+          contains: '"issuer":"https://podship.densitylabs.io"'
+        - url: https://podship.densitylabs.io/.well-known/jwks.json
+          content_type: application/json
+          contains: '"RS256"'
+        - url: https://podship.densitylabs.io/podship/v1/whoami
+          status: [401]
+          content_type: application/json
+      attempts: 30
+      interval: 6
+    secrets:
+      env_file: .env
+      passwords_file: console/podship_console_server/config/passwords.yaml
+      database_password_env: POSTGRES_PASSWORD
+      password_keys:
+        - database
+        - serviceSecret
+        - integrationKey
+        - emailSecretHashPepper
+        - jwtHmacSha512PrivateKey
+        - jwtRefreshTokenHashPepper
+    plain_env: [CONSOLE_OWNER_EMAILS, CONSOLE_WORKSPACE, CONSOLE_MAIL_FROM, CONSOLE_SES_REGION]
+    database: {name: podship_console, user: postgres}
+    serverpod:
+      logs: {retention_period: 30d, retention_count: 100000, cleanup_interval: 24h}
+      stop_grace: 30
+    releases: {keep: 5}
+    backup:
+      dir: /Users/framallo/podship/backups/podship-console
+      unit: dev.podship.backup.podship-console
+      schedule: "*-*-* 03:50:00"           # Mac local time
+      timezone: America/Mexico_City
+      recipients: [~/.ssh/id_ed25519.pub, ~/.ssh/id_rsa.pub]
+      stop_on_restore: [server]
+      drill:
+        tables: [workspace, workspace_member, integration, integration_audit, oidc_key, access_token, "email_code*"]
+        volatile: [serverpod_auth_core_jwt_refresh_token, serverpod_auth_core_session, serverpod_auth_idp_rate_limited_request_attempt, "email_code_request*", sign_in_link, aws_connect_request]
+      offsite:
+        dir: ~/Sync/Backups/podship-console/encrypted
+        identities: [~/.ssh/id_ed25519, ~/.ssh/id_rsa]
+    proxy:
+      kind: cloudflare_tunnel
+      config: /Users/framallo/.cloudflared/config.yml
+      service: io.densitylabs.mac-studio-tunnel
+      tunnel_id: d90614dd-738e-4f64-946e-a7e0fa8b33e0
+      origin_certs: {densitylabs.io: /Users/framallo/.cloudflared/cert.pem}
+    domains:
+      - host: podship.densitylabs.io
+        routes:
+          - {port: web}
