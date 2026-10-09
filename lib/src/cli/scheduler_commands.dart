@@ -222,7 +222,7 @@ class SchedulerTickCommand extends PodshipCommand {
       // The agent must stay alive whatever a job did.
       return runs.any((r) => !r.ok && !r.skipped) ? 1 : 0;
     }
-    final watched = runner.readRegistry().watch.targets.isNotEmpty;
+    final watched = WatchRunner(home).loadWatch().targets.isNotEmpty;
     if (watched && argResults!['no-watch'] != true) {
       await WatchRunner(home, echo: stdout.writeln).run();
     }

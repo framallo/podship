@@ -430,7 +430,7 @@ watch:
 
 In `podship.yaml`, per environment: `watch: {enabled: false}` stops watching it, `watch: {heal: false}` watches it without healing. Each deploy refreshes the target on the environment's own server from the release's `podship.yaml`; run `watch install` again to update the copies on the other machines. After the first `watch install` on a machine, run `podship scheduler install` there so its agent ticks every `interval` seconds (one plist change, so macOS shows its background notice once). Email alerts need AWS credentials on each machine: `podship provider login aws`, as the user that runs the agent.
 
-**Files on each machine.** `<podship_home>/watch/state.json` (per target: failures in a row, the open incident, heal attempts), `<podship_home>/watch/incidents.jsonl` (one JSON line per event: `down`, `engine_start`, `heal`, `still_down`, `recovered` with `downtime_s`), `<podship_home>/log/watch.log` (one line per run).
+**Files on each machine.** `<podship_home>/watch/state.json` (per target: failures in a row, the open incident, heal attempts), `<podship_home>/watch/incidents.jsonl` (one JSON line per event: `down`, `engine_start`, `heal`, `still_down`, `recovered` with `downtime_s`), `<podship_home>/log/watch.log` (one line per run), and `<podship_home>/watch/settings.json`, a copy of the registry's `watch:` section: a podship older than the watch (a deploy that was already running during the upgrade) rewrites the registry without the section, and the watch then keeps working from the copy until the next `watch install`. A registry with a `watch:` section always wins over the copy.
 
 The notification events are `watch_down` and `watch_recovered` (on by default).
 

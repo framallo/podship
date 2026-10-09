@@ -479,6 +479,25 @@ environments:
       }
     });
 
+    test(
+      'an older podship drops the watch: section; the watch uses its copy',
+      () async {
+        await tick();
+        // A deploy by a podship older than the watch rewrites the registry.
+        File(
+          p.join(home.path, 'registry.yaml'),
+        ).writeAsStringSync(Registry().render());
+        final r = await tick();
+        expect(r.outcomes.keys, hasLength(3));
+        // An explicit empty section (watch uninstall) wins over the copy.
+        final empty = Registry()..watch.machine = 'box';
+        File(
+          p.join(home.path, 'registry.yaml'),
+        ).writeAsStringSync(empty.render());
+        expect((await tick()).outcomes, isEmpty);
+      },
+    );
+
     test('two targets down in one run: one alert for both', () async {
       problems = {
         'https://production.shop.example/health': 'x',

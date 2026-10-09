@@ -291,6 +291,42 @@ class WatchRunner {
     return Registry.parse(f.existsSync() ? f.readAsStringSync() : '');
   }
 
+  String get copyPath => p.join(dir, 'settings.json');
+
+  /// The `watch:` section of the registry. The watch keeps a copy of it: a
+  /// podship older than the watch (a deploy that was running during the
+  /// upgrade) rewrites the registry without the section, and the watch must
+  /// not go blind. A registry with the section always wins, so
+  /// `watch uninstall` works.
+  WatchSettings loadWatch() {
+    final reg = readRegistry();
+    if (reg.hasWatch) {
+      final text = jsonEncode(reg.watch.toMap());
+      try {
+        final f = File(copyPath);
+        if (!f.existsSync() || f.readAsStringSync() != text) {
+          f.parent.createSync(recursive: true);
+          File('$copyPath.tmp')
+            ..writeAsStringSync(text)
+            ..renameSync(copyPath);
+        }
+      } catch (_) {}
+      return reg.watch;
+    }
+    final f = File(copyPath);
+    if (!f.existsSync()) return reg.watch;
+    try {
+      final w = WatchSettings.fromMap(jsonDecode(f.readAsStringSync()) as Map);
+      log(
+        'the registry has no watch: section (an older podship wrote it); '
+        'using the copy. Run podship watch install again.',
+      );
+      return w;
+    } catch (_) {
+      return reg.watch;
+    }
+  }
+
   WatchState loadState() {
     final f = File(statePath);
     if (!f.existsSync()) return WatchState();
@@ -359,8 +395,7 @@ class WatchRunner {
   }
 
   Future<WatchRun> _run() async {
-    final reg = readRegistry();
-    final w = reg.watch;
+    final w = loadWatch();
     final machine = _machine ?? w.machine ?? Platform.localHostname;
     final targets = w.targets.values.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -663,7 +698,7 @@ class WatchRunner {
     String machine,
     List<IncidentEvent> events,
   ) async {
-    final w = readRegistry().watch;
+    final w = loadWatch();
     final first = targets.first;
     // The engine first: one engine per machine.
     var engineRestarted = false;

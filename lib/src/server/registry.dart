@@ -232,6 +232,7 @@ class Registry {
     Map<String, ScheduledJob>? jobs,
     SchedulerSettings? scheduler,
     WatchSettings? watch,
+    this.hasWatch = false,
     this.portMin = 20000,
     this.portMax = 20999,
   }) : entries = entries ?? {},
@@ -265,6 +266,7 @@ class Registry {
       jobs: jobs,
       scheduler: SchedulerSettings.fromMap(doc['scheduler'] as Map?),
       watch: WatchSettings.fromMap(doc['watch'] as Map?),
+      hasWatch: doc['watch'] is Map,
       portMin: range is YamlList ? range[0] as int : 20000,
       portMax: range is YamlList ? range[1] as int : 20999,
     );
@@ -280,6 +282,11 @@ class Registry {
 
   /// What `podship watch` checks on this machine, and how it alerts.
   WatchSettings watch;
+
+  /// The parsed file had a `watch:` section. A registry that a podship
+  /// older than the watch wrote has none, even on a watched machine: the
+  /// watch then uses its own copy (`<home>/watch/settings.json`).
+  final bool hasWatch;
   final int portMin;
   final int portMax;
 
