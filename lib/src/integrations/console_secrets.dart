@@ -148,8 +148,8 @@ class ConsoleCredentials {
         ..set(HttpHeaders.acceptHeader, 'application/json');
       final res = await req.close().timeout(const Duration(seconds: 20));
       final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode == 409 || res.statusCode == 404)
-        return null; // not connected
+      // 409: the provider is not connected.
+      if (res.statusCode == 409 || res.statusCode == 404) return null;
       if (res.statusCode != 200) {
         throw HttpException('HTTP ${res.statusCode}');
       }

@@ -39,6 +39,7 @@ Future<void> main(List<String> args) async {
       exit(
         await _internal(opt('dir') ?? _defaultDir, '/internal/sign-in-link', {
           'email': positional.first,
+          'minutes': int.tryParse(opt('minutes') ?? '') ?? 30,
         }),
       );
     case 'access-token':
@@ -58,7 +59,7 @@ Future<void> main(List<String> args) async {
 void _usage() {
   stderr.writeln(
     'usage: console_tool.dart test-passwords [--write FILE] | '
-    'sign-in-link EMAIL [--dir DIR] | '
+    'sign-in-link EMAIL [--minutes N] [--dir DIR] | '
     'access-token EMAIL [--name NAME] [--days N] [--dir DIR]',
   );
   exit(64);

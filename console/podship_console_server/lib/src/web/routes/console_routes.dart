@@ -133,8 +133,9 @@ class PodshipApiRoute extends Route {
       final p = IntegrationProvider.values
           .where((v) => v.name == name)
           .firstOrNull;
-      if (p == null)
+      if (p == null) {
         return errorResponse(400, 'unknownProvider', 'no such provider');
+      }
       try {
         return jsonResponse(
           await IntegrationService.credentialsFor(session, actor, p),
@@ -175,7 +176,8 @@ abstract class InternalRoute extends Route {
   }
 }
 
-/// `{"email"}` → a one-time sign-in link (30 minutes).
+/// `{"email", "minutes"}` → a one-time sign-in link (default 30 minutes,
+/// at most 24 hours).
 class InternalSignInLinkRoute extends InternalRoute {
   @override
   Future<Result> handle(Session session, Map<String, Object?> body) async {
@@ -183,7 +185,12 @@ class InternalSignInLinkRoute extends InternalRoute {
     if (!await EmailCodeIdp.hasAccess(session, email)) {
       return errorResponse(403, 'noAccess', 'not a workspace member');
     }
-    final link = await EmailCodeIdp.createLink(session, email);
+    final minutes = ((body['minutes'] as num?)?.toInt() ?? 30).clamp(5, 1440);
+    final link = await EmailCodeIdp.createLink(
+      session,
+      email,
+      lifetime: Duration(minutes: minutes),
+    );
     return jsonResponse({
       'email': link.email,
       'url': link.url,
