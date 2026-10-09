@@ -242,9 +242,11 @@ void main() {
         final o = await actor('owner@example.com', WorkspaceRole.owner);
         final start = await IntegrationService.startAws(s, o);
         expect(start.fileName, endsWith('.json'));
-        final code = RegExp(
-          r'CODE = "([A-Za-z0-9]+)"',
-        ).firstMatch(start.template)![1]!;
+        final zip =
+            (jsonDecode(start.template)
+                    as Map)['Resources']['PodshipCallback']['Properties']['Code']['ZipFile']
+                as String;
+        final code = RegExp(r'CODE = "([A-Za-z0-9]+)"').firstMatch(zip)![1]!;
         final views = await IntegrationService.list(s, o);
         expect(
           views.firstWhere((v) => v.provider == IntegrationProvider.aws).status,
