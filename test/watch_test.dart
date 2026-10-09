@@ -12,6 +12,7 @@ import 'package:podship/src/ops/watch_ops.dart';
 import 'package:podship/src/scheduler/agent.dart';
 import 'package:podship/src/scheduler/scheduler.dart';
 import 'package:podship/src/server/registry.dart';
+import 'package:podship/src/watch/heal.dart';
 import 'package:podship/src/watch/incident.dart';
 import 'package:podship/src/watch/model.dart';
 import 'package:podship/src/watch/runner.dart';
@@ -141,6 +142,46 @@ void main() {
       expect(pass(s, 60, canHeal: false).alertRecovered, isTrue);
     });
 
+    test(
+      'a cross-watch copy with a live owner stays silent; it alerts once the owner is dead',
+      () {
+        final s = TargetState();
+        Decision f(int m, {required bool mayAlert}) => step(
+          s,
+          Outcome.fail,
+          at(m),
+          key: key,
+          canHeal: false,
+          rules: rules,
+          mayAlert: mayAlert,
+        );
+        f(0, mayAlert: false);
+        expect(f(2, mayAlert: false).isNothing, isTrue);
+        expect(f(4, mayAlert: false).isNothing, isTrue);
+        expect(s.isDown, isFalse);
+        final d = f(6, mayAlert: true);
+        expect(d.alertDown, isTrue);
+        expect(
+          d.incident,
+          '20261008T152600Z-$key',
+          reason: 'from the first failure',
+        );
+        expect(f(8, mayAlert: false).isNothing, isTrue);
+        expect(
+          pass(s, 10, canHeal: false).downtime,
+          const Duration(minutes: 10),
+        );
+      },
+    );
+
+    test('a cross-watch copy that never alerted recovers silently', () {
+      final s = TargetState();
+      for (var m = 0; m < 10; m += 2) {
+        step(s, Outcome.fail, at(m), key: key, canHeal: false, mayAlert: false);
+      }
+      expect(pass(s, 10, canHeal: false).isNothing, isTrue);
+    });
+
     test('an unknown run (no internet here) changes nothing', () {
       final s = TargetState();
       fail(s, 0);
@@ -163,6 +204,115 @@ void main() {
       expect(back.firstFail, at(0));
       expect(pass(back, 4).downtime, const Duration(minutes: 4));
     });
+  });
+
+  group('heal rules', () {
+    final now = DateTime.utc(2026, 10, 9, 17, 0);
+    test('heartbeat: fresh, stale, busy healing, out of reach', () {
+      Map<String, Object?> hb(int ageS, {int? busyInS}) => {
+        'time': now.subtract(Duration(seconds: ageS)).toIso8601String(),
+        'interval': 120,
+        if (busyInS != null)
+          'busy_until': now.add(Duration(seconds: busyInS)).toIso8601String(),
+      };
+      expect(heartbeatStale(hb(30), now, interval: 120), isNull);
+      expect(heartbeatStale(hb(359), now, interval: 120), isNull);
+      expect(heartbeatStale(hb(361), now, interval: 120), contains('stale'));
+      expect(heartbeatStale(hb(900, busyInS: 60), now, interval: 120), isNull);
+      expect(
+        heartbeatStale(hb(900, busyInS: -60), now, interval: 120),
+        contains('stale'),
+      );
+      expect(
+        heartbeatStale(null, now, interval: 120),
+        contains('out of reach'),
+      );
+      expect(
+        heartbeatStale({'time': 'x'}, now, interval: 120),
+        contains('unreadable'),
+      );
+      expect(heartbeatStale(hb(200), now, interval: 30), isNull);
+    });
+
+    String row(
+      String svc,
+      String state, {
+      String health = '',
+      String image = 'x',
+    }) => jsonEncode({
+      'Service': svc,
+      'State': state,
+      'Health': health,
+      'Image': image,
+    });
+
+    test('compose ps: JSON lines and a JSON array', () {
+      final lines = parseComposePs(
+        '${row('server', 'exited')}\n${row('postgres', 'running', health: 'healthy', image: 'postgres:16')}\n',
+      );
+      expect(lines.map((s) => s.service), ['server', 'postgres']);
+      expect(lines.last.isDatabase, isTrue);
+      final arr = parseComposePs('[${row('api', 'running')}]');
+      expect(arr.single.service, 'api');
+    });
+
+    test(
+      'heal restarts the failing app services, never a healthy database',
+      () {
+        final pg = row(
+          'postgres',
+          'running',
+          health: 'healthy',
+          image: 'postgres:16-alpine',
+        );
+        expect(
+          servicesToHeal(
+            parseComposePs(
+              [row('server', 'exited'), row('api', 'running'), pg].join('\n'),
+            ),
+          ),
+          ['server'],
+        );
+        expect(
+          servicesToHeal(
+            parseComposePs(
+              [
+                row('server', 'running'),
+                row('api', 'running'),
+                row('chrome', 'running'),
+                pg,
+              ].join('\n'),
+            ),
+          ),
+          ['api', 'server'],
+        );
+        expect(
+          servicesToHeal(
+            parseComposePs(
+              [
+                row('server', 'running', health: 'unhealthy'),
+                row(
+                  'postgres',
+                  'running',
+                  health: 'unhealthy',
+                  image: 'postgres:16',
+                ),
+              ].join('\n'),
+            ),
+          ),
+          ['postgres', 'server'],
+        );
+        expect(
+          servicesToHeal(
+            parseComposePs(
+              [row('nginx', 'exited'), row('server', 'running'), pg].join('\n'),
+            ),
+          ),
+          ['nginx'],
+        );
+        expect(servicesToHeal(null, serverService: 'app'), ['app']);
+      },
+    );
   });
 
   group('registry watch section', () {
@@ -405,6 +555,7 @@ environments:
             'restart',
             '--env',
             'production',
+            'server',
           ]),
         );
         expect(r2.events.map((e) => e.event), ['down', 'engine_start', 'heal']);
@@ -456,9 +607,100 @@ environments:
       await tick();
       final r = await tick();
       expect(r.notifications.single.title, contains('other/production'));
-      expect(r.notifications.single.body, contains('that machine heals it'));
+      expect(r.notifications.single.body, contains('nobody heals it'));
       expect(procs, isEmpty);
     });
+
+    test(
+      'cross-watch with a heartbeat: the live owner alerts, not this machine; '
+      'a dead owner: this machine alerts once',
+      () async {
+        final reg = Registry.parse(
+          File(p.join(home.path, 'registry.yaml')).readAsStringSync(),
+        );
+        final t = target(project: 'other', owner: false);
+        reg.watch.targets['other/production'] = WatchTarget(
+          project: t.project,
+          env: t.env,
+          checks: t.checks,
+          owner: false,
+          machine: 'peer',
+          heal: false,
+          heartbeatHost: 'peer-host',
+          heartbeatPath: '/h/watch/heartbeat.json',
+        );
+        File(
+          p.join(home.path, 'registry.yaml'),
+        ).writeAsStringSync(reg.render());
+        Map<String, Object?>? beat = {
+          'time': now.toUtc().toIso8601String(),
+          'interval': 120,
+        };
+        var asked = 0;
+        WatchRunner r() => WatchRunner(
+          home.path,
+          clock: () => now,
+          machine: 'box',
+          check: (c) async => problems[c.url],
+          online: () async => true,
+          heartbeat: (_) async {
+            asked++;
+            return beat;
+          },
+          notifier: Notifier(
+            NotifyConfig(
+              events: const [NotifyEvent.watchDown, NotifyEvent.watchRecovered],
+              channels: [NotifyChannel(name: 'macos', kind: 'macos')],
+            ),
+            macos: true,
+            run: (exe, args) async {
+              notes.add(args.join(' '));
+              return ProcessResult(0, 0, '', '');
+            },
+          ),
+        );
+        Future<WatchRun> go() async {
+          beat = beat == null
+              ? null
+              : {...beat!, 'time': now.toUtc().toIso8601String()};
+          final x = (await r().run())!;
+          now = now.add(const Duration(minutes: 2));
+          return x;
+        }
+
+        problems = {'https://production.other.example/health': 'status 502'};
+        // Case 1: the owner's watch is alive: no alert from here.
+        for (var i = 0; i < 4; i++) {
+          expect((await go()).notifications, isEmpty);
+        }
+        expect(asked, greaterThan(0));
+        // The owner heals it: no "recovered" from here either.
+        problems = {};
+        expect((await go()).notifications, isEmpty);
+        // Case 2: the owner machine is out of reach (ssh fails): one alert.
+        problems = {'https://production.other.example/health': 'status 502'};
+        beat = null;
+        await go();
+        final down = await go();
+        expect(down.notifications.single.title, contains('other/production'));
+        expect(down.notifications.single.body, contains('nobody heals it'));
+        expect((await go()).notifications, isEmpty, reason: 'once');
+        problems = {};
+        expect(
+          (await go()).notifications.single.event,
+          NotifyEvent.watchRecovered,
+        );
+        // The heartbeat file of this machine exists for the others.
+        final hb =
+            jsonDecode(
+                  File(
+                    p.join(home.path, 'watch', 'heartbeat.json'),
+                  ).readAsStringSync(),
+                )
+                as Map;
+        expect(hb['machine'], 'box');
+      },
+    );
 
     test('no internet on this machine: failures do not count', () async {
       problems = {

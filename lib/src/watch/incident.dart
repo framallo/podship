@@ -134,6 +134,7 @@ String incidentId(String key, DateTime t) {
 
 /// Applies [outcome] at [now] to [s] (changed in place) and says what to do.
 /// [canHeal]: the target runs on this machine and may be healed.
+/// [mayAlert]: false for a cross-watch copy whose owner machine is alive.
 Decision step(
   TargetState s,
   Outcome outcome,
@@ -142,6 +143,7 @@ Decision step(
   required bool canHeal,
   IncidentRules rules = const IncidentRules(),
   String? problem,
+  bool mayAlert = true,
 }) {
   if (outcome == Outcome.unknown) return Decision(incident: s.incident);
   s.lastRun = now;
@@ -169,6 +171,10 @@ Decision step(
     ..firstFail ??= now
     ..lastProblem = problem;
   if (s.fails < rules.alertAfter) return Decision();
+  // A cross-watch copy while the owner machine is alive: the owner alerts.
+  // The streak keeps counting; the copy opens the incident (and alerts)
+  // at the first run that finds the owner's heartbeat stale.
+  if (s.incident == null && !mayAlert) return Decision();
   var alertDown = false;
   if (s.incident == null) {
     s.incident = incidentId(key, s.firstFail!);

@@ -19,11 +19,13 @@ import '../api/events.dart' show LogLine;
 import '../config/config.dart';
 import '../integrations/ses.dart';
 import '../notify/notify.dart';
-import '../ops/app_ops.dart' show Integrations;
+import '../integrations/secrets.dart' show AwsCredentials;
+import '../protocol/tokens.dart' show TokenStore;
 import '../plan/executor.dart' show publicCheckProblem;
 import '../scheduler/scheduler.dart' show podshipCommand;
 import '../server/registry.dart';
 import '../util/log.dart';
+import 'heal.dart';
 import 'incident.dart';
 import 'model.dart';
 
@@ -257,7 +259,11 @@ class WatchRunner {
     this.pollEvery = const Duration(seconds: 5),
     String? machine,
     this.isMacos,
-  }) : clock = clock ?? DateTime.now,
+    Future<Map<String, Object?>?> Function(WatchTarget)? heartbeat,
+    Future<AwsCredentials?> Function(String? url)? consoleAws,
+  }) : _readHeartbeat = heartbeat,
+       _consoleAws = consoleAws,
+       clock = clock ?? DateTime.now,
        _check = check ?? runCheck,
        _online = online ?? internetUp,
        _localOk = localOk ?? http2xx,
@@ -279,6 +285,8 @@ class WatchRunner {
   final Duration pollEvery;
   final String? _machine;
   final bool? isMacos;
+  final Future<Map<String, Object?>?> Function(WatchTarget)? _readHeartbeat;
+  final Future<AwsCredentials?> Function(String? url)? _consoleAws;
 
   String get registryPath => p.join(home, 'registry.yaml');
   String get dir => p.join(home, 'watch');
@@ -397,6 +405,7 @@ class WatchRunner {
   Future<WatchRun> _run() async {
     final w = loadWatch();
     final machine = _machine ?? w.machine ?? Platform.localHostname;
+    writeHeartbeat(machine: machine, interval: w.interval);
     final targets = w.targets.values.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     final events = <IncidentEvent>[];
@@ -416,7 +425,8 @@ class WatchRunner {
     );
     // Built at the first message: the secret store is read only then.
     Notifier? built;
-    Notifier notify() => built ??= notifier ?? _defaultNotifier(w);
+    Future<Notifier> notify() async =>
+        built ??= notifier ?? await _defaultNotifier(w);
 
     // 1. Every check of every target, at the same time.
     final problems = <String, String?>{};
@@ -457,8 +467,25 @@ class WatchRunner {
     final now = clock();
     state.lastRun = now;
     final decisions = <String, Decision>{};
+    final ownerAlive = <String, String>{};
     for (final t in targets) {
       final s = state.targets.putIfAbsent(t.key, TargetState.new);
+      var mayAlert = true;
+      if (!t.owner &&
+          t.heartbeatHost != null &&
+          outcomes[t.key] == Outcome.fail &&
+          s.incident == null &&
+          s.fails + 1 >= rules.alertAfter) {
+        final hb = await _heartbeat(t);
+        final why = heartbeatStale(hb, now, interval: w.interval);
+        if (why == null) {
+          mayAlert = false;
+          ownerAlive[t.key] =
+              '${t.machine} is alive (heartbeat ${now.difference(DateTime.parse('${hb!['time']}')).inSeconds} s old): it alerts';
+        } else {
+          log('${t.key}: ${t.machine} $why: this machine alerts');
+        }
+      }
       decisions[t.key] = step(
         s,
         outcomes[t.key]!,
@@ -467,10 +494,14 @@ class WatchRunner {
         canHeal: t.heals,
         rules: rules,
         problem: problems[t.key],
+        mayAlert: mayAlert,
       );
     }
     state.targets.removeWhere((k, _) => !w.targets.containsKey(k));
     saveState(state);
+    for (final e in ownerAlive.entries) {
+      log('${e.key}: no alert from here: ${e.value}');
+    }
     log(
       'checked ${targets.length}: ${[for (final t in targets) '${t.key} ${outcomes[t.key]!.name}${state.targets[t.key]!.fails > 0 ? ' (${state.targets[t.key]!.fails})' : ''}'].join(', ')}',
     );
@@ -506,7 +537,7 @@ class WatchRunner {
                     ? 'healing now on $machine (engine, then podship restart)'
                     : t.owner
                     ? 'heal is off for this environment'
-                    : 'runs on ${t.machine ?? 'another machine'}: that machine heals it'}',
+                    : 'runs on ${t.machine ?? 'another machine'}, whose watch does not answer: nobody heals it from here'}',
         ].join('\n'),
         ok: false,
         project: downs.length == 1 ? downs.first.project : null,
@@ -518,7 +549,7 @@ class WatchRunner {
         },
       );
       sent.add(n);
-      await _send(notify(), n);
+      await _send(await notify(), n);
     }
 
     final toHeal = [
@@ -526,7 +557,15 @@ class WatchRunner {
         if (decisions[t.key]!.heal) t,
     ];
     if (toHeal.isNotEmpty) {
+      // The other machines read the heartbeat: a heal may take minutes, and
+      // they must not alert for this machine meanwhile.
+      writeHeartbeat(
+        machine: machine,
+        interval: w.interval,
+        busyUntil: clock().add(const Duration(minutes: 20)),
+      );
       await _heal(toHeal, decisions, problems, machine, events);
+      writeHeartbeat(machine: machine, interval: w.interval);
     }
 
     // 4. Heals used up, still failing: once per incident.
@@ -564,7 +603,7 @@ class WatchRunner {
         },
       );
       sent.add(n);
-      await _send(notify(), n);
+      await _send(await notify(), n);
     }
 
     // 5. Recovered: once per incident, with the downtime.
@@ -607,7 +646,7 @@ class WatchRunner {
         },
       );
       sent.add(n);
-      await _send(notify(), n);
+      await _send(await notify(), n);
     }
     return WatchRun(
       outcomes: outcomes,
@@ -628,22 +667,56 @@ class WatchRunner {
     );
   }
 
-  Notifier _defaultNotifier(WatchSettings w) {
+  Future<Notifier> _defaultNotifier(WatchSettings w) async {
     final cfg = watchNotifyConfig(w);
     final email = cfg.channels.any((c) => c.kind == 'email');
-    // The secret store (Keychain) is read only for an email channel.
     SesApi Function(String)? ses;
     if (email) {
-      final i = Integrations();
-      if (i.hasAws) {
-        ses = i.ses;
-      } else {
+      final creds = await awsFromConsole(w.consoleUrl);
+      if (creds == null) {
         log(
-          'no AWS credentials on this machine: email alerts cannot go out (podship provider login aws)',
+          'no AWS credential from the console${w.consoleUrl == null ? ' (watch.console is not set)' : ''}: '
+          'email alerts are off; macOS notifications only',
         );
+      } else {
+        ses = (region) => SesApi(creds, region: region);
       }
     }
     return Notifier(cfg, ses: ses);
+  }
+
+  /// The AWS credential of the workspace's AWS integration in the podship
+  /// console at [url], with this machine's `podship login` token:
+  /// `GET <console>/podship/v1/integrations/aws/credentials` answers
+  /// `{"access_key_id", "secret_access_key", "session_token"}` (short-lived
+  /// STS keys). Null when there is no console, no token, or the console
+  /// does not offer it (yet). Never logs a value.
+  Future<AwsCredentials?> awsFromConsole(String? url) async {
+    if (_consoleAws != null) return _consoleAws(url);
+    if (url == null) return null;
+    final token = TokenStore().readStored(url);
+    if (token == null || token.isEmpty) return null;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final base = url.endsWith('/') ? url : '$url/';
+      final req = await client.getUrl(
+        Uri.parse('${base}podship/v1/integrations/aws/credentials'),
+      );
+      req.headers
+        ..set(HttpHeaders.authorizationHeader, 'Bearer $token')
+        ..set(HttpHeaders.acceptHeader, 'application/json');
+      final res = await req.close().timeout(const Duration(seconds: 15));
+      final body = await res.transform(utf8.decoder).join();
+      if (res.statusCode != 200) return null;
+      final j = jsonDecode(body);
+      if (j is! Map || j['access_key_id'] == null) return null;
+      return AwsCredentials.fromJson(jsonEncode(j));
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Map<String, String> _env(WatchTarget t) => {
@@ -778,7 +851,10 @@ class WatchRunner {
           continue;
         }
       }
-      // podship's own restart of the current release: never a deploy.
+      // podship's own restart of the current release, never a deploy, and
+      // only of the failing app services: the database only when it fails.
+      final ps = await _services(t);
+      final services = servicesToHeal(ps, serverService: t.serverService);
       final (exe, pre) = podshipCommand();
       final args = [
         ...pre,
@@ -789,8 +865,11 @@ class WatchRunner {
         'restart',
         '--env',
         t.env,
+        ...services,
       ];
-      log('${t.key}: heal attempt $attempt: podship restart --env ${t.env}');
+      log(
+        '${t.key}: heal attempt $attempt: podship restart --env ${t.env} ${services.join(' ')}',
+      );
       final r = await _process(
         exe,
         args,
@@ -807,7 +886,7 @@ class WatchRunner {
           .where((l) => l.trim().isNotEmpty)
           .toList();
       final detail =
-          'podship restart --env ${t.env}: exit ${r.code}'
+          'podship restart --env ${t.env} ${services.join(' ')}: exit ${r.code}'
           '${tail.isEmpty ? '' : ': ${tail.skip(tail.length > 3 ? tail.length - 3 : 0).join(' | ')}'}';
       log('${t.key}: $detail');
       _record(
@@ -824,6 +903,70 @@ class WatchRunner {
         events,
       );
     }
+  }
+
+  String get heartbeatPath => p.join(dir, 'heartbeat.json');
+
+  /// `<home>/watch/heartbeat.json`: this machine's watch is alive. The other
+  /// machines read it over ssh before they alert for an environment of this
+  /// machine.
+  void writeHeartbeat({
+    required String machine,
+    required int interval,
+    DateTime? busyUntil,
+  }) {
+    try {
+      Directory(dir).createSync(recursive: true);
+      File('$heartbeatPath.tmp')
+        ..writeAsStringSync(
+          jsonEncode({
+            'machine': machine,
+            'time': clock().toUtc().toIso8601String(),
+            'interval': interval,
+            'busy_until': ?busyUntil?.toUtc().toIso8601String(),
+          }),
+        )
+        ..renameSync(heartbeatPath);
+    } catch (_) {}
+  }
+
+  Future<Map<String, Object?>?> _heartbeat(WatchTarget t) async {
+    if (_readHeartbeat != null) return _readHeartbeat(t);
+    final r = await _process('ssh', [
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'ConnectTimeout=8',
+      t.heartbeatHost!,
+      'cat',
+      t.heartbeatPath!,
+    ], timeout: const Duration(seconds: 20));
+    if (r.code != 0) return null;
+    try {
+      final j = jsonDecode(r.out.trim());
+      return j is Map ? j.cast<String, Object?>() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The services of [t]'s current release, from `compose ps`.
+  Future<List<ComposeService>?> _services(WatchTarget t) async {
+    final r = await _process(
+      'bash',
+      [
+        p.posix.join(t.releaseDir!, '.podship', 'compose.sh'),
+        'ps',
+        '-a',
+        '--format',
+        'json',
+      ],
+      environment: _env(t),
+      cwd: t.releaseDir,
+      timeout: const Duration(seconds: 30),
+    );
+    if (r.code != 0) return null;
+    return parseComposePs(r.out);
   }
 
   /// The last [n] incident events of this machine, oldest first.

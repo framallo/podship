@@ -25,9 +25,16 @@ class FleetMachine {
     required this.home,
     this.path,
     this.engine = Engine.auto,
-  });
+    String? ssh,
+  }) : ssh = ssh ?? (isLocalHost(host) ? null : host);
 
   final String name;
+
+  /// How the other machines reach this one with ssh (its heartbeat). For
+  /// `host: local`, set `ssh:` (an alias with a restricted key).
+  final String? ssh;
+
+  String get heartbeatPath => '$home/watch/heartbeat.json';
 
   /// The ssh destination, or `local` for this machine.
   final String host;
@@ -64,9 +71,13 @@ class FleetConfig {
     this.healAttempts = 2,
     this.healBackoff = 360,
     this.channels = const {},
+    this.consoleUrl,
   });
 
   final List<FleetMachine> machines;
+
+  /// `watch.console`: the console whose AWS integration sends the email.
+  final String? consoleUrl;
   final int interval;
   final int alertAfter;
   final int healAttempts;
@@ -98,6 +109,7 @@ class FleetConfig {
           home: '${m['home']}',
           path: m['path'] as String?,
           engine: Engine.parse(m['engine'] as String?),
+          ssh: m['ssh'] as String?,
         ),
       );
     }
@@ -113,6 +125,7 @@ class FleetConfig {
       healAttempts: (w['heal_attempts'] as num?)?.toInt() ?? 2,
       healBackoff: (w['heal_backoff'] as num?)?.toInt() ?? 360,
       channels: channels,
+      consoleUrl: w['console'] as String?,
     );
   }
 
@@ -151,7 +164,8 @@ class FleetConfig {
       ..alertAfter = alertAfter
       ..healAttempts = healAttempts
       ..healBackoff = healBackoff
-      ..engine = m.engine;
+      ..engine = m.engine
+      ..consoleUrl = consoleUrl;
     w.channels
       ..clear()
       ..addAll(channels);
@@ -196,18 +210,22 @@ WatchTarget ownerTarget(
     localUrls: r.healthUrls,
     releaseDir: p.posix.join(env.dir, 'current'),
     path: env.remotePath ?? owner.path,
+    serverService: env.serverService,
     updated: now,
   );
 }
 
-/// The copy of [t] for another machine: it only alerts.
-WatchTarget mirrorTarget(WatchTarget t) => WatchTarget(
+/// The copy of [t] for another machine: it alerts only when the heartbeat
+/// of [owner] is stale.
+WatchTarget mirrorTarget(WatchTarget t, {FleetMachine? owner}) => WatchTarget(
   project: t.project,
   env: t.env,
   checks: t.checks,
   owner: false,
   machine: t.machine,
   heal: false,
+  heartbeatHost: owner?.ssh,
+  heartbeatPath: owner?.ssh == null ? null : owner!.heartbeatPath,
   updated: t.updated,
 );
 
@@ -260,7 +278,9 @@ Future<Plan> planWatchInstall(
     }
     for (final m in fleet.watchersOf(env)) {
       final reg = await regOf(m);
-      reg.watch.targets[key] = m.name == owner.name ? t : mirrorTarget(t);
+      reg.watch.targets[key] = m.name == owner.name
+          ? t
+          : mirrorTarget(t, owner: owner);
     }
     notes.add(
       '$key: ${t.checks.length} check(s); heals on ${owner.name}: ${t.heal ? 'yes' : 'no'}; '

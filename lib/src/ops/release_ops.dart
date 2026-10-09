@@ -169,7 +169,7 @@ Plan planRestart({
     RemoteStep(
       'Recreate containers',
       env.host,
-      '${ctx.header(env)}${shq(l.currentComposeSh)} up -d --no-build --force-recreate ${services.map(shq).join(' ')}\n',
+      '${ctx.header(env)}${shq(l.currentComposeSh)} up -d --no-build --force-recreate ${services.isEmpty ? '' : '--no-deps '}${services.map(shq).join(' ')}\n',
     ),
     HealthStep(
       'Health check',

@@ -55,6 +55,9 @@ class WatchTarget {
     this.localUrls = const [],
     this.releaseDir,
     this.path,
+    this.serverService = 'server',
+    this.heartbeatHost,
+    this.heartbeatPath,
     this.updated = '',
   });
 
@@ -71,6 +74,9 @@ class WatchTarget {
     localUrls: [for (final u in (m['local_urls'] as List?) ?? const []) '$u'],
     releaseDir: m['release_dir'] as String?,
     path: m['path'] as String?,
+    serverService: m['server_service'] as String? ?? 'server',
+    heartbeatHost: m['heartbeat_host'] as String?,
+    heartbeatPath: m['heartbeat_path'] as String?,
     updated: '${m['updated'] ?? ''}',
   );
 
@@ -97,6 +103,15 @@ class WatchTarget {
 
   /// Extra PATH entries (the environment's `remote_path`): docker, colima.
   final String? path;
+
+  /// The environment's server service (owner): always an app service.
+  final String serverService;
+
+  /// Cross-watch copy: the ssh destination and the file of the owner
+  /// machine's watch heartbeat. The copy alerts only when that heartbeat is
+  /// stale or out of reach: else the owner alerts, once.
+  final String? heartbeatHost;
+  final String? heartbeatPath;
   final String updated;
 
   String get key => '$project/$env';
@@ -114,6 +129,9 @@ class WatchTarget {
     if (localUrls.isNotEmpty) 'local_urls': localUrls,
     'release_dir': ?releaseDir,
     'path': ?path,
+    if (serverService != 'server') 'server_service': serverService,
+    'heartbeat_host': ?heartbeatHost,
+    'heartbeat_path': ?heartbeatPath,
     'updated': updated,
   };
 }
@@ -156,6 +174,7 @@ class WatchSettings {
     Map<String, Map<String, Object?>>? channels,
     Map<String, WatchTarget>? targets,
     this.machine,
+    this.consoleUrl,
   }) : channels = channels ?? {},
        targets = targets ?? {};
 
@@ -180,6 +199,7 @@ class WatchSettings {
       channels: ch,
       targets: ts,
       machine: m['machine'] as String?,
+      consoleUrl: m['console'] as String?,
     );
   }
 
@@ -207,6 +227,11 @@ class WatchSettings {
   /// The name of this machine in alerts.
   String? machine;
 
+  /// The podship console that holds the workspace's AWS integration: the
+  /// email channel gets its credential from there (a `podship login`
+  /// token on this machine). None: no email.
+  String? consoleUrl;
+
   bool get isEmpty => targets.isEmpty && channels.isEmpty && machine == null;
 
   /// Everything but the targets, for the three-way merge.
@@ -218,6 +243,7 @@ class WatchSettings {
     'heal_backoff': healBackoff,
     'engine': engine.id,
     'channels': channels,
+    'console': ?consoleUrl,
   };
 
   Map<String, Object?> toMap() => {
