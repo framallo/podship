@@ -7,3 +7,5 @@ values:
   - inactive
   - missingPermission
   - unreachable
+  ### The AWS template is not published yet (CONSOLE_AWS_TEMPLATE_URL).
+  - notReady

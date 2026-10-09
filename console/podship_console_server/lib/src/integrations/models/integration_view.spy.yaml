@@ -19,3 +19,5 @@ fields:
   lastCheckAt: DateTime?
   lastCheckOk: bool?
   lastError: String?
+  ### False when Connect cannot work yet (AWS: no published template).
+  ready: bool, default=true

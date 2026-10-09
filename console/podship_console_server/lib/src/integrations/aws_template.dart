@@ -1,23 +1,27 @@
 // The CloudFormation template that connects a workspace's AWS account
 // (decision: AWS through a role with web identity, no access keys).
 //
-// The template is made per connect: the one-time code, the issuer and the
-// workspace subject are literal values, because CloudFormation cannot build
-// the condition keys of a trust policy at run time.
+// One static template for every workspace and every console. The vendor
+// hosts it in a public, versioned S3 object (`aws/connect-v1.json`); the
+// console opens it as a quick-create link with every parameter filled in, so
+// the person only ticks the IAM box and clicks "Create stack". After the
+// connect, the console keeps the S3 object up to date itself (role policy
+// `TemplateMaintenance`). `console/aws/connect-v1.json` is this file,
+// written by `dart run tool/console_tool.dart aws-template`.
 
 import 'dart:convert';
 
 class AwsTemplate {
-  /// The role podship assumes.
+  /// The object name of the current version. A change to [build] that
+  /// changes the stack's behavior gets a new version.
+  static const version = 'v1';
+  static const objectKey = 'aws/connect-$version.json';
+
   static const roleName = 'podship-console';
-
-  /// The boundary every per-app sending user must carry.
   static const boundaryName = 'podship-ses-sender';
-
-  /// The IAM path of per-app sending users (`presente-ses`).
   static const userPath = '/podship-ses/';
+  static const stackName = 'podship';
 
-  /// SES actions podship uses (README "AWS credentials for SES").
   static const sesActions = [
     'ses:GetAccount',
     'ses:ListEmailIdentities',
@@ -27,38 +31,27 @@ class AwsTemplate {
     'ses:PutEmailIdentityMailFromAttributes',
     'ses:TagResource',
     'ses:SendEmail',
+    'ses:SendRawEmail',
   ];
 
-  /// The template as JSON (CloudFormation reads JSON and YAML).
-  static String build({
-    required String issuerUrl,
-    required String subject,
-    required String callbackUrl,
-    required String code,
-    required String workspace,
-  }) {
-    final host = Uri.parse(issuerUrl).authority;
-    final lambda =
-        '''
+  static const _lambda = '''
 import json, urllib.request, cfnresponse
-
-URL = ${jsonEncode(callbackUrl)}
-CODE = ${jsonEncode(code)}
 
 def handler(event, context):
     props = event.get("ResourceProperties", {})
     body = json.dumps({
-        "code": CODE,
+        "code": props.get("ExternalId"),
         "request_type": event["RequestType"],
         "account_id": props.get("AccountId"),
         "role_arn": props.get("RoleArn"),
         "stack_id": event.get("StackId"),
         "region": props.get("Region"),
+        "template_version": props.get("TemplateVersion"),
     }).encode()
     status = cfnresponse.SUCCESS
     reason = "podship console answered"
     try:
-        req = urllib.request.Request(URL, data=body, method="POST", headers={
+        req = urllib.request.Request(props["CallbackUrl"], data=body, method="POST", headers={
             "Content-Type": "application/json",
             "User-Agent": "podship-cloudformation/1",
         })
@@ -71,17 +64,58 @@ def handler(event, context):
             status = cfnresponse.FAILED
     cfnresponse.send(event, context, status, {}, reason=reason)
 ''';
+
+  /// The trust policy as a string, because its condition keys hold the
+  /// issuer host and CloudFormation cannot build a JSON key from a
+  /// parameter.
+  static const _trust =
+      '{"Version":"2012-10-17","Statement":[{"Effect":"Allow",'
+      '"Principal":{"Federated":"\${PodshipOidcProvider}"},'
+      '"Action":"sts:AssumeRoleWithWebIdentity",'
+      '"Condition":{"StringEquals":{'
+      '"\${IssuerHost}:aud":"sts.amazonaws.com",'
+      '"\${IssuerHost}:sub":"\${Subject}"}}}]}';
+
+  static String build() {
+    final user = {
+      'Fn::Sub':
+          'arn:\${AWS::Partition}:iam::\${AWS::AccountId}:user$userPath*',
+    };
     final t = {
       'AWSTemplateFormatVersion': '2010-09-09',
       'Description':
-          'podship console: lets the workspace "$workspace" manage Amazon SES '
-          'and per-app SES sending users. No access keys: podship assumes '
-          'the role $roleName with a token signed by $host.',
+          'podship console ($version): lets a podship workspace manage Amazon '
+          'SES and per-app send-only users. No access keys: podship assumes '
+          'the role $roleName with a token signed by its console.',
+      'Parameters': {
+        'IssuerHost': {
+          'Type': 'String',
+          'Description':
+              'The podship console host, for example podship.densitylabs.io.',
+          'AllowedPattern': r'^[a-z0-9.-]+$',
+        },
+        'Subject': {
+          'Type': 'String',
+          'Description': 'The workspace, for example workspace:density-labs.',
+          'AllowedPattern': r'^workspace:[a-z0-9-]+$',
+        },
+        'ExternalId': {
+          'Type': 'String',
+          'Description':
+              'One-time connect code from the podship console. It expires after 24 hours.',
+          'AllowedPattern': r'^[A-Za-z0-9]{20,64}$',
+        },
+        'CallbackUrl': {
+          'Type': 'String',
+          'Description': 'Where the stack tells the console that it exists.',
+          'AllowedPattern': r'^https://.+$',
+        },
+      },
       'Resources': {
         'PodshipOidcProvider': {
           'Type': 'AWS::IAM::OIDCProvider',
           'Properties': {
-            'Url': issuerUrl,
+            'Url': {'Fn::Sub': r'https://${IssuerHost}'},
             'ClientIdList': ['sts.amazonaws.com'],
           },
         },
@@ -108,24 +142,7 @@ def handler(event, context):
           'Properties': {
             'RoleName': roleName,
             'MaxSessionDuration': 3600,
-            'AssumeRolePolicyDocument': {
-              'Version': '2012-10-17',
-              'Statement': [
-                {
-                  'Effect': 'Allow',
-                  'Principal': {
-                    'Federated': {'Ref': 'PodshipOidcProvider'},
-                  },
-                  'Action': 'sts:AssumeRoleWithWebIdentity',
-                  'Condition': {
-                    'StringEquals': {
-                      '$host:aud': 'sts.amazonaws.com',
-                      '$host:sub': subject,
-                    },
-                  },
-                },
-              ],
-            },
+            'AssumeRolePolicyDocument': {'Fn::Sub': _trust},
             'Policies': [
               {
                 'PolicyName': 'podship-ses',
@@ -142,10 +159,7 @@ def handler(event, context):
                       'Sid': 'CreateSendingUsers',
                       'Effect': 'Allow',
                       'Action': 'iam:CreateUser',
-                      'Resource': {
-                        'Fn::Sub':
-                            'arn:\${AWS::Partition}:iam::\${AWS::AccountId}:user$userPath*',
-                      },
+                      'Resource': user,
                       'Condition': {
                         'StringEquals': {
                           'iam:PermissionsBoundary': {
@@ -169,10 +183,7 @@ def handler(event, context):
                         'iam:DeleteAccessKey',
                         'iam:ListAccessKeys',
                       ],
-                      'Resource': {
-                        'Fn::Sub':
-                            'arn:\${AWS::Partition}:iam::\${AWS::AccountId}:user$userPath*',
-                      },
+                      'Resource': user,
                     },
                     {
                       'Sid': 'KeepTheBoundary',
@@ -182,6 +193,15 @@ def handler(event, context):
                         'iam:PutUserPermissionsBoundary',
                       ],
                       'Resource': '*',
+                    },
+                    {
+                      'Sid': 'TemplateMaintenance',
+                      'Effect': 'Allow',
+                      'Action': ['s3:GetObject', 's3:PutObject'],
+                      'Resource': {
+                        'Fn::Sub':
+                            'arn:\${AWS::Partition}:s3:::podship-templates-\${AWS::AccountId}/aws/*',
+                      },
                     },
                   ],
                 },
@@ -221,7 +241,7 @@ def handler(event, context):
             'Role': {
               'Fn::GetAtt': ['PodshipCallbackRole', 'Arn'],
             },
-            'Code': {'ZipFile': lambda},
+            'Code': {'ZipFile': _lambda},
           },
         },
         'PodshipConnect': {
@@ -231,6 +251,9 @@ def handler(event, context):
             'ServiceToken': {
               'Fn::GetAtt': ['PodshipCallback', 'Arn'],
             },
+            'CallbackUrl': {'Ref': 'CallbackUrl'},
+            'ExternalId': {'Ref': 'ExternalId'},
+            'TemplateVersion': version,
             'AccountId': {'Ref': 'AWS::AccountId'},
             'Region': {'Ref': 'AWS::Region'},
             'RoleArn': {
@@ -247,12 +270,46 @@ def handler(event, context):
         },
       },
     };
-    return const JsonEncoder.withIndent('  ').convert(t);
+    return '${const JsonEncoder.withIndent('  ').convert(t)}\n';
   }
 
-  /// The CloudFormation "Create stack" page, where the person uploads the
-  /// template (INT-11).
-  static String consoleUrl(String region) =>
-      'https://$region.console.aws.amazon.com/cloudformation/home'
-      '?region=$region#/stacks/create';
+  /// The quick-create link (INT-11): the CloudFormation console with the
+  /// template, the stack name and every parameter filled in.
+  static String quickCreateUrl({
+    required String templateUrl,
+    required String region,
+    required String issuerHost,
+    required String subject,
+    required String externalId,
+    required String callbackUrl,
+  }) {
+    final q = {
+      'templateURL': templateUrl,
+      'stackName': stackName,
+      'param_IssuerHost': issuerHost,
+      'param_Subject': subject,
+      'param_ExternalId': externalId,
+      'param_CallbackUrl': callbackUrl,
+    };
+    final query = q.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return 'https://$region.console.aws.amazon.com/cloudformation/home'
+        '?region=$region#/stacks/create/review?$query';
+  }
+
+  /// The bucket policy the vendor sets: public read of `aws/*` only.
+  static String bucketPolicy(String bucket) =>
+      '${const JsonEncoder.withIndent('  ').convert({
+        'Version': '2012-10-17',
+        'Statement': [
+          {
+            'Sid': 'PublicReadOfConnectTemplates',
+            'Effect': 'Allow',
+            'Principal': '*',
+            'Action': 's3:GetObject',
+            'Resource': 'arn:aws:s3:::$bucket/aws/*',
+          },
+        ],
+      })}\n';
 }

@@ -9,7 +9,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:serverpod_auth_idp_flutter/serverpod_auth_idp_flutter.dart';
 
 import '../client.dart';
-import '../download.dart';
 import '../l10n/gen/app_localizations.dart';
 import '../theme.dart';
 
@@ -26,7 +25,6 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
   List<IntegrationView> _views = const [];
   Object? _loadError;
   Timer? _poll;
-  String? _awsFile;
 
   @override
   void initState() {
@@ -87,13 +85,22 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
   }
 
   Future<void> _startAws() async {
-    final start = await client.integrations.startAws();
-    downloadText(start.fileName, start.template);
-    setState(() => _awsFile = start.fileName);
-    await launchUrl(
-      Uri.parse(start.consoleUrl),
-      webOnlyWindowName: '_blank',
-    );
+    final l = AppLocalizations.of(context);
+    try {
+      final start = await client.integrations.startAws();
+      await launchUrl(
+        Uri.parse(start.consoleUrl),
+        webOnlyWindowName: '_blank',
+      );
+    } on IntegrationException catch (e) {
+      if (mounted) {
+        _announce(
+          e.reason == IntegrationFailure.notReady
+              ? l.intAwsNotReady
+              : l.commonError,
+        );
+      }
+    }
     await _load();
   }
 
@@ -210,7 +217,6 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
         _AwsCard(
           view: _view(IntegrationProvider.aws),
           canManage: me.canManage,
-          fileName: _awsFile,
           onConnect: _startAws,
           onDisconnect: () => _disconnect(IntegrationProvider.aws),
           onRetry: () async => _replace(
@@ -665,7 +671,8 @@ class _CloudflareCardState extends State<_CloudflareCard> {
             _permissionText(l, e.detail),
           ),
           IntegrationFailure.forbidden => l.intOnlyAdmins,
-          IntegrationFailure.unreachable => l.commonError,
+          IntegrationFailure.unreachable ||
+          IntegrationFailure.notReady => l.commonError,
         },
       );
     } on Object {
@@ -759,8 +766,18 @@ class _CloudflareCardState extends State<_CloudflareCard> {
                       ],
                     ),
             ),
+            // One paste: a whole token arrives at once, then podship checks
+            // and saves it without another click.
+            onChanged: (t) {
+              final v = t.trim();
+              if (!_busy && v.length >= 30 && !v.contains(' ')) _save();
+            },
             onSubmitted: (_) => _save(),
           ),
+          if (_busy) ...[
+            const SizedBox(height: 8),
+            Text(l.intCfChecking, style: TextStyle(color: context.ps.ink2)),
+          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -798,14 +815,12 @@ class _AwsCard extends StatelessWidget {
   const _AwsCard({
     required this.view,
     required this.canManage,
-    required this.fileName,
     required this.onConnect,
     required this.onDisconnect,
     required this.onRetry,
   });
   final IntegrationView? view;
   final bool canManage;
-  final String? fileName;
   final Future<void> Function() onConnect;
   final VoidCallback onDisconnect;
   final Future<void> Function() onRetry;
@@ -867,12 +882,9 @@ class _AwsCard extends StatelessWidget {
               ],
             ),
         ] else if (status == 'pending' && canManage) ...[
-          if (fileName != null) Text(l.intAwsDownloaded(fileName!)),
-          const SizedBox(height: 8),
           Text('1. ${l.intAwsStep1}'),
           Text('2. ${l.intAwsStep2}'),
           Text('3. ${l.intAwsStep3}'),
-          Text('4. ${l.intAwsStep4}'),
           const SizedBox(height: 8),
           if (v?.lastError != null)
             _Banner(
@@ -889,7 +901,12 @@ class _AwsCard extends StatelessWidget {
           OutlinedButton(onPressed: onConnect, child: Text(l.intAwsAgain)),
         ] else ...[
           perms,
-          if (canManage)
+          if (canManage && v?.ready == false)
+            Text(
+              l.intAwsNotReady,
+              style: TextStyle(color: context.ps.ink2),
+            )
+          else if (canManage)
             Semantics(
               button: true,
               label: '${l.intConnect} AWS ${l.commonNewTab}',

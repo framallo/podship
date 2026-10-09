@@ -257,7 +257,7 @@ abstract class AppLocalizations {
   /// No description provided for @intCfStep3.
   ///
   /// In en, this message translates to:
-  /// **'Copy. Then paste the token here.'**
+  /// **'Copy. Then paste the token here: podship checks and saves it at once.'**
   String get intCfStep3;
 
   /// No description provided for @intCfField.
@@ -344,35 +344,23 @@ abstract class AppLocalizations {
   /// **'Email sending with Amazon SES: domains, DKIM and a sending user per app.'**
   String get intAwsWhat;
 
-  /// No description provided for @intAwsDownloaded.
-  ///
-  /// In en, this message translates to:
-  /// **'Your browser downloaded {file}.'**
-  String intAwsDownloaded(Object file);
-
   /// No description provided for @intAwsStep1.
   ///
   /// In en, this message translates to:
-  /// **'In the AWS tab: sign in.'**
+  /// **'In the AWS tab: sign in if AWS asks.'**
   String get intAwsStep1;
 
   /// No description provided for @intAwsStep2.
   ///
   /// In en, this message translates to:
-  /// **'Choose \"Upload a template file\" and pick the file.'**
+  /// **'At the bottom, tick the box that acknowledges IAM resources.'**
   String get intAwsStep2;
 
   /// No description provided for @intAwsStep3.
   ///
   /// In en, this message translates to:
-  /// **'Next. Stack name: podship. Next, Next.'**
+  /// **'Click \"Create stack\". This card turns to Connected by itself.'**
   String get intAwsStep3;
-
-  /// No description provided for @intAwsStep4.
-  ///
-  /// In en, this message translates to:
-  /// **'Check the box that acknowledges IAM resources. Submit.'**
-  String get intAwsStep4;
 
   /// No description provided for @intAwsWaiting.
   ///
@@ -383,7 +371,7 @@ abstract class AppLocalizations {
   /// No description provided for @intAwsAgain.
   ///
   /// In en, this message translates to:
-  /// **'Download the template again'**
+  /// **'Open AWS again'**
   String get intAwsAgain;
 
   /// No description provided for @intAwsAccount.
@@ -565,6 +553,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You don\'t have access to this.'**
   String get commonForbidden;
+
+  /// No description provided for @intAwsNotReady.
+  ///
+  /// In en, this message translates to:
+  /// **'AWS can\'t connect yet: the podship template is not published. Ask the podship owner.'**
+  String get intAwsNotReady;
+
+  /// No description provided for @intCfChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the token…'**
+  String get intCfChecking;
 }
 
 class _AppLocalizationsDelegate

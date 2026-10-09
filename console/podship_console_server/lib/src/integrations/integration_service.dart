@@ -20,6 +20,7 @@ import '../workspace/workspace_service.dart';
 import 'aws_template.dart';
 import 'oidc.dart';
 import 'sts.dart';
+import 'template_store.dart';
 
 /// The outside world, replaceable in tests.
 class IntegrationDeps {
@@ -113,6 +114,9 @@ class IntegrationService {
       lastCheckAt: i?.lastCheckAt,
       lastCheckOk: i?.lastCheckOk,
       lastError: i?.lastError,
+      ready:
+          p != IntegrationProvider.aws ||
+          AppConfig.instance.awsTemplateUrl != null,
     );
   }
 
@@ -260,6 +264,10 @@ class IntegrationService {
   static Future<AwsStart> startAws(Session session, Actor actor) async {
     _needManage(actor);
     final cfg = AppConfig.instance;
+    final templateUrl = cfg.awsTemplateUrl;
+    if (templateUrl == null) {
+      throw IntegrationException(reason: IntegrationFailure.notReady);
+    }
     final ws = actor.workspace;
     final code = Secrets.token(length: 40);
     await AwsConnectRequest.db.insertRow(
@@ -296,20 +304,45 @@ class IntegrationService {
       actor,
       ws.id!,
       IntegrationProvider.aws,
-      'aws_template',
+      'aws_quick_create',
       ok: true,
     );
     return AwsStart(
-      fileName: 'podship-aws-${ws.slug}.json',
-      template: AwsTemplate.build(
-        issuerUrl: cfg.publicUrl,
+      consoleUrl: AwsTemplate.quickCreateUrl(
+        templateUrl: templateUrl,
+        region: cfg.sesRegion,
+        issuerHost: cfg.issuerHost,
         subject: Oidc.subjectOf(ws),
+        externalId: code,
         callbackUrl: '${cfg.publicUrl}/integrations/aws/callback',
-        code: code,
-        workspace: ws.name,
       ),
-      consoleUrl: AwsTemplate.consoleUrl(cfg.sesRegion),
     );
+  }
+
+  /// Keeps the vendor's template object current: after a connect and on
+  /// every check, the console uploads [AwsTemplate.build] when the public
+  /// object differs. A failure is logged and changes nothing else.
+  static Future<void> publishTemplate(
+    Session session,
+    StsCredentials sts,
+  ) async {
+    final url = AppConfig.instance.awsTemplateUrl;
+    if (url == null) return;
+    final body = AwsTemplate.build();
+    try {
+      final uri = Uri.parse(url);
+      final current = await deps.transport.send(HttpCall('GET', uri));
+      if (current.status == 200 && current.body == body) return;
+      await TemplateStore(deps.transport).put(
+        uri,
+        body,
+        sts.credentials,
+        region: AppConfig.instance.sesRegion,
+      );
+      session.log('aws template: published ${uri.path}');
+    } on Object catch (e) {
+      session.log('aws template: not published (${_safe(e)})');
+    }
   }
 
   /// Temporary credentials for [ws] (INT-19), or throws.
@@ -489,6 +522,7 @@ class IntegrationService {
           actorLabel: createdBy,
           detail: 'account $accountId, role ${roleArn.split('/').last}',
         );
+        await publishTemplate(session, sts);
         return;
       } on Object catch (e) {
         last = e;
@@ -569,6 +603,7 @@ class IntegrationService {
           region: AppConfig.instance.sesRegion,
           transport: deps.transport,
         ).account();
+        await publishTemplate(session, sts);
       }
       final saved = await Integration.db.updateRow(
         session,

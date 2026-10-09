@@ -243,12 +243,9 @@ void main() {
         final s = sessionBuilder.build();
         final o = await actor('owner@example.com', WorkspaceRole.owner);
         final start = await IntegrationService.startAws(s, o);
-        expect(start.fileName, endsWith('.json'));
-        final zip =
-            (jsonDecode(start.template)
-                    as Map)['Resources']['PodshipCallback']['Properties']['Code']['ZipFile']
-                as String;
-        final code = RegExp(r'CODE = "([A-Za-z0-9]+)"').firstMatch(zip)![1]!;
+        final code = Uri.splitQueryString(
+          start.consoleUrl.split('#/stacks/create/review?').last,
+        )['param_ExternalId']!;
         final views = await IntegrationService.list(s, o);
         expect(
           views.firstWhere((v) => v.provider == IntegrationProvider.aws).status,

@@ -12,49 +12,28 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 
-/// The template to download and the CloudFormation page to open (INT-11).
+/// The CloudFormation quick-create link to open (INT-11): template,
+/// stack name and every parameter filled in.
 abstract class AwsStart
     implements _isc.SerializableModel, _isc.ProtocolSerialization {
-  AwsStart._({
-    required this.fileName,
-    required this.template,
-    required this.consoleUrl,
-  });
+  AwsStart._({required this.consoleUrl});
 
-  factory AwsStart({
-    required String fileName,
-    required String template,
-    required String consoleUrl,
-  }) = _AwsStartImpl;
+  factory AwsStart({required String consoleUrl}) = _AwsStartImpl;
 
   factory AwsStart.fromJson(Map<String, dynamic> jsonSerialization) {
-    return AwsStart(
-      fileName: jsonSerialization['fileName'] as String,
-      template: jsonSerialization['template'] as String,
-      consoleUrl: jsonSerialization['consoleUrl'] as String,
-    );
+    return AwsStart(consoleUrl: jsonSerialization['consoleUrl'] as String);
   }
-
-  String fileName;
-
-  String template;
 
   String consoleUrl;
 
   /// Returns a shallow copy of this [AwsStart]
   /// with some or all fields replaced by the given arguments.
   @_isc.useResult
-  AwsStart copyWith({
-    String? fileName,
-    String? template,
-    String? consoleUrl,
-  });
+  AwsStart copyWith({String? consoleUrl});
   @override
   Map<String, dynamic> toJson() {
     return {
       '__className__': 'AwsStart',
-      'fileName': fileName,
-      'template': template,
       'consoleUrl': consoleUrl,
     };
   }
@@ -63,8 +42,6 @@ abstract class AwsStart
   Map<String, dynamic> toJsonForProtocol() {
     return {
       '__className__': 'AwsStart',
-      'fileName': fileName,
-      'template': template,
       'consoleUrl': consoleUrl,
     };
   }
@@ -76,29 +53,13 @@ abstract class AwsStart
 }
 
 class _AwsStartImpl extends AwsStart {
-  _AwsStartImpl({
-    required String fileName,
-    required String template,
-    required String consoleUrl,
-  }) : super._(
-         fileName: fileName,
-         template: template,
-         consoleUrl: consoleUrl,
-       );
+  _AwsStartImpl({required String consoleUrl}) : super._(consoleUrl: consoleUrl);
 
   /// Returns a shallow copy of this [AwsStart]
   /// with some or all fields replaced by the given arguments.
   @_isc.useResult
   @override
-  AwsStart copyWith({
-    String? fileName,
-    String? template,
-    String? consoleUrl,
-  }) {
-    return AwsStart(
-      fileName: fileName ?? this.fileName,
-      template: template ?? this.template,
-      consoleUrl: consoleUrl ?? this.consoleUrl,
-    );
+  AwsStart copyWith({String? consoleUrl}) {
+    return AwsStart(consoleUrl: consoleUrl ?? this.consoleUrl);
   }
 }

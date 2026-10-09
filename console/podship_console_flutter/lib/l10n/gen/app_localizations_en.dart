@@ -95,7 +95,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get intCfStep2 => 'Create Token.';
 
   @override
-  String get intCfStep3 => 'Copy. Then paste the token here.';
+  String get intCfStep3 =>
+      'Copy. Then paste the token here: podship checks and saves it at once.';
 
   @override
   String get intCfField => 'Cloudflare API token';
@@ -150,23 +151,15 @@ class AppLocalizationsEn extends AppLocalizations {
       'Email sending with Amazon SES: domains, DKIM and a sending user per app.';
 
   @override
-  String intAwsDownloaded(Object file) {
-    return 'Your browser downloaded $file.';
-  }
-
-  @override
-  String get intAwsStep1 => 'In the AWS tab: sign in.';
+  String get intAwsStep1 => 'In the AWS tab: sign in if AWS asks.';
 
   @override
   String get intAwsStep2 =>
-      'Choose \"Upload a template file\" and pick the file.';
+      'At the bottom, tick the box that acknowledges IAM resources.';
 
   @override
-  String get intAwsStep3 => 'Next. Stack name: podship. Next, Next.';
-
-  @override
-  String get intAwsStep4 =>
-      'Check the box that acknowledges IAM resources. Submit.';
+  String get intAwsStep3 =>
+      'Click \"Create stack\". This card turns to Connected by itself.';
 
   @override
   String intAwsWaiting(Object time) {
@@ -174,7 +167,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get intAwsAgain => 'Download the template again';
+  String get intAwsAgain => 'Open AWS again';
 
   @override
   String get intAwsAccount => 'Account';
@@ -288,4 +281,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonForbidden => 'You don\'t have access to this.';
+
+  @override
+  String get intAwsNotReady =>
+      'AWS can\'t connect yet: the podship template is not published. Ask the podship owner.';
+
+  @override
+  String get intCfChecking => 'Checking the token…';
 }

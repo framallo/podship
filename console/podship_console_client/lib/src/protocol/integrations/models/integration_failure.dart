@@ -18,7 +18,10 @@ enum IntegrationFailure implements _isc.SerializableModel {
   invalid,
   inactive,
   missingPermission,
-  unreachable;
+  unreachable,
+
+  /// The AWS template is not published yet (CONSOLE_AWS_TEMPLATE_URL).
+  notReady;
 
   static IntegrationFailure fromJson(String name) {
     switch (name) {
@@ -34,6 +37,8 @@ enum IntegrationFailure implements _isc.SerializableModel {
         return IntegrationFailure.missingPermission;
       case 'unreachable':
         return IntegrationFailure.unreachable;
+      case 'notReady':
+        return IntegrationFailure.notReady;
       default:
         throw ArgumentError(
           'Value "$name" cannot be converted to "IntegrationFailure"',

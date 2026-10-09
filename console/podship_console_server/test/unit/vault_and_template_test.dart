@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:podship_console_server/src/core/secrets.dart';
 import 'package:podship_console_server/src/core/vault.dart';
@@ -38,31 +39,29 @@ void main() {
   });
 
   group('AWS template', () {
-    final t =
-        jsonDecode(
-              AwsTemplate.build(
-                issuerUrl: 'https://podship.example.com',
-                subject: 'workspace:acme',
-                callbackUrl:
-                    'https://podship.example.com/integrations/aws/callback',
-                code: 'ONE-TIME-CODE',
-                workspace: 'Acme',
-              ),
-            )
-            as Map;
+    final t = jsonDecode(AwsTemplate.build()) as Map;
     final r = t['Resources'] as Map;
 
-    test('trusts only the console issuer and the workspace subject', () {
+    test('trusts the issuer and the workspace subject from parameters', () {
       final role = r['PodshipRole']['Properties'] as Map;
-      final st = (role['AssumeRolePolicyDocument']['Statement'] as List).single;
+      final trust = role['AssumeRolePolicyDocument']['Fn::Sub'] as String;
+      // After Fn::Sub it must be valid JSON with the expected conditions.
+      final filled = trust
+          .replaceAll(
+            r'${PodshipOidcProvider}',
+            'arn:aws:iam::1:oidc-provider/x',
+          )
+          .replaceAll(r'${IssuerHost}', 'podship.example.com')
+          .replaceAll(r'${Subject}', 'workspace:acme');
+      final st = (jsonDecode(filled)['Statement'] as List).single;
       expect(st['Action'], 'sts:AssumeRoleWithWebIdentity');
       expect(st['Condition']['StringEquals'], {
         'podship.example.com:aud': 'sts.amazonaws.com',
         'podship.example.com:sub': 'workspace:acme',
       });
       expect(
-        r['PodshipOidcProvider']['Properties']['Url'],
-        'https://podship.example.com',
+        (t['Parameters'] as Map).keys,
+        containsAll(['IssuerHost', 'Subject', 'ExternalId', 'CallbackUrl']),
       );
     });
 
@@ -85,15 +84,39 @@ void main() {
           r['PodshipSenderBoundary']['Properties']['PolicyDocument']['Statement']
               as List;
       expect(boundary.single['Action'], ['ses:SendEmail', 'ses:SendRawEmail']);
-      final deny = sts.firstWhere((s) => s['Sid'] == 'KeepTheBoundary');
-      expect(deny['Effect'], 'Deny');
+      expect(
+        sts.firstWhere((s) => s['Sid'] == 'KeepTheBoundary')['Effect'],
+        'Deny',
+      );
     });
 
-    test('the callback carries the one-time code', () {
-      final code =
-          r['PodshipCallback']['Properties']['Code']['ZipFile'] as String;
-      expect(code, contains('"ONE-TIME-CODE"'));
-      expect(code, contains('/integrations/aws/callback'));
+    test('the committed file is the built template (console/aws/)', () {
+      final file = File('../aws/connect-${AwsTemplate.version}.json');
+      expect(file.readAsStringSync(), AwsTemplate.build());
+    });
+
+    test('the quick-create link fills every parameter', () {
+      final u = AwsTemplate.quickCreateUrl(
+        templateUrl:
+            'https://podship-templates-1.s3.us-west-1.amazonaws.com/aws/connect-v1.json',
+        region: 'us-west-1',
+        issuerHost: 'podship.example.com',
+        subject: 'workspace:acme',
+        externalId: 'CODE123',
+        callbackUrl: 'https://podship.example.com/integrations/aws/callback',
+      );
+      expect(
+        u,
+        startsWith(
+          'https://us-west-1.console.aws.amazon.com/cloudformation/home?region=us-west-1#/stacks/create/review?',
+        ),
+      );
+      final q = Uri.splitQueryString(u.split('#/stacks/create/review?').last);
+      expect(q['stackName'], 'podship');
+      expect(q['param_ExternalId'], 'CODE123');
+      expect(q['param_IssuerHost'], 'podship.example.com');
+      expect(q['param_Subject'], 'workspace:acme');
+      expect(q['templateURL'], endsWith('/aws/connect-v1.json'));
     });
   });
 }

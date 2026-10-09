@@ -31,7 +31,8 @@ abstract class IntegrationView
     this.lastCheckAt,
     this.lastCheckOk,
     this.lastError,
-  });
+    bool? ready,
+  }) : ready = ready ?? true;
 
   factory IntegrationView({
     required _i4ae2s7i.IntegrationProvider provider,
@@ -48,6 +49,7 @@ abstract class IntegrationView
     DateTime? lastCheckAt,
     bool? lastCheckOk,
     String? lastError,
+    bool? ready,
   }) = _IntegrationViewImpl;
 
   factory IntegrationView.fromJson(Map<String, dynamic> jsonSerialization) {
@@ -84,6 +86,9 @@ abstract class IntegrationView
           ? null
           : _is.BoolJsonExtension.fromJson(jsonSerialization['lastCheckOk']),
       lastError: jsonSerialization['lastError'] as String?,
+      ready: jsonSerialization['ready'] == null
+          ? null
+          : _is.BoolJsonExtension.fromJson(jsonSerialization['ready']),
     );
   }
 
@@ -119,6 +124,9 @@ abstract class IntegrationView
 
   String? lastError;
 
+  /// False when Connect cannot work yet (AWS: no published template).
+  bool ready;
+
   /// Returns a shallow copy of this [IntegrationView]
   /// with some or all fields replaced by the given arguments.
   @_is.useResult
@@ -137,6 +145,7 @@ abstract class IntegrationView
     DateTime? lastCheckAt,
     bool? lastCheckOk,
     String? lastError,
+    bool? ready,
   });
   @override
   Map<String, dynamic> toJson() {
@@ -156,6 +165,7 @@ abstract class IntegrationView
       if (lastCheckAt != null) 'lastCheckAt': lastCheckAt?.toJson(),
       if (lastCheckOk != null) 'lastCheckOk': lastCheckOk,
       if (lastError != null) 'lastError': lastError,
+      'ready': ready,
     };
   }
 
@@ -177,6 +187,7 @@ abstract class IntegrationView
       if (lastCheckAt != null) 'lastCheckAt': lastCheckAt?.toJson(),
       if (lastCheckOk != null) 'lastCheckOk': lastCheckOk,
       if (lastError != null) 'lastError': lastError,
+      'ready': ready,
     };
   }
 
@@ -204,6 +215,7 @@ class _IntegrationViewImpl extends IntegrationView {
     DateTime? lastCheckAt,
     bool? lastCheckOk,
     String? lastError,
+    bool? ready,
   }) : super._(
          provider: provider,
          status: status,
@@ -219,6 +231,7 @@ class _IntegrationViewImpl extends IntegrationView {
          lastCheckAt: lastCheckAt,
          lastCheckOk: lastCheckOk,
          lastError: lastError,
+         ready: ready,
        );
 
   /// Returns a shallow copy of this [IntegrationView]
@@ -240,6 +253,7 @@ class _IntegrationViewImpl extends IntegrationView {
     Object? lastCheckAt = _Undefined,
     Object? lastCheckOk = _Undefined,
     Object? lastError = _Undefined,
+    bool? ready,
   }) {
     return IntegrationView(
       provider: provider ?? this.provider,
@@ -260,6 +274,7 @@ class _IntegrationViewImpl extends IntegrationView {
       lastCheckAt: lastCheckAt is DateTime? ? lastCheckAt : this.lastCheckAt,
       lastCheckOk: lastCheckOk is bool? ? lastCheckOk : this.lastCheckOk,
       lastError: lastError is String? ? lastError : this.lastError,
+      ready: ready ?? this.ready,
     );
   }
 }

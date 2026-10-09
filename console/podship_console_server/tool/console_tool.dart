@@ -1,6 +1,7 @@
 // podship console operator tool. Run from console/podship_console_server:
 //
 //   dart run tool/console_tool.dart test-passwords --write config/passwords.yaml
+//   dart run tool/console_tool.dart aws-template [--dir ../aws] [--bucket NAME]
 //   dart run tool/console_tool.dart sign-in-link <email> [--dir <deploy dir>]
 //   dart run tool/console_tool.dart access-token <email> [--name cli] [--days 90]
 //
@@ -12,6 +13,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+
+import 'package:podship_console_server/src/integrations/aws_template.dart';
 
 const _defaultDir = '/Users/framallo/services/podship-console';
 
@@ -34,6 +37,19 @@ Future<void> main(List<String> args) async {
       final out = opt('write') ?? 'config/passwords.yaml';
       File(out).writeAsStringSync(_testPasswords());
       stdout.writeln('wrote test passwords to $out');
+    case 'aws-template':
+      // The vendor files: the template and the bucket policy (console/aws/).
+      final dir = opt('dir') ?? '../aws';
+      final bucket = opt('bucket') ?? 'podship-templates-ACCOUNT_ID';
+      File('$dir/connect-${AwsTemplate.version}.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(AwsTemplate.build());
+      File('$dir/bucket-policy.json').writeAsStringSync(
+        AwsTemplate.bucketPolicy(bucket),
+      );
+      stdout.writeln(
+        'wrote $dir/connect-${AwsTemplate.version}.json and $dir/bucket-policy.json',
+      );
     case 'sign-in-link':
       if (positional.isEmpty) return _usage();
       exit(

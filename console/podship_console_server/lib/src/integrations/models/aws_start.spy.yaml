@@ -1,6 +1,5 @@
-### The template to download and the CloudFormation page to open (INT-11).
+### The CloudFormation quick-create link to open (INT-11): template,
+### stack name and every parameter filled in.
 class: AwsStart
 fields:
-  fileName: String
-  template: String
   consoleUrl: String

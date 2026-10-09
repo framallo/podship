@@ -1,0 +1,232 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "podship console (v1): lets a podship workspace manage Amazon SES and per-app send-only users. No access keys: podship assumes the role podship-console with a token signed by its console.",
+  "Parameters": {
+    "IssuerHost": {
+      "Type": "String",
+      "Description": "The podship console host, for example podship.densitylabs.io.",
+      "AllowedPattern": "^[a-z0-9.-]+$"
+    },
+    "Subject": {
+      "Type": "String",
+      "Description": "The workspace, for example workspace:density-labs.",
+      "AllowedPattern": "^workspace:[a-z0-9-]+$"
+    },
+    "ExternalId": {
+      "Type": "String",
+      "Description": "One-time connect code from the podship console. It expires after 24 hours.",
+      "AllowedPattern": "^[A-Za-z0-9]{20,64}$"
+    },
+    "CallbackUrl": {
+      "Type": "String",
+      "Description": "Where the stack tells the console that it exists.",
+      "AllowedPattern": "^https://.+$"
+    }
+  },
+  "Resources": {
+    "PodshipOidcProvider": {
+      "Type": "AWS::IAM::OIDCProvider",
+      "Properties": {
+        "Url": {
+          "Fn::Sub": "https://${IssuerHost}"
+        },
+        "ClientIdList": [
+          "sts.amazonaws.com"
+        ]
+      }
+    },
+    "PodshipSenderBoundary": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "ManagedPolicyName": "podship-ses-sender",
+        "Description": "Boundary of the per-app SES users podship makes: send email only.",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ses:SendEmail",
+                "ses:SendRawEmail"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    "PodshipRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "podship-console",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Fn::Sub": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"${PodshipOidcProvider}\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"${IssuerHost}:aud\":\"sts.amazonaws.com\",\"${IssuerHost}:sub\":\"${Subject}\"}}}]}"
+        },
+        "Policies": [
+          {
+            "PolicyName": "podship-ses",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "Ses",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ses:GetAccount",
+                    "ses:ListEmailIdentities",
+                    "ses:GetEmailIdentity",
+                    "ses:CreateEmailIdentity",
+                    "ses:DeleteEmailIdentity",
+                    "ses:PutEmailIdentityMailFromAttributes",
+                    "ses:TagResource",
+                    "ses:SendEmail",
+                    "ses:SendRawEmail"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "CreateSendingUsers",
+                  "Effect": "Allow",
+                  "Action": "iam:CreateUser",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/podship-ses/*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PermissionsBoundary": {
+                        "Ref": "PodshipSenderBoundary"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Sid": "ManageSendingUsers",
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetUser",
+                    "iam:DeleteUser",
+                    "iam:TagUser",
+                    "iam:PutUserPolicy",
+                    "iam:GetUserPolicy",
+                    "iam:DeleteUserPolicy",
+                    "iam:ListUserPolicies",
+                    "iam:CreateAccessKey",
+                    "iam:DeleteAccessKey",
+                    "iam:ListAccessKeys"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/podship-ses/*"
+                  }
+                },
+                {
+                  "Sid": "KeepTheBoundary",
+                  "Effect": "Deny",
+                  "Action": [
+                    "iam:DeleteUserPermissionsBoundary",
+                    "iam:PutUserPermissionsBoundary"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "TemplateMaintenance",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::podship-templates-${AWS::AccountId}/aws/*"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "PodshipCallbackRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          }
+        ]
+      }
+    },
+    "PodshipCallback": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Description": "Tells the podship console that this stack exists (or was deleted).",
+        "Runtime": "python3.12",
+        "Handler": "index.handler",
+        "Timeout": 60,
+        "Role": {
+          "Fn::GetAtt": [
+            "PodshipCallbackRole",
+            "Arn"
+          ]
+        },
+        "Code": {
+          "ZipFile": "import json, urllib.request, cfnresponse\n\ndef handler(event, context):\n    props = event.get(\"ResourceProperties\", {})\n    body = json.dumps({\n        \"code\": props.get(\"ExternalId\"),\n        \"request_type\": event[\"RequestType\"],\n        \"account_id\": props.get(\"AccountId\"),\n        \"role_arn\": props.get(\"RoleArn\"),\n        \"stack_id\": event.get(\"StackId\"),\n        \"region\": props.get(\"Region\"),\n        \"template_version\": props.get(\"TemplateVersion\"),\n    }).encode()\n    status = cfnresponse.SUCCESS\n    reason = \"podship console answered\"\n    try:\n        req = urllib.request.Request(props[\"CallbackUrl\"], data=body, method=\"POST\", headers={\n            \"Content-Type\": \"application/json\",\n            \"User-Agent\": \"podship-cloudformation/1\",\n        })\n        urllib.request.urlopen(req, timeout=20).read()\n    except Exception as e:\n        reason = \"the podship console did not answer: %s\" % e\n        print(reason)\n        # A failed connect stops the stack; a delete always goes on.\n        if event[\"RequestType\"] == \"Create\":\n            status = cfnresponse.FAILED\n    cfnresponse.send(event, context, status, {}, reason=reason)\n"
+        }
+      }
+    },
+    "PodshipConnect": {
+      "Type": "Custom::PodshipConnect",
+      "DependsOn": [
+        "PodshipRole"
+      ],
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "PodshipCallback",
+            "Arn"
+          ]
+        },
+        "CallbackUrl": {
+          "Ref": "CallbackUrl"
+        },
+        "ExternalId": {
+          "Ref": "ExternalId"
+        },
+        "TemplateVersion": "v1",
+        "AccountId": {
+          "Ref": "AWS::AccountId"
+        },
+        "Region": {
+          "Ref": "AWS::Region"
+        },
+        "RoleArn": {
+          "Fn::GetAtt": [
+            "PodshipRole",
+            "Arn"
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "RoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "PodshipRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}

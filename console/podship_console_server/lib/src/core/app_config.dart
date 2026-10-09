@@ -14,6 +14,7 @@ import 'vault.dart';
 /// | `CONSOLE_WORKSPACE` | The workspace name (default `Density Labs`). |
 /// | `CONSOLE_MAIL_FROM` | Optional: the sender of sign-in codes, through the workspace's AWS integration. |
 /// | `CONSOLE_SES_REGION` | The SES region (default `us-west-1`). |
+/// | `CONSOLE_AWS_TEMPLATE_URL` | The public S3 URL of the connect template (`https://podship-templates-<account>.s3.us-west-1.amazonaws.com/aws/connect-v1.json`). Without it AWS cannot connect. |
 ///
 /// passwords.yaml: `integrationKey` (32 bytes, base64), `serviceSecret`,
 /// `emailSecretHashPepper` and the JWT passwords.
@@ -26,6 +27,7 @@ class AppConfig {
     required this.mailFrom,
     required this.sesRegion,
     required this.vault,
+    this.awsTemplateUrl,
   });
 
   static AppConfig? _instance;
@@ -58,6 +60,9 @@ class AppConfig {
       mailFrom: env['CONSOLE_MAIL_FROM'],
       sesRegion: env['CONSOLE_SES_REGION'] ?? 'us-west-1',
       vault: Vault.fromBase64(key),
+      awsTemplateUrl: (env['CONSOLE_AWS_TEMPLATE_URL'] ?? '').isEmpty
+          ? null
+          : env['CONSOLE_AWS_TEMPLATE_URL'],
     );
   }
 
@@ -66,6 +71,8 @@ class AppConfig {
     String publicUrl = 'https://console.test',
     Set<String> ownerEmails = const {'owner@example.com'},
     required List<int> key,
+    String? awsTemplateUrl =
+        'https://podship-templates-123456789012.s3.us-west-1.amazonaws.com/aws/connect-v1.json',
   }) => _instance = AppConfig._(
     runMode: 'test',
     publicUrl: publicUrl,
@@ -74,6 +81,7 @@ class AppConfig {
     mailFrom: null,
     sesRegion: 'us-west-1',
     vault: Vault(key),
+    awsTemplateUrl: awsTemplateUrl,
   );
 
   static String _trim(String u) =>
@@ -86,6 +94,7 @@ class AppConfig {
   final String? mailFrom;
   final String sesRegion;
   final Vault vault;
+  final String? awsTemplateUrl;
 
   bool get isDevelopment => runMode == 'development';
   bool get isTest => runMode == 'test';
