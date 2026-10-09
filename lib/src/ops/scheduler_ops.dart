@@ -15,6 +15,7 @@ import '../remote/ssh.dart';
 import '../scheduler/agent.dart';
 import '../scheduler/scheduler.dart';
 import '../server/registry.dart';
+import '../watch/model.dart';
 import 'context.dart';
 import 'resolve.dart';
 import 'scripts.dart';
@@ -346,9 +347,22 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
     registry.scheduler = SchedulerSettings(at: SchedulerSettings.validTime(at));
   }
   final settings = registry.scheduler;
-  final watchInterval = registry.watch.targets.isEmpty
-      ? null
-      : registry.watch.interval;
+  var watch = registry.watch;
+  if (!registry.hasWatch) {
+    // A podship older than the watch may have rewritten the registry
+    // without its section: the watch's own copy still says the machine is
+    // watched, and the agent must keep ticking for it.
+    try {
+      final copy = (await t.query(
+        ctx,
+        'cat ${shq('${t.home}/watch/settings.json')} 2>/dev/null || true\n',
+      )).trim();
+      if (copy.isNotEmpty) {
+        watch = WatchSettings.fromMap(jsonDecode(copy) as Map);
+      }
+    } catch (_) {}
+  }
+  final watchInterval = watch.targets.isEmpty ? null : watch.interval;
   final next = registry.render();
   final steps = <Step>[
     ActionStep(
