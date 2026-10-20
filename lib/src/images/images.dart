@@ -18,6 +18,7 @@ import '../release/layout.dart';
 import '../remote/ssh.dart';
 import '../ops/context.dart';
 import '../ops/inputs.dart';
+import '../ops/tests.dart';
 import 'archive.dart';
 import 'dockerfile.dart';
 import 'registry.dart';
@@ -39,6 +40,10 @@ class ImageReport {
   bool fullFallback = false;
   String? gate;
   String? gateArtifacts;
+
+  /// REV-19: the commit whose passing gate this one stands on, when the
+  /// gate was skipped as unchanged.
+  String? gateSameAs;
   final Map<String, int> millis = {};
 
   Map<String, Object?> toJson() => {
@@ -57,6 +62,7 @@ class ImageReport {
     if (fullFallback) 'full_fallback': true,
     'gate': ?gate,
     'gate_artifacts': ?gateArtifacts,
+    'gate_same_as': ?gateSameAs,
     if (millis.isNotEmpty) 'ms': millis,
   };
 }
@@ -326,6 +332,56 @@ Future<ImagePlan> computeImagePlan({
   );
 }
 
+/// REV-19: everything the gate depends on besides the files in the commit:
+/// its command and seed, the stack it starts, the runner image, the server
+/// image inputs ([imageKey]: sources, lock, Dockerfile, web builds),
+/// [platform] and the toolchain ([tools]). Sorted keys, so two runs with the
+/// same settings give the same salt.
+List<String> gateSalt(
+  ImageGateConfig gate, {
+  required String? imageKey,
+  required String platform,
+  required List<String> tools,
+}) => [
+  'command=${gate.command}',
+  'dir=${gate.dir}',
+  'seed=${gate.seed ?? ''}',
+  'seed_in=${gate.seedIn}',
+  'runner=${gate.image ?? ''}',
+  'flutter=${gate.flutter ?? ''}',
+  'chrome=${gate.chrome ?? ''}',
+  'services=${gate.services.map((s) => '${s.name}:${s.image}:${s.ready ?? ''}:${_sortedMap(s.env)}').join(',')}',
+  'server=${gate.server.entrypoint.join(' ')}:${gate.server.port}:${gate.server.health}:${_sortedMap(gate.server.env)}',
+  'env=${_sortedMap(gate.env)}',
+  'image=${imageKey ?? ''}',
+  'platform=$platform',
+  ...tools,
+];
+
+String _sortedMap(Map<String, String> m) =>
+    (m.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))
+        .map((e) => '${e.key}=${e.value}')
+        .join(';');
+
+/// REV-19: the gate's input hash at [sha], or null when the gate's paths are
+/// not in the commit (then the gate always runs).
+Future<String?> gateInputsHash(
+  String root,
+  String sha,
+  ImageGateConfig gate, {
+  required String? imageKey,
+  required String platform,
+}) async {
+  final paths = await packageInputs(root, sha, gate.dir, extra: gate.inputs);
+  final tools = [?await dartVersionTag(), ?await flutterVersionTag()];
+  return inputsHash(
+    root,
+    sha,
+    paths,
+    salt: gateSalt(gate, imageKey: imageKey, platform: platform, tools: tools),
+  );
+}
+
 /// Runs the release gate: a fresh export under ~/.podship/work (Docker
 /// VMs share the home folder), the stack, the seed, the runner; artifacts
 /// to `~/.podship/artifacts/<project>/<env>/<release>`. Always removes the
@@ -499,6 +555,7 @@ List<Step> imageLane({
   bool skipWeb = false,
   String? sha,
   bool runGate = true,
+  bool fullTests = false,
 }) {
   final config = ctx.config;
   final report = plan.report;
@@ -785,8 +842,33 @@ List<Step> imageLane({
       ActionStep(
         'Release gate (in containers)',
         'the image with ${gate.services.map((s) => s.name).join(', ')} on this machine; '
-            '${gate.command} in the test runner; the image ships only when it passes',
+            '${gate.command} in the test runner; the image ships only when it passes'
+            '${gate.skipUnchanged ? '; skipped when its inputs passed before' : ''}',
         () => timed('gate', () async {
+          // REV-19: the gate skips like a suite when its inputs (the gate's
+          // package and extra paths, the server image inputs, the web
+          // builds, the runner, the toolchain) passed before.
+          String? hash;
+          if (sha != null && gate.skipUnchanged && !fullTests) {
+            hash = await gateInputsHash(
+              config.root,
+              sha,
+              gate,
+              imageKey: key,
+              platform: '$platform',
+            );
+          }
+          if (hash != null) {
+            final prior = (await findPriorPasses(ctx, {'gate': hash}))['gate'];
+            if (prior != null) {
+              ctx.log.info(
+                'gate: unchanged since ${prior.sha.substring(0, prior.sha.length.clamp(0, 7))}, skipped',
+              );
+              report.gate = 'unchanged';
+              report.gateSameAs = prior.sha;
+              return;
+            }
+          }
           await runImageGate(
             ctx,
             env: env,
@@ -800,6 +882,19 @@ List<Step> imageLane({
             sha: sha,
             report: report,
           );
+          if (hash != null && report.gate == 'passed') {
+            try {
+              await writeHashPass(
+                ctx,
+                env,
+                suite: 'gate',
+                hash: hash,
+                sha: sha!,
+              );
+            } catch (e) {
+              ctx.log.warn('could not record the gate pass on ${env.host}: $e');
+            }
+          }
         }),
       ),
     );

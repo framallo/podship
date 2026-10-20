@@ -353,10 +353,22 @@ class ImageGateConfig {
     this.artifacts = const [],
     this.env = const {},
     this.timeoutSeconds = 1800,
+    this.inputs = const [],
+    this.skipUnchanged = true,
   }) : server = server ?? StackServer();
 
   /// Environments whose deploys run the gate; empty means all.
   final List<String> environments;
+
+  /// REV-19: more paths (relative to the project root) whose changes need a
+  /// new gate run, like the integration tests and the fixtures. [dir], its
+  /// `path:` dependencies and the nearest `pubspec.lock` always count, as do
+  /// the server image inputs and the web builds.
+  final List<String> inputs;
+
+  /// Whether the gate is skipped when its inputs have the hash of a run
+  /// that passed before (`deploy --full-tests` runs it anyway).
+  final bool skipUnchanged;
 
   /// Runs in the runner, in [dir] of a fresh export of the commit.
   final String command;
@@ -1975,6 +1987,8 @@ class PodshipConfig {
       artifacts: g.strs('artifacts'),
       env: g.strMap('env'),
       timeoutSeconds: g.integer('timeout', 1800),
+      inputs: g.strs('inputs'),
+      skipUnchanged: g.boolean('skip_unchanged', true),
     );
   }
 

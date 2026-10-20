@@ -435,26 +435,47 @@ Future<String> writeTestRecord(
   );
   // A passing suite with a hash lets the next deploy with the same inputs
   // skip it. A skipped suite keeps the record of the run it stands on.
-  final byHash = StringBuffer();
   for (final r in remote) {
     final h = r.inputsHash;
     if (h == null || !r.ok || r.unchanged) continue;
-    final hp = suiteHashPath(env, ctx.config.project, r.suite, h);
-    final j = jsonEncode({
-      'suite': r.suite,
-      'hash': h,
-      'sha': sha,
-      'env': env.name,
-      'at': record['at'],
-      'ok': true,
-      'passed': r.passed,
-    });
-    byHash.writeln(
-      'mkdir -p ${shq(p.posix.dirname(hp))} && printf \'%s\\n\' ${shq(j)} > ${shq(hp)}',
+    await writeHashPass(
+      ctx,
+      env,
+      suite: r.suite,
+      hash: h,
+      sha: sha,
+      passed: r.passed,
+      at: '${record['at']}',
     );
   }
-  if (byHash.isNotEmpty) await ctx.query(env, byHash.toString());
   return path;
+}
+
+/// Records that [suite] (a suite name, or `gate`) passed at [sha] with input
+/// hash [hash], so the next deploy with the same inputs skips it.
+Future<void> writeHashPass(
+  Ctx ctx,
+  EnvConfig env, {
+  required String suite,
+  required String hash,
+  required String sha,
+  int passed = 0,
+  String? at,
+}) async {
+  final hp = suiteHashPath(env, ctx.config.project, suite, hash);
+  final j = jsonEncode({
+    'suite': suite,
+    'hash': hash,
+    'sha': sha,
+    'env': env.name,
+    'at': at ?? DateTime.now().toUtc().toIso8601String(),
+    'ok': true,
+    'passed': passed,
+  });
+  await ctx.query(
+    env,
+    'mkdir -p ${shq(p.posix.dirname(hp))} && printf \'%s\\n\' ${shq(j)} > ${shq(hp)}',
+  );
 }
 
 /// Finds a passing test record of [sha] on any environment's server.

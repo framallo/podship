@@ -219,6 +219,7 @@ A deploy does only the work that the commit needs:
 - **Unchanged test suites are skipped.** Each suite has the same kind of hash (its `dir`, path dependencies, lock, `tests.suites[].inputs`, the command). A passing run writes `<podship_home>/history/<project>/tests/by-hash/<suite>-<hash>.json`; the next deploy whose suite has that hash skips it and reports `tests server: unchanged since <sha>, skipped`. The commit's own test record still says `ok`, with `same_as: <sha>` on the skipped suite, so the production gate works as before. `deploy --full-tests` runs everything; `skip_unchanged: false` on a suite does too.
 - **Suites run at the same time** (`tests.parallel`, default `true`): each one in its own folder. Set `parallel: false` for suites that share a resource.
 - **Suites that do not block run after the switch** (`blocks: false`, see [Tests before a deploy](#tests-before-a-deploy)): the deploy waits only for the suites of what it ships.
+- **The release gate skips by hash** when nothing it exercises changed (see [Release gate in containers](#images)); the suites, the images and the backup already run as parallel lanes.
 - **The upload sends changed content only.** rsync runs with `--checksum`: `git archive` gives every file the commit's time, so a new commit would otherwise re-send everything.
 - **Images build from cache.** With `build: remote`, the server keeps the BuildKit cache between releases (with a local build, this machine does). Order the Dockerfile so dependencies come first (`COPY pubspec.lock` and `pubspec.yaml`, `RUN --mount=type=cache,target=/root/.pub-cache dart pub get`, then the sources, then the compile), and copy `web/`, `config/` and `migrations/` straight from the build context into the final image, so a web-only change does not recompile the server. Pin base images.
 - **Stage timings.** Every history record has `data.steps` (title and duration of each step). `podship history --verbose` prints them; `last_deploy` through a console or MCP returns the newest one.
@@ -284,7 +285,11 @@ tests:
         health: /health
       artifacts: [build/e2e]
       timeout: 1800
+      inputs: [app/integration_test]  # more paths whose changes rerun the gate (see below)
+      skip_unchanged: true             # skip the gate when its inputs passed before (default)
 ```
+
+**The gate skips by hash.** Like a suite, the gate has an input hash: the gate's `dir` package (its `path:` dependencies and the nearest lock), `inputs`, the server image inputs (sources, lock, Dockerfile, the web builds), the stack and runner settings, the platform and the toolchain. A passing gate writes `<podship_home>/history/<project>/tests/by-hash/gate-<hash>.json`; the next deploy with the same hash reports `gate: unchanged since <sha>, skipped` and the release records `gate: unchanged` with `gate_same_as`. A deploy that changes the app or the server reruns it. `deploy --full-tests` runs it anyway; `skip_unchanged: false` too.
 
 ## Zero-downtime
 

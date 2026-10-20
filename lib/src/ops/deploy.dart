@@ -563,6 +563,7 @@ Plan planDeploy({
             skipWeb: options.skipWeb,
             sha: source == SourceMode.git ? git.sha : null,
             runGate: !options.skipTests,
+            fullTests: options.fullTests,
             export: () async {
               if (source == SourceMode.git) {
                 await exportCommit(root, git.sha, imgRoot);
