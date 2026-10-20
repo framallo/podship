@@ -10,17 +10,55 @@ import 'dart:io';
 import '../config/config.dart';
 import '../util/log.dart';
 
-/// Runs `gh` and returns stdout, or throws with its stderr.
-Future<String> _gh(List<String> args, {String? input, String? cwd}) async {
-  final proc = await Process.start('gh', args, workingDirectory: cwd);
+/// Runs `gh` with [args] (and [input] on stdin) and returns stdout.
+typedef GhRunner = Future<String> Function(List<String> args, {String? input});
+
+/// Runs `gh` and returns stdout, or throws with [ghError].
+Future<String> _ghProcess(List<String> args, {String? input}) async {
+  final proc = await Process.start('gh', args);
   if (input != null) proc.stdin.write(input);
   await proc.stdin.close();
-  final out = await proc.stdout.transform(utf8.decoder).join();
-  final err = await proc.stderr.transform(utf8.decoder).join();
+  final out = proc.stdout.transform(utf8.decoder).join();
+  final err = proc.stderr.transform(utf8.decoder).join();
   if (await proc.exitCode != 0) {
-    throw Exception('gh ${args.take(3).join(' ')}: ${err.trim()}');
+    throw Exception(ghError(args, stdout: await out, stderr: await err));
   }
   return out;
+}
+
+/// The message of a failed `gh` call: its stderr and, when GitHub answered
+/// with a JSON error body (`gh api` prints it on stdout), the fields it
+/// names, so a 422 says which field GitHub refused.
+String ghError(
+  List<String> args, {
+  required String stdout,
+  required String stderr,
+}) {
+  final b = StringBuffer('gh ${args.take(3).join(' ')}: ${stderr.trim()}');
+  try {
+    final body = jsonDecode(stdout);
+    if (body is Map) {
+      final errors = [
+        for (final e in body['errors'] as List? ?? const [])
+          if (e is Map)
+            [
+              e['field'],
+              e['message'] ?? e['code'],
+            ].whereType<Object>().join(': ')
+          else
+            '$e',
+      ];
+      if (errors.isNotEmpty) {
+        b.write(': ${errors.join('; ')}');
+      } else if (body['message'] != null &&
+          !stderr.contains('${body['message']}')) {
+        b.write(': ${body['message']}');
+      }
+    }
+  } on FormatException {
+    // Not JSON: stderr says it all.
+  }
+  return b.toString();
 }
 
 Future<String> _git(String root, List<String> args) async {
@@ -31,10 +69,22 @@ Future<String> _git(String root, List<String> args) async {
   return (r.stdout as String).trim();
 }
 
+/// GitHub refuses a status `description` over 140 characters with HTTP 422
+/// (deployment statuses and commit statuses alike), and a failed deploy's
+/// error is longer: keep the first line, cut it to 139 and end with `…`.
+String _short(String description) {
+  final line = description.trim().split('\n').first.trim();
+  return line.length <= 140 ? line : '${line.substring(0, 139)}…';
+}
+
 class GitHub {
-  GitHub(this.config, this.log);
+  GitHub(this.config, this.log, {GhRunner? runGh}) : _gh = runGh ?? _runGh;
   final PodshipConfig config;
   final Log log;
+  final GhRunner _gh;
+
+  static Future<String> _runGh(List<String> args, {String? input}) =>
+      _ghProcess(args, input: input);
 
   GitHubConfig? get gh => config.github;
 
@@ -90,7 +140,7 @@ class GitHub {
       'state': state,
       'environment': env.name,
       'environment_url': ?envUrl(env),
-      'description': ?description,
+      'description': ?(description == null ? null : _short(description)),
       'auto_inactive': true,
     }),
   );
@@ -154,9 +204,7 @@ class GitHub {
         input: jsonEncode({
           'state': ok ? 'success' : 'failure',
           'context': 'podship/deploy/${env.name}',
-          'description': description.length > 140
-              ? description.substring(0, 140)
-              : description,
+          'description': _short(description),
           'target_url': ?envUrl(env),
         }),
       ),
