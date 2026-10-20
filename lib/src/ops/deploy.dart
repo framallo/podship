@@ -824,24 +824,41 @@ Plan planDeploy({
           git.sha,
           id,
           options.tests ?? TestRun(),
-          () => inContainers
-              ? runSuitesInContainers(
-                  ctx,
-                  env,
-                  afterSuites,
-                  l.release(id),
-                  '$snapshot.tests',
-                  parallel: config.tests.parallel,
-                  plan: inputs.suites,
-                )
-              : runSuitesLocally(
-                  ctx,
-                  afterSuites,
-                  buildRoot,
-                  '$snapshot.tests',
-                  parallel: config.tests.parallel,
-                  plan: inputs.suites,
-                ),
+          () async {
+            if (inContainers) {
+              return runSuitesInContainers(
+                ctx,
+                env,
+                afterSuites,
+                l.release(id),
+                '$snapshot.tests',
+                parallel: config.tests.parallel,
+                plan: inputs.suites,
+              );
+            }
+            // The export was pruned to the shipped files for the image
+            // (`build.files`), so the tests are gone from it: a fresh
+            // export of the commit, dropped after the run.
+            final dir = source == SourceMode.git ? '$snapshot.after' : root;
+            if (source == SourceMode.git) {
+              await exportCommit(root, git.sha, dir);
+            }
+            try {
+              return await runSuitesLocally(
+                ctx,
+                afterSuites,
+                dir,
+                '$snapshot.tests',
+                parallel: config.tests.parallel,
+                plan: inputs.suites,
+              );
+            } finally {
+              if (source == SourceMode.git) {
+                final d = Directory(dir);
+                if (d.existsSync()) await d.delete(recursive: true);
+              }
+            }
+          },
           options.afterTests,
         ),
       ),
