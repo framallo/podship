@@ -1,4 +1,4 @@
-// HTTP for the API integrations (Cloudflare, AWS SES), behind one small
+// HTTP for the API integrations (Cloudflare, AWS SES, Boceto issues), behind one small
 // interface so tests and plans never touch the network:
 //
 // - [IoTransport] sends real requests.
@@ -20,7 +20,7 @@ class HttpCall {
   final Uri url;
   final Map<String, String> headers;
 
-  /// The body as text (JSON for both APIs), or null.
+  /// The body as text (JSON for every API here), or null.
   final String? body;
 
   /// The body parsed as JSON, or null.

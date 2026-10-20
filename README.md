@@ -218,6 +218,7 @@ A deploy does only the work that the commit needs:
 - **Flutter web builds are reused.** Each app has an input hash: the git tree ids of its folder, of its `path:` dependencies (read from its `pubspec.yaml`), of the nearest `pubspec.lock`, plus `flutter_web[].inputs`, the Flutter version, `base_href` and `args`. The hash goes into the release's `release.json`. When a kept, healthy release on the server has the same hash, the new release hard-links that build (`Reuse Flutter web: app`) and `flutter build web` does not run. The hash comes from the commit, so a `--worktree` deploy always builds. `reuse: false` on an app turns this off.
 - **Unchanged test suites are skipped.** Each suite has the same kind of hash (its `dir`, path dependencies, lock, `tests.suites[].inputs`, the command). A passing run writes `<podship_home>/history/<project>/tests/by-hash/<suite>-<hash>.json`; the next deploy whose suite has that hash skips it and reports `tests server: unchanged since <sha>, skipped`. The commit's own test record still says `ok`, with `same_as: <sha>` on the skipped suite, so the production gate works as before. `deploy --full-tests` runs everything; `skip_unchanged: false` on a suite does too.
 - **Suites run at the same time** (`tests.parallel`, default `true`): each one in its own folder. Set `parallel: false` for suites that share a resource.
+- **Suites that do not block run after the switch** (`blocks: false`, see [Tests before a deploy](#tests-before-a-deploy)): the deploy waits only for the suites of what it ships.
 - **The upload sends changed content only.** rsync runs with `--checksum`: `git archive` gives every file the commit's time, so a new commit would otherwise re-send everything.
 - **Images build from cache.** With `build: remote`, the server keeps the BuildKit cache between releases (with a local build, this machine does). Order the Dockerfile so dependencies come first (`COPY pubspec.lock` and `pubspec.yaml`, `RUN --mount=type=cache,target=/root/.pub-cache dart pub get`, then the sources, then the compile), and copy `web/`, `config/` and `migrations/` straight from the build context into the final image, so a web-only change does not recompile the server. Pin base images.
 - **Stage timings.** Every history record has `data.steps` (title and duration of each step). `podship history --verbose` prints them; `last_deploy` through a console or MCP returns the newest one.
@@ -494,13 +495,23 @@ tests:
       dir: shop_flutter
       command: <the Flutter test command>
       environments: [staging]
+    - name: ui
+      dir: shop_ui
+      command: flutter test
+      blocks: false          # runs after the switch; a failure reports, never rolls back
+issues:                      # where a failed after-deploy suite opens an issue (optional)
+  tracker: boceto
+  url: https://boceto.example.com
+  project: shop              # the token: BOCETO_TOKEN, or `tracker:boceto` in the secret store, never here
 ```
 
-Each suite's counts, failures, duration and log go into the operation result, the history, and a per-commit record on the server (`<podship_home>/history/<project>/tests/<sha>.json`). An environment in `gate` takes a commit only if its tests passed in this deploy or in another environment's deploy of the same commit (staging, usually). Otherwise `deploy --skip-tests --reason "…"` asks you to type the environment name, and the skip is recorded. A project without suites has no gate. With `runner: container`, each suite runs in `image:` (default `dart:stable`) on the server, from the uploaded files.
+Each suite's counts, failures, duration and log go into the operation result, the history, and a per-commit record on the server (`<podship_home>/history/<project>/tests/<sha>.json`).
+
+**Suites that do not block.** A suite with `blocks: false` is not part of the gate: it runs after the switch and the health checks, in parallel with the other after suites, on the same exported commit and with the same skip by input hash, as the plan's last step, "Run tests after deploy (ui)". Its results go to `<sha>.after.json` next to the gate's record and to `tests_after` in the history; the gate's record ignores them, so a promote never refuses because of one. A failure sends the `after_tests_failed` notification and, with `issues:`, opens one issue per failed suite (title, release, commit, counts, the failed tests and the log tail) through the tracker's API; the release stays and nothing rolls back. Use it for suites of what the deploy does not ship, like a UI package, its Widgetbook or the tools; the suites of the server and the web app keep blocking. An environment in `gate` takes a commit only if its tests passed in this deploy or in another environment's deploy of the same commit (staging, usually). Otherwise `deploy --skip-tests --reason "…"` asks you to type the environment name, and the skip is recorded. A project without suites has no gate. With `runner: container`, each suite runs in `image:` (default `dart:stable`) on the server, from the uploaded files.
 
 ## Notifications
 
-podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a rollback is done, when a backup fails, when a scheduler job fails, and when the watch sees an environment go down or recover (see [Watch](#watch)). Channels:
+podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a suite that does not block fails after the switch (`after_tests_failed`), when a rollback is done, when a backup fails, when a scheduler job fails, and when the watch sees an environment go down or recover (see [Watch](#watch)). Channels:
 
 | Channel | What it does |
 |---|---|
@@ -511,7 +522,7 @@ podship tells you when a deploy starts, when it is done (release, duration, heal
 
 ```yaml
 notify:
-  events: [deploy_done, deploy_failed, rollback_done, backup_failed, scheduler_job_failed, watch_down, watch_recovered]   # the default; add deploy_started
+  events: [deploy_done, deploy_failed, rollback_done, backup_failed, after_tests_failed, scheduler_job_failed, watch_down, watch_recovered]   # the default; add deploy_started
   bell: true                              # a terminal bell after a long command
   channels:
     macos: {}

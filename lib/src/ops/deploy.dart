@@ -31,6 +31,7 @@ import 'scheduler_ops.dart' show agentStep;
 import 'watch_ops.dart' show FleetMachine, ownerTarget;
 import 'scripts.dart';
 import 'state.dart';
+import 'after_tests.dart';
 import 'tests.dart';
 
 /// The commit a release comes from.
@@ -90,7 +91,12 @@ class DeployOptions {
     this.tests,
     this.inputs,
     this.images,
+    this.afterTests,
   });
+
+  /// What runs with the outcome of the suites that ran after the switch
+  /// (a notification, an issue). Never fails the deploy.
+  final Future<void> Function(AfterTestsOutcome)? afterTests;
 
   /// Where the images are built and how they reach the server (see
   /// [computeImagePlan]). Null: the server builds them.
@@ -200,7 +206,7 @@ Future<DeployInputs> computeDeployInputs({
     if (config.build.flutterWeb.isNotEmpty) ?await flutterVersionTag(),
   ];
   final suiteHashes = <String, String>{};
-  for (final suite in config.tests.forEnv(env.name)) {
+  for (final suite in config.tests.allFor(env.name)) {
     final paths = await packageInputs(
       root,
       git.sha,
@@ -221,7 +227,7 @@ Future<DeployInputs> computeDeployInputs({
     if (h != null) suiteHashes[suite.name] = h;
   }
   final skippable = {
-    for (final suite in config.tests.forEnv(env.name))
+    for (final suite in config.tests.allFor(env.name))
       if (suite.skipUnchanged && suiteHashes.containsKey(suite.name))
         suite.name: suiteHashes[suite.name]!,
   };
@@ -240,6 +246,10 @@ class TestRun {
   final List<SuiteResult> results = [];
   String? recordPath;
   bool get ok => results.every((r) => r.ok);
+
+  /// The suites that ran after the switch (`blocks: false`).
+  final List<SuiteResult> after = [];
+  String? afterRecordPath;
 }
 
 /// The compose files of [env], relative to the release root.
@@ -796,6 +806,46 @@ Plan planDeploy({
       steps.add(LocalStep('Post-deploy hook', ['bash', '-c', cmd], cwd: root));
     }
   }
+  // Suites with `blocks: false` run after the switch, outside the guard: a
+  // failure is reported and never rolls back.
+  final afterSuites = config.tests.afterFor(env.name);
+  if (!options.skipTests && afterSuites.isNotEmpty) {
+    final inContainers = config.tests.runner == TestRunner.container;
+    steps.add(
+      ActionStep(
+        'Run tests after deploy (${afterSuites.map((s) => s.name).join(', ')})',
+        inContainers
+            ? 'in containers on ${env.host}, from the release files, in parallel; a failure is reported and never rolls back'
+            : 'on this machine, in ${source == SourceMode.git ? 'the export' : 'the project'}, in parallel; a failure is reported and never rolls back',
+        () => _runAfterTests(
+          ctx,
+          env,
+          git.sha,
+          id,
+          options.tests ?? TestRun(),
+          () => inContainers
+              ? runSuitesInContainers(
+                  ctx,
+                  env,
+                  afterSuites,
+                  l.release(id),
+                  '$snapshot.tests',
+                  parallel: config.tests.parallel,
+                  plan: inputs.suites,
+                )
+              : runSuitesLocally(
+                  ctx,
+                  afterSuites,
+                  buildRoot,
+                  '$snapshot.tests',
+                  parallel: config.tests.parallel,
+                  plan: inputs.suites,
+                ),
+          options.afterTests,
+        ),
+      ),
+    );
+  }
   final recovery = <Step>[
     RemoteStep(
       'Mark $id failed',
@@ -849,10 +899,73 @@ Future<void> _runTests(
       if (!r.ok) r,
   ];
   if (failed.isNotEmpty) {
-    throw Aborted(
-      'tests failed: ${failed.map((r) => '${r.suite} (${r.timedOut ? 'timed out' : '${r.failed} failed, exit code ${r.exitCode}${r.failures.isEmpty ? '' : ': ${r.failures.take(5).join('; ')}'}'}; log ${r.log})').join(', ')}',
+    throw Aborted('tests failed: ${failed.map(failureSummary).join(', ')}');
+  }
+}
+
+/// Runs the suites that do not block, after the switch. Records them apart
+/// from the gate's record, then hands the outcome to [onDone] (the
+/// notification, the issues). Never throws: the release stays healthy.
+Future<void> _runAfterTests(
+  Ctx ctx,
+  EnvConfig env,
+  String sha,
+  String release,
+  TestRun run,
+  Future<List<SuiteResult>> Function() body,
+  Future<void> Function(AfterTestsOutcome)? onDone,
+) async {
+  Future<void> report(AfterTestsOutcome o) async {
+    if (onDone == null) return;
+    try {
+      await onDone(o);
+    } catch (e) {
+      ctx.log.warn('reporting the after-deploy tests failed: $e');
+    }
+  }
+
+  List<SuiteResult> results;
+  try {
+    results = await body();
+  } catch (e) {
+    ctx.log.warn('tests after deploy did not run: $e');
+    await report(
+      AfterTestsOutcome(results: const [], release: release, error: '$e'),
+    );
+    return;
+  }
+  run.after
+    ..clear()
+    ..addAll(results);
+  try {
+    run.afterRecordPath = await writeTestRecord(
+      ctx,
+      env,
+      sha,
+      results,
+      kind: 'after',
+    );
+  } catch (e) {
+    ctx.log.warn(
+      'could not store the after-deploy test results on ${env.host}: $e',
     );
   }
+  final failed = [
+    for (final r in results)
+      if (!r.ok) r,
+  ];
+  if (failed.isNotEmpty) {
+    ctx.log.warn(
+      'tests after deploy failed: ${failed.map(failureSummary).join(', ')}. The release stays.',
+    );
+  }
+  await report(
+    AfterTestsOutcome(
+      results: results,
+      release: release,
+      recordPath: run.afterRecordPath,
+    ),
+  );
 }
 
 /// Writes the backup settings file (no secrets) before a backup runs.

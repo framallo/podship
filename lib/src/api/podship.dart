@@ -20,6 +20,7 @@ import '../ops/backup_ops.dart';
 import '../ops/db_ops.dart';
 import '../ops/context.dart';
 import '../images/images.dart';
+import '../ops/after_tests.dart';
 import '../ops/deploy.dart';
 import '../ops/domain_ops.dart';
 import '../ops/app_ops.dart';
@@ -403,6 +404,19 @@ class Podship {
         sha: source == SourceMode.git ? git.sha : null,
       );
       final snap = await createExportDir('podship-release-');
+      // The suites that ran after the switch: the history record, the
+      // notification and one issue per failed suite.
+      Future<void> afterTests(AfterTestsOutcome o) => reportAfterTests(
+        o,
+        config: config,
+        env: e.name,
+        host: e.host,
+        sha: git.sha,
+        notifier: notifier,
+        integrations: integrations,
+        log: ctx.log,
+        history: rec.data,
+      );
       try {
         final plan = planDeploy(
           ctx: ctx,
@@ -422,6 +436,7 @@ class Podship {
             tests: run,
             inputs: inputs,
             images: images,
+            afterTests: afterTests,
           ),
         );
         final id = plan.title.split(' as ').last;
@@ -520,9 +535,10 @@ class Podship {
       }
       rec.data['tests'] = {'skipped': true, 'reason': reason};
     }
-    // Projects without test suites have no gate.
+    // Projects without blocking suites have no gate (`blocks: false`
+    // suites run after the switch and never gate).
     if (willRun ||
-        config.tests.suites.isEmpty ||
+        !config.tests.suites.any((s) => s.blocks) ||
         !config.tests.gate.contains(e.name)) {
       return;
     }
@@ -530,6 +546,14 @@ class Podship {
     if (where != null) {
       ctx.log.info('tests of ${_short(sha)} passed in the $where deploy');
       rec.data['tests_passed_in'] = where;
+      final after = await findAfterFailures(ctx, sha);
+      if (after.isNotEmpty) {
+        // A warning, never a refusal: those suites do not gate.
+        ctx.log.warn(
+          'after-deploy suites of ${_short(sha)} failed earlier: ${after.join(', ')}',
+        );
+        rec.data['tests_after_failed'] = after;
+      }
       return;
     }
     if (!confirmed) {

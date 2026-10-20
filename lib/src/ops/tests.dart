@@ -1,11 +1,14 @@
-// The test stage of a deploy.
+// The test stages of a deploy.
 //
-// Suites run after the files are exported and before anything is built or
-// uploaded (local runner), or in a throwaway container on the server from
-// the uploaded files, before the images are built (container runner). A
-// failed suite stops the deploy. Results go into the operation result, the
-// history, and a per-commit record on the server that other environments
-// read to decide whether a commit has passed its tests.
+// Blocking suites run after the files are exported and before anything is
+// built or uploaded (local runner), or in a throwaway container on the
+// server from the uploaded files, before the images are built (container
+// runner). A failed blocking suite stops the deploy. Suites with
+// `blocks: false` run the same way after the switch; a failure is reported
+// and never rolls back. Results go into the operation result, the history,
+// and per-commit records on the server (`<sha>.json` for the gate,
+// `<sha>.after.json` for the rest) that other environments read to decide
+// whether a commit has passed its tests.
 
 import 'dart:async';
 import 'dart:convert';
@@ -291,9 +294,49 @@ Future<SuiteResult> _runInContainer(
   }
 }
 
-/// Where a commit's test record lives on a server.
-String testRecordPath(EnvConfig env, String project, String sha) =>
-    p.posix.join(env.podshipHome, 'history', project, 'tests', '$sha.json');
+/// One line about a failed suite, for logs and errors:
+/// `ui (2 failed, exit code 1: a; b; log /tmp/x/ui.log)`.
+String failureSummary(SuiteResult r) =>
+    '${r.suite} (${r.timedOut ? 'timed out' : '${r.failed} failed, exit code ${r.exitCode}${r.failures.isEmpty ? '' : ': ${r.failures.take(5).join('; ')}'}'}; log ${r.log})';
+
+/// The after-deploy suites of [sha] that failed, from the `after` record on
+/// any environment's server; empty when none failed or none ran.
+Future<List<String>> findAfterFailures(Ctx ctx, String sha) async {
+  final seen = <String>{};
+  for (final e in ctx.config.environments.values) {
+    if (!seen.add('${e.host} ${e.podshipHome}')) continue;
+    try {
+      final out = await ctx.query(
+        e,
+        'cat ${shq(testRecordPath(e, ctx.config.project, sha, kind: 'after'))} 2>/dev/null || true',
+      );
+      if (out.trim().isEmpty) continue;
+      final j = jsonDecode(out) as Map<String, Object?>;
+      if (j['ok'] == true) continue;
+      return [
+        for (final s in (j['suites'] as List? ?? const []))
+          if (s is Map && s['ok'] != true) '${s['suite']}',
+      ];
+    } catch (_) {}
+  }
+  return const [];
+}
+
+/// Where a commit's test record lives on a server. [kind] names another
+/// record of the same commit: `after` for the suites that ran after the
+/// switch (REV-18), kept apart so the gate's record stays what it was.
+String testRecordPath(
+  EnvConfig env,
+  String project,
+  String sha, {
+  String kind = '',
+}) => p.posix.join(
+  env.podshipHome,
+  'history',
+  project,
+  'tests',
+  kind.isEmpty ? '$sha.json' : '$sha.$kind.json',
+);
 
 /// Where the record of a passing run with input hash [hash] lives:
 /// `<podship_home>/history/<project>/tests/by-hash/<suite>-<hash>.json`.
@@ -355,9 +398,10 @@ Future<String> writeTestRecord(
   Ctx ctx,
   EnvConfig env,
   String sha,
-  List<SuiteResult> results,
-) async {
-  final path = testRecordPath(env, ctx.config.project, sha);
+  List<SuiteResult> results, {
+  String kind = '',
+}) async {
+  final path = testRecordPath(env, ctx.config.project, sha, kind: kind);
   final dir = p.posix.dirname(path);
   final remote = <SuiteResult>[];
   for (final r in results) {
@@ -379,6 +423,7 @@ Future<String> writeTestRecord(
   final record = {
     'sha': sha,
     'env': env.name,
+    if (kind.isNotEmpty) 'kind': kind,
     'ok': results.every((r) => r.ok),
     'at': DateTime.now().toUtc().toIso8601String(),
     'suites': [for (final r in remote) r.toJson()],

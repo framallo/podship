@@ -23,6 +23,7 @@ export 'src/integrations/changes.dart';
 export 'src/integrations/cloudflare.dart';
 export 'src/integrations/doh.dart';
 export 'src/integrations/http.dart';
+export 'src/integrations/issues.dart';
 export 'src/integrations/planner.dart' show DnsDrift, ownerMark;
 export 'src/integrations/secrets.dart';
 export 'src/integrations/ses.dart';

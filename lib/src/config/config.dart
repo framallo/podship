@@ -239,9 +239,17 @@ class TestSuite {
     this.image,
     this.inputs = const [],
     this.skipUnchanged = true,
+    this.blocks = true,
   });
 
   final String name;
+
+  /// REV-18: whether a failure blocks the deploy. `true` (default): the
+  /// suite runs before the build and a failure stops the deploy. `false`:
+  /// the suite runs after the switch, in parallel with the others of its
+  /// kind, and a failure is reported (a notification, an issue) and never
+  /// rolls back.
+  final bool blocks;
 
   /// The working directory, relative to the project root.
   final String dir;
@@ -404,10 +412,41 @@ class TestsConfig {
   /// Whether the suites run at the same time (each in its own folder).
   final bool parallel;
 
+  /// The suites that gate a deploy to [env] (`blocks: true`).
   List<TestSuite> forEnv(String env) => [
     for (final s in suites)
-      if (s.runsFor(env)) s,
+      if (s.runsFor(env) && s.blocks) s,
   ];
+
+  /// REV-18: the suites that run after the switch for [env]
+  /// (`blocks: false`).
+  List<TestSuite> afterFor(String env) => [
+    for (final s in suites)
+      if (s.runsFor(env) && !s.blocks) s,
+  ];
+
+  /// Every suite of [env], blocking first.
+  List<TestSuite> allFor(String env) => [...forEnv(env), ...afterFor(env)];
+}
+
+/// `issues:` in podship.yaml: the tracker where a suite that failed after
+/// the switch opens an issue. The token is not here: `tracker:boceto` in the
+/// secret store, or BOCETO_TOKEN.
+class IssuesConfig {
+  IssuesConfig({
+    required this.tracker,
+    required this.url,
+    required this.project,
+  });
+
+  /// The tracker kind. Only `boceto` is known.
+  final String tracker;
+
+  /// The tracker's origin, like `https://boceto.densitylabs.io`.
+  final String url;
+
+  /// The project slug in the tracker.
+  final String project;
 }
 
 /// Something that happened and may be announced.
@@ -417,6 +456,10 @@ enum NotifyEvent {
   deployFailed('deploy_failed'),
   rollbackDone('rollback_done'),
   backupFailed('backup_failed'),
+
+  /// REV-18: a suite with `blocks: false` failed after the switch. The
+  /// release stays.
+  afterTestsFailed('after_tests_failed'),
   schedulerJobFailed('scheduler_job_failed'),
 
   /// `podship watch`: an environment failed its public checks twice in a
@@ -440,6 +483,7 @@ enum NotifyEvent {
     deployFailed,
     rollbackDone,
     backupFailed,
+    afterTestsFailed,
     schedulerJobFailed,
     watchDown,
     watchRecovered,
@@ -1346,12 +1390,16 @@ class PodshipConfig {
     this.consoleUrl,
     this.transport = 'ssh',
     this.github,
+    this.issues,
     NotifyConfig? notify,
   }) : tests = tests ?? TestsConfig(),
        notify = notify ?? NotifyConfig();
 
   /// GitHub on every release, when set.
   final GitHubConfig? github;
+
+  /// REV-18: the issue tracker, or null.
+  final IssuesConfig? issues;
 
   /// Notifications: the project's `notify:` on top of the one in
   /// `~/.podship/config.yaml`.
@@ -1511,6 +1559,7 @@ class PodshipConfig {
             image: m.optStr('image'),
             inputs: m.strs('inputs'),
             skipUnchanged: m.boolean('skip_unchanged', true),
+            blocks: m.boolean('blocks', true),
           ),
       ],
     );
@@ -1533,6 +1582,21 @@ class PodshipConfig {
     if (!const ['ssh', 'console'].contains(transport)) {
       throw ConfigException('transport must be ssh or console');
     }
+    // REV-18: the issue tracker that gets an issue per failed after-deploy
+    // suite.
+    final im = r.map('issues');
+    final issues = r.has('issues')
+        ? IssuesConfig(
+            tracker: switch (im.str('tracker', 'boceto')) {
+              'boceto' => 'boceto',
+              final t => throw ConfigException(
+                'issues.tracker: unknown "$t" (only boceto)',
+              ),
+            },
+            url: im.str('url'),
+            project: im.str('project'),
+          )
+        : null;
     final gh = r.map('github');
     final github = r.has('github')
         ? GitHubConfig(
@@ -1546,6 +1610,7 @@ class PodshipConfig {
         : null;
     return PodshipConfig(
       github: github,
+      issues: issues,
       notify: notify,
       consoleUrl: r.map('console').optStr('url'),
       transport: transport,

@@ -16,6 +16,7 @@ import '../integrations/cloudflare.dart';
 import '../integrations/doh.dart';
 import '../integrations/http.dart';
 import '../integrations/planner.dart';
+import '../integrations/issues.dart';
 import '../integrations/secrets.dart';
 import '../integrations/ses.dart';
 import '../plan/plan.dart';
@@ -53,6 +54,19 @@ class Integrations {
       (throw Aborted(
         'no Cloudflare token: connect Cloudflare in the podship console (Settings > Integrations) and `podship login <console-url>`; or `podship provider login cloudflare`, or CLOUDFLARE_API_TOKEN',
       ));
+
+  /// The project's issue tracker (`issues:`), or null without a token.
+  BocetoIssues? issues(IssuesConfig c) {
+    final t = secrets.read(bocetoTokenKey);
+    return t == null || t.isEmpty
+        ? null
+        : BocetoIssues(
+            url: c.url,
+            project: c.project,
+            token: t,
+            transport: transport,
+          );
+  }
 
   bool get hasAws => secrets.read(awsCredentialsKey) != null;
 

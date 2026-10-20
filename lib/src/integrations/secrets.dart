@@ -37,6 +37,9 @@ class SystemSecrets implements SecretSource {
       case cloudflareTokenKey:
         final t = _env['CLOUDFLARE_API_TOKEN'];
         if (t != null && t.isNotEmpty) return t;
+      case bocetoTokenKey:
+        final t = _env['BOCETO_TOKEN'];
+        if (t != null && t.isNotEmpty) return t;
       case awsCredentialsKey:
         final id = _env['AWS_ACCESS_KEY_ID'];
         final secret = _env['AWS_SECRET_ACCESS_KEY'];
@@ -67,6 +70,9 @@ class MapSecrets implements SecretSource {
 }
 
 const cloudflareTokenKey = 'provider:cloudflare';
+
+/// The Boceto API token (`bct_…`) of the project's issue tracker.
+const bocetoTokenKey = 'tracker:boceto';
 const awsCredentialsKey = 'provider:aws';
 
 /// AWS credentials.
