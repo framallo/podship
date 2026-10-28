@@ -9,6 +9,7 @@
 
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 
 import '../ops/context.dart';
@@ -161,7 +162,20 @@ class ConsoleInstallCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final a = argResults!;
-    final dir = Directory(a['project'] as String)..createSync(recursive: true);
+    final project = a['project'] as String;
+    // A dry run writes the project into a temporary folder, for the dry
+    // runs of the steps to read, and removes it at the end.
+    final dir = dryRun
+        ? Directory.systemTemp.createTempSync('podship-console-')
+        : (Directory(project)..createSync(recursive: true));
+    try {
+      return await _install(a, dir, project);
+    } finally {
+      if (dryRun) dir.deleteSync(recursive: true);
+    }
+  }
+
+  Future<int> _install(ArgResults a, Directory dir, String project) async {
     File(p.join(dir.path, 'podship.yaml')).writeAsStringSync(
       consoleConfig(
         host: a['host'] as String,
@@ -181,7 +195,9 @@ class ConsoleInstallCommand extends PodshipCommand {
         a['dir'] as String,
       ),
     );
-    log.ok('wrote ${dir.path}/podship.yaml and docker-compose.yml');
+    dryRun
+        ? log.info('would write $project/podship.yaml and docker-compose.yml')
+        : log.ok('wrote $project/podship.yaml and docker-compose.yml');
     final g = [
       '--project-dir',
       dir.path,

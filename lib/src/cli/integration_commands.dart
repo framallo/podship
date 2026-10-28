@@ -38,7 +38,12 @@ abstract class ChangeCommand extends PodshipCommand {
   @override
   bool get mutating => true;
 
-  bool get planOnly => argResults!['plan'] == true || dryRun;
+  /// `--plan` is a dry run: the library, the context and the output all see
+  /// it, also on paths that run an operation instead of [execute]'s plan.
+  @override
+  bool get dryRun => super.dryRun || argResults?['plan'] == true;
+
+  bool get planOnly => dryRun;
 
   /// The plan, computed here.
   Future<ChangeSet> plan();

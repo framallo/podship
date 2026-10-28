@@ -3,6 +3,8 @@
 import 'package:args/command_runner.dart';
 
 import '../api/podship.dart' show podshipVersion;
+import '../ops/app_ops.dart' show Integrations;
+import '../remote/ssh.dart';
 import 'agent_commands.dart';
 import 'backup_commands.dart';
 import 'base.dart';
@@ -24,7 +26,16 @@ import 'server_commands.dart';
 /// The version printed by `podship --version`.
 
 class PodshipRunner extends CommandRunner<int> {
-  PodshipRunner()
+  /// The ssh every command uses, or null for a real one.
+  final Ssh? ssh;
+
+  /// Cloudflare, SES and DoH for every command, or null for the secret
+  /// store's.
+  final Integrations? integrations;
+
+  /// [ssh] and [integrations] replace those of every command (tests pass
+  /// fakes).
+  PodshipRunner({this.ssh, this.integrations})
     : super(
         exe,
         'Deploy, back up and roll back Serverpod projects on your own servers, '

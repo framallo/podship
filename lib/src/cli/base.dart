@@ -19,6 +19,7 @@ import '../plan/plan.dart';
 import '../remote/ssh.dart';
 import '../server/registry.dart';
 import '../util/log.dart';
+import 'runner.dart' show PodshipRunner;
 
 /// The executable name shown in help.
 const exe = 'podship';
@@ -117,7 +118,13 @@ abstract class PodshipCommand extends Command<int> {
     ],
   ];
 
-  Ssh get ssh => Ssh(extraOptions: sshOptions, verbose: verbose);
+  Ssh get ssh => _runnerSsh ?? Ssh(extraOptions: sshOptions, verbose: verbose);
+
+  PodshipRunner? get _runner => switch (runner) {
+    final PodshipRunner r => r,
+    _ => null,
+  };
+  Ssh? get _runnerSsh => _runner?.ssh;
 
   /// `--notify` / `--no-notify`, or null when neither was given.
   bool? get notifyFlag => globalResults?.wasParsed('notify') == true
@@ -157,6 +164,8 @@ abstract class PodshipCommand extends Command<int> {
     sshOptions: sshOptions,
     dryRun: dryRun,
     verbose: verbose,
+    ssh: _runnerSsh,
+    integrations: _runner?.integrations,
     notifier: notifier,
   );
 
