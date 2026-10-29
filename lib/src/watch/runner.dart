@@ -199,7 +199,13 @@ String formatDuration(Duration d) {
 
 /// The notification channels of the watch, from the registry's
 /// `watch.channels`. None: a macOS notification on this machine.
-NotifyConfig watchNotifyConfig(WatchSettings w) {
+NotifyConfig watchNotifyConfig(
+  WatchSettings w, {
+  List<NotifyEvent> events = const [
+    NotifyEvent.watchDown,
+    NotifyEvent.watchRecovered,
+  ],
+}) {
   final channels = <NotifyChannel>[
     for (final e in w.channels.entries)
       NotifyChannel(
@@ -219,7 +225,7 @@ NotifyConfig watchNotifyConfig(WatchSettings w) {
       ),
   ];
   return NotifyConfig(
-    events: const [NotifyEvent.watchDown, NotifyEvent.watchRecovered],
+    events: events,
     channels: channels.isEmpty
         ? [NotifyChannel(name: 'macos', kind: 'macos')]
         : channels,
@@ -667,8 +673,19 @@ class WatchRunner {
     );
   }
 
-  Future<Notifier> _defaultNotifier(WatchSettings w) async {
-    final cfg = watchNotifyConfig(w);
+  Future<Notifier> _defaultNotifier(WatchSettings w) => notifierFor(w);
+
+  /// A notifier with the watch's channels (the registry's
+  /// `watch.channels`; none: a macOS notification) for [events]. The
+  /// scheduler sends `scheduler_job_failed` through it.
+  Future<Notifier> notifierFor(
+    WatchSettings w, {
+    List<NotifyEvent> events = const [
+      NotifyEvent.watchDown,
+      NotifyEvent.watchRecovered,
+    ],
+  }) async {
+    final cfg = watchNotifyConfig(w, events: events);
     final email = cfg.channels.any((c) => c.kind == 'email');
     SesApi Function(String)? ses;
     if (email) {

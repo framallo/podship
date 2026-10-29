@@ -4,12 +4,16 @@
 // with --env, the server of that environment. `tick` and `run-once --home`
 // are what the agent itself runs on a machine.
 
+import 'dart:convert' show base64, jsonDecode, utf8;
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 
 import '../ops/context.dart';
+import '../config/config.dart' show NotifyEvent;
+import '../notify/notify.dart';
 import '../scheduler/scheduler.dart';
+import '../server/registry.dart';
 import '../watch/runner.dart';
 import 'backup_commands.dart' show formatJob;
 import 'base.dart';
@@ -134,12 +138,24 @@ class SchedulerListCommand extends _SchedulerCommand {
 
 class SchedulerRunOnceCommand extends _SchedulerCommand {
   SchedulerRunOnceCommand() {
-    argParser.addOption(
-      'home',
-      help:
-          'Run the job of this machine\'s registry in this process (what the agent uses over ssh).',
-      hide: true,
-    );
+    argParser
+      ..addOption(
+        'home',
+        help:
+            'Run the job of this machine\'s registry in this process (what the agent uses over ssh).',
+        hide: true,
+      )
+      ..addOption(
+        'job',
+        help:
+            'With --home: the job itself, as base64 JSON, instead of an id of the registry (task run).',
+        hide: true,
+      )
+      ..addOption(
+        'actor',
+        help: 'With --home: who runs it, for the history record.',
+        hide: true,
+      );
   }
   @override
   String get name => 'run-once';
@@ -152,16 +168,31 @@ class SchedulerRunOnceCommand extends _SchedulerCommand {
   bool get mutating => true;
   @override
   Future<int> execute() async {
+    final home = argResults!['home'] as String?;
+    final spec = argResults!['job'] as String?;
+    if (home != null && spec != null) {
+      final job = ScheduledJob.fromMap(
+        jsonDecode(utf8.decode(base64.decode(spec))) as Map,
+      );
+      final run = await JobRunner(home, echo: stdout.writeln).runJob(
+        job,
+        actor: (argResults!['actor'] as String?) ?? 'podship-scheduler',
+      );
+      if (run.skipped) stderr.writeln('${job.id} is already running');
+      return run.ok ? 0 : 1;
+    }
     if (argResults!.rest.isEmpty) {
       throw UsageException('pass a job id, like backup:shop/production', usage);
     }
     final id = argResults!.rest.first;
-    final home = argResults!['home'] as String?;
     if (home != null) {
       final runner = JobRunner(home, echo: stdout.writeln);
       final job = runner.readRegistry().jobs[id];
       if (job == null) throw Aborted('no job "$id" in $home/registry.yaml');
-      final run = await runner.runJob(job);
+      final run = await runner.runJob(
+        job,
+        actor: (argResults!['actor'] as String?) ?? 'podship-scheduler',
+      );
       return run.ok ? 0 : 1;
     }
     return runOp(api.schedulerRun(id, envName: envName));
@@ -206,7 +237,11 @@ class SchedulerTickCommand extends PodshipCommand {
   @override
   Future<int> execute() async {
     final home = argResults!['home'] as String;
-    final runner = JobRunner(home, echo: stdout.writeln);
+    final runner = JobRunner(
+      home,
+      echo: stdout.writeln,
+      onFailure: (run) => notifyJobFailed(home, run),
+    );
     if (argResults!['seed'] == true) {
       final seeded = runner.seed();
       stdout.writeln(
@@ -248,6 +283,26 @@ class SchedulerTickCommand extends PodshipCommand {
     }
     return 0;
   }
+}
+
+/// Sends `scheduler_job_failed` for a failed run of the agent through the
+/// machine's channels (the watch's: the registry's `watch.channels`, else a
+/// macOS notification). Never throws.
+Future<void> notifyJobFailed(String home, JobRun run) async {
+  final w = WatchRunner(home);
+  final notifier = await w.notifierFor(
+    w.loadWatch(),
+    events: const [NotifyEvent.schedulerJobFailed],
+  );
+  await notifier.send(
+    Notification.schedulerJobFailed(
+      job: run.job.id,
+      error: run.error ?? 'failed',
+      project: run.job.project,
+      env: run.job.env,
+      host: Platform.localHostname,
+    ),
+  );
 }
 
 /// The scheduler commands as a group.

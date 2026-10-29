@@ -305,6 +305,17 @@ class OperationWatcher {
             data: {'error': ?r.error, 'operation': op},
           ),
         ];
+      case 'task run':
+        if (r.ok) return const [];
+        return [
+          Notification.schedulerJobFailed(
+            job: '${r.data['job'] ?? 'task ${r.data['task'] ?? '?'}'}',
+            error: r.error ?? 'failed',
+            project: r.project,
+            env: r.env,
+            host: r.host,
+          ),
+        ];
     }
     return const [];
   }

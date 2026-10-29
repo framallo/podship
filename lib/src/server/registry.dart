@@ -159,6 +159,12 @@ class ScheduledJob {
     this.name,
     this.run,
     this.cwd,
+    this.at,
+    this.timeout,
+    this.task = false,
+    this.redact = const [],
+    this.plain = const [],
+    this.container,
   });
 
   factory ScheduledJob.fromMap(Map m) => ScheduledJob(
@@ -175,6 +181,12 @@ class ScheduledJob {
     name: m['name'] as String?,
     run: m['run'] is List ? [for (final x in m['run'] as List) '$x'] : null,
     cwd: m['cwd'] as String?,
+    at: m['at'] == null ? null : SchedulerSettings.validTime('${m['at']}'),
+    timeout: (m['timeout'] as num?)?.toInt(),
+    task: m['task'] == true,
+    redact: [for (final x in (m['redact'] as List?) ?? const []) '$x'],
+    plain: [for (final x in (m['plain'] as List?) ?? const []) '$x'],
+    container: m['container'] as String?,
   );
 
   final JobKind kind;
@@ -202,6 +214,31 @@ class ScheduledJob {
   final List<String>? run;
   final String? cwd;
 
+  /// Its own run time, `HH:MM` machine local time; null is the nightly run
+  /// (`scheduler.at`). A podship older than tasks ignores it and runs the
+  /// job at the nightly run.
+  final String? at;
+
+  /// Seconds before the run is stopped and counted as failed.
+  final int? timeout;
+
+  /// A task of `tasks:` in `podship.yaml` (a command in the server
+  /// container); false for a `scheduled:` command.
+  final bool task;
+
+  /// Files on this machine whose secret values are masked in the output
+  /// (the environment's `.env` and `passwords.yaml`), and the `.env` names
+  /// whose values may be printed. Paths and names only, never values.
+  final List<String> redact;
+  final List<String> plain;
+
+  /// The name of a task's one-off container: removed when the run times
+  /// out, and before a run when a killed run left it behind.
+  final String? container;
+
+  /// The time the job runs at on a machine whose nightly run is [nightly].
+  String timeOn(SchedulerSettings nightly) => at ?? nightly.at;
+
   /// `backup:project/env`, `pull:project/env` or
   /// `command:project/env/name`.
   String get id => kind == JobKind.command
@@ -223,6 +260,12 @@ class ScheduledJob {
     'name': ?name,
     'run': ?run,
     'cwd': ?cwd,
+    'at': ?at,
+    'timeout': ?timeout,
+    if (task) 'task': true,
+    if (redact.isNotEmpty) 'redact': redact,
+    if (plain.isNotEmpty) 'plain': plain,
+    'container': ?container,
   };
 }
 

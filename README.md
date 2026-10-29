@@ -21,6 +21,7 @@ podship backup now --env production
 - **Secrets on the server only.** `.env` and Serverpod's `passwords.yaml` live on the server. podship edits them over ssh stdin. It never prints a secret value and never puts one in a command line.
 - **Backups.** `pg_dump -Fc` of the database, archives of Docker volumes (SQLite files copied with SQLite's backup API), row counts, checksums, and an encrypted copy that you decrypt with your SSH key. A nightly schedule, retention, a restore drill in a throwaway container, a restore that renames the old database instead of dropping it, and an off-site pull to your machine.
 - **Scheduler.** One agent per machine, registered once. Its jobs (backups, off-site pulls) live in the machine's registry. See [Scheduler](#scheduler).
+- **Recurring tasks.** Commands of the app (a nightly demo reset, a report) declared per environment in `podship.yaml`, run on a schedule in a container of the current release, with a timeout, no overlap, masked output, history and a notification on failure. See [Tasks](#tasks).
 - **Domains.** Routes through a Cloudflare Tunnel, or Caddy with automatic Let's Encrypt certificates.
 - **Cloudflare and SES.** DNS records, tunnel routes, Access apps and the app's email sender, through the Cloudflare and Amazon SES APIs, as plans you approve (see [Cloudflare and SES](#cloudflare-and-ses)).
 - **Dry runs.** Every command that changes something takes `--dry-run` and prints its plan.
@@ -76,6 +77,7 @@ Commands that can destroy data or stop production default to `--env staging`. Fo
 | `env list/get/set/unset` | Plain variables in the environment's `.env`. |
 | `secret init/list/set/unset/copy` | Secrets in `.env` and `passwords.yaml`. `set` reads the value from stdin, a hidden prompt, `--from-file` or `--generate`. `copy --from <env>` copies values between environments without showing them. `init` creates both files with fresh random values. |
 | `backup now/list/drill/restore/schedule/pull` | See [Backups](#backups). |
+| `task list/run/sync/history` | Recurring tasks of an environment: their last and next run, a run now (`--plan` prints it), the registry without a deploy, the past runs. See [Tasks](#tasks). |
 | `scheduler install/status/list/run-once/uninstall` | The scheduler agent of a machine (nightly jobs, and the watch every two minutes). See [Scheduler](#scheduler). |
 | `watch install/uninstall/status/history/run` | Watch the public URLs of environments from every machine, alert once per incident, heal on the machine that runs the app. See [Watch](#watch). |
 | `db connect` | `psql` on the environment database. |
@@ -168,6 +170,7 @@ Only `project` is required at the top, and `host`, `dir` and `health.url` in eac
 - `health.fallback_urls` and `health.public_fallback_urls`: other URLs that also count as healthy, so a rollback to a release from before a health route moved still passes. `health.attempts`, and `health.interval` in seconds.
 - `secrets.env_file` and `secrets.passwords_file` (relative to `dir`; default `shared/.env` and `shared/passwords.yaml`), `secrets.passwords_link` (where each release sees `passwords.yaml`), and `secrets.password_keys`.
 - `backup.dir`, `unit`, `schedule` (kept for the registry's backup slot; the nightly run time is the machine's, see [Scheduler](#scheduler)), `timezone`, `retention` (`days`, `weeks`, `months`), `compression` (`zstd` or `gzip`), `layout` (the `plain`, `encrypted`, `dump`, `counts` and `secrets` names), `stop_on_restore`, `drill.tables` and `drill.volatile` (globs), `offsite.identities`, `before_deploy`, and `replaces` (older schedule units to turn off).
+- `tasks` (name, `command` argv, `schedule`, `service`, `timeout`, `enabled`): recurring tasks in the server container. See [Tasks](#tasks).
 - `proxy.kind` (`cloudflare_tunnel`, `caddy` or `none`), `proxy.config`, `proxy.service`, `proxy.tunnel_id` and `proxy.managed` (`remote`: the tunnel's ingress lives in Cloudflare and podship edits it through the API; `local`: a `config.yml` on the host. Default: `local` when `proxy.config` is set, else `remote`).
 - `dns` (`provider: cloudflare` or `none`, `zone`, `account_id`, and for Caddy `ipv4`, `ipv6`, `proxied`), `email` (`from`, `region`, `provider: ses`, `identity`, `mail_from`, `env`), `domains[].access` (`emails`, `email_domains`, `session`), and at the top level `cloudflare: {account_id}`. See [Cloudflare and SES](#cloudflare-and-ses).
 
@@ -392,6 +395,39 @@ Pick the run times so a machine that pulls fires after the machine that backs up
 
 The protocol exposes `scheduler.list` (list_schedules), `scheduler.run` (run_job), `scheduler.status` and `scheduler.install` for consoles and MCP tools.
 
+## Tasks
+
+A task is a command of the app that runs on a schedule in a container of the environment's **current release**: a nightly reset of demo data, a report, a cleanup. Declare it per environment:
+
+```yaml
+environments:
+  production:
+    tasks:
+      - name: demo-reset
+        command: [./bin/server, --role, maintenance, --task, demo-reset]   # argv; no shell
+        schedule: daily 04:30     # or nightly (default): the machine's scheduler.at
+        timeout: 600              # seconds (default 3600); then stopped and failed
+        service: server           # default: server_service
+        enabled: false            # default true; a disabled task never runs on schedule
+```
+
+- **Where it runs.** `<dir>/current/.podship/compose.sh run --rm --no-deps -T --name <compose project>-task-<name> --entrypoint <argv[0]> <service> <argv[1:]>`: a one-off container of the current release's image, with the service's env file, secrets, volumes and network, next to the running app (the database must be up; `--no-deps` starts nothing else). `command` replaces the image's entrypoint, so a shell-form `ENTRYPOINT` does not swallow it. No secret is in `podship.yaml`, the registry or the command line.
+- **Schedule.** `nightly` is the machine's nightly run (`scheduler.at`, after the backups and pulls); `daily HH:MM` (or `HH:MM`) is the server's local time, like `scheduler.at`. A task runs once per local date, at the first tick at or after its time; a machine that was asleep catches up once, never in a burst. A task the scheduler sees for the first time after its time (a deploy at 15:00 adds a 04:30 task) waits for the next day: a deploy never fires a reset. A manual run counts as that day's run.
+- **On the server.** Each deploy writes the tasks of the environment into the server's registry as `command:<project>/<env>/<name>` jobs (with `task: true`), and removes the ones gone from `podship.yaml`; `podship task sync --env <env>` does it without a deploy, and `podship scheduler install` does it for the environments of that machine. Tasks at their own time make the agent fire at those times too: after a new time, run `podship scheduler install` (a machine with watch targets ticks every few minutes anyway). `task list` says when the agent does not fire at a task's time.
+- **No overlap.** A run takes the job's lock under `<podship_home>/scheduler/locks/`, the same for the agent and `task run`: a second run while one is going is skipped (`already running`). A timed-out run is stopped, its container removed (`docker rm -f`), and it fails.
+- **Records.** Each run writes `<podship_home>/history/<project>/<env>/<time>-task-<name>.json` (`ok`, duration, the release, the actor: `podship-scheduler` or you) and its output to the `.log` next to it and to `<podship_home>/log/task-<project>-<env>-<name>.log`. The output is masked: every value of the environment's `.env` (except `plain_env` and plain-marked names) and `passwords.yaml` of 8 characters or more becomes `***`. `scheduler/state.json` keeps the last run.
+- **Failures.** A failed scheduled run sends `scheduler_job_failed` through the machine's channels (the registry's `watch.channels`; none: a macOS notification), as every failed job of the agent does; a failed `task run` sends it through the project's `notify:`.
+
+```
+podship task list --env production                  # schedule, last run, next run, on the server or not
+podship task run demo-reset --env production --plan # what would run; runs nothing
+podship task run demo-reset --env production        # now, on the server, in the current release
+podship task sync --env production [--plan]         # the registry, without a deploy
+podship task history --env production [--task demo-reset]
+```
+
+`task run` defaults to `--env staging`, like other commands that can destroy data; it also runs a disabled task (with a warning). `podship status` shows a `task` line per task with its last and next run.
+
 ## Watch
 
 `podship watch` makes an outage loud. Every machine with a scheduler agent checks the public URLs of the environments that run on it, and of the environments of the other machines (the cross-watch: when a whole machine is down, the other one still alerts). It is a light job of the same agent: no second background item.
@@ -516,7 +552,7 @@ Each suite's counts, failures, duration and log go into the operation result, th
 
 ## Notifications
 
-podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a suite that does not block fails after the switch (`after_tests_failed`), when a rollback is done, when a backup fails, when a scheduler job fails, and when the watch sees an environment go down or recover (see [Watch](#watch)). Channels:
+podship tells you when a deploy starts, when it is done (release, duration, health), when it fails (with the result of the automatic rollback), when a suite that does not block fails after the switch (`after_tests_failed`), when a rollback is done, when a backup fails, when a scheduler job or a task fails, and when the watch sees an environment go down or recover (see [Watch](#watch)). Channels:
 
 | Channel | What it does |
 |---|---|
@@ -843,7 +879,7 @@ See [docs/migrating-from-scripts.md](docs/migrating-from-scripts.md). It uses a 
 
 ## Tests
 
-Run the unit tests with `dart test -t unit`, or `dart run tool/test.dart` (it prints a short result and keeps the full log in the temp folder). Agents whose hooks block `dart test` use `dart run tool/test.dart` or the very_good_cli MCP `test` tool (`dart: true`, tags `unit`). The tags are in `dart_test.yaml`. The tests cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, the server agent (`agent_test.dart`: the settings file, retention and ISO weeks, the backup, the drill and the restore with a fake process runner, and the real process pipes), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`), and the watch (`watch_test.dart`: the incident state machine with a fake clock — one silent failure, one alert, two heals with a backoff, one "still down", one "recovered" with the downtime, flaps, cross-watch targets that never heal, runs without internet —, the `watch:` registry section and its three-way merge, the fleet, a whole run of the 2026-10-08 outage with a dead engine and fake processes, and the agent's `StartInterval`).
+Run the unit tests with `dart test -t unit`, or `dart run tool/test.dart` (it prints a short result and keeps the full log in the temp folder). Agents whose hooks block `dart test` use `dart run tool/test.dart` or the very_good_cli MCP `test` tool (`dart: true`, tags `unit`). The tags are in `dart_test.yaml`. The tests cover the config parser, file selection, release ids and retention, the server registry, plans, the `.env` and `passwords.yaml` editors, tunnel and Caddy routes, the server agent (`agent_test.dart`: the settings file, retention and ISO weeks, the backup, the drill and the restore with a fake process runner, and the real process pipes), the operation protocol, events, test output parsing, the compose override (replicas, Redis, egress), the input hashes and the reuse of web builds and test results (`inputs_test.dart`, with a real temporary git repository), the notifications (`notify_test.dart`: the watcher, the channels against recorded responses and a fake process runner, the HMAC signature), and the scheduler (`scheduler_test.dart`: due computation across a DST change and a missed night, the tick with a fake backup script, the idempotent launchd install with a stubbed `launchctl`, the import of per-environment agents, and `backup schedule` writing the registry without `launchctl` or `systemctl`), the tasks (`task_test.dart`: the `tasks:` config and schedules, the registry job and its container command, the due time and the first sight after a deploy, a run against a fake `compose.sh` with masked output and the history record, the timeout, the lock, the failure notification, and `task run|sync --plan` through the command line), and the watch (`watch_test.dart`: the incident state machine with a fake clock — one silent failure, one alert, two heals with a backoff, one "still down", one "recovered" with the downtime, flaps, cross-watch targets that never heal, runs without internet —, the `watch:` registry section and its three-way merge, the fleet, a whole run of the 2026-10-08 outage with a dead engine and fake processes, and the agent's `StartInterval`).
 
 The Cloudflare and SES integrations are tested against recorded API responses in `test/api_fixtures/` (`cloudflare_test.dart`, `ses_test.dart`, `zones_test.dart`, `changes_test.dart`, `app_test.dart`): every client call, SigV4 against AWS's published test vectors, plan rendering and plan ids, idempotency, rollback, zone resolution (including the zone of the owner's real account), drift, the approval rules of the protocol, and the CLI wiring. They never reach the network.
 

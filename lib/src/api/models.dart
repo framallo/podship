@@ -68,6 +68,7 @@ class EnvStatus {
     this.logTables = const {},
     this.dns = const [],
     this.dnsNote,
+    this.tasks = const [],
   });
 
   factory EnvStatus.parse({
@@ -151,6 +152,9 @@ class EnvStatus {
   /// Why [dns] is empty (no token, not Cloudflare, an API error).
   final String? dnsNote;
 
+  /// The recurring tasks (`tasks:`) with their last and next run.
+  final List<Map<String, Object?>> tasks;
+
   /// Whether a domain points somewhere other than this environment.
   bool get dnsDrift => dns.any((d) => d['state'] != 'ok');
 
@@ -171,6 +175,7 @@ class EnvStatus {
     logTables: logTables,
     dns: d,
     dnsNote: note,
+    tasks: tasks,
   );
 
   EnvStatus withLogTables(Map<String, Map<String, int>> t) => EnvStatus(
@@ -190,9 +195,31 @@ class EnvStatus {
     logTables: t,
     dns: dns,
     dnsNote: dnsNote,
+    tasks: tasks,
+  );
+
+  EnvStatus withTasks(List<Map<String, Object?>> t) => EnvStatus(
+    project: project,
+    env: env,
+    host: host,
+    dir: dir,
+    current: current,
+    releases: releases,
+    ports: ports,
+    containers: containers,
+    healthUrl: healthUrl,
+    healthy: healthy,
+    diskFreeKb: diskFreeKb,
+    diskTotalKb: diskTotalKb,
+    releasesKb: releasesKb,
+    logTables: logTables,
+    dns: dns,
+    dnsNote: dnsNote,
+    tasks: t,
   );
 
   Map<String, Object?> toJson() => {
+    if (tasks.isNotEmpty) 'tasks': tasks,
     'log_tables': logTables,
     'dns': dns,
     'dns_note': ?dnsNote,

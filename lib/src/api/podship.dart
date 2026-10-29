@@ -38,6 +38,7 @@ import '../scheduler/scheduler.dart';
 import '../ops/secrets.dart';
 import '../ops/server_ops.dart';
 import '../ops/state.dart';
+import '../ops/task_ops.dart';
 import '../ops/tests.dart';
 import '../plan/plan.dart';
 import '../release/layout.dart';
@@ -1049,6 +1050,10 @@ class Podship {
         at: at,
         binary: binary,
         replaces: replaces.toList(),
+        taskEnvs: [
+          for (final e in config.environments.values)
+            if (e.host == t.host && e.podshipHome == t.home) e,
+        ],
       );
       rec.data['at'] = plan.at;
       rec.data['imported'] = [for (final u in plan.imported) u.name];
@@ -1166,6 +1171,141 @@ class Podship {
   /// The jobs of a machine with their last run, in run order.
   Future<List<Map<String, Object?>>> schedules({String? envName}) async =>
       (await schedulerStatusOf(envName: envName)).jobs;
+
+  // ------------------------------------------------------------------- tasks
+
+  /// The tasks of [envName] (`tasks:`) with their schedule, whether the
+  /// server's registry has them, their last run and their next run.
+  Future<List<Map<String, Object?>>> tasks(String envName) async {
+    final e = config.env(envName);
+    final st = await schedulerStatusOf(envName: envName);
+    return taskRows(
+      config.project,
+      e,
+      st.registry,
+      st.state,
+      DateTime.now(),
+      agentTimes: st.agentLoaded ? st.agentTimes : const [],
+      watched: st.registry.watch.targets.isNotEmpty,
+    );
+  }
+
+  /// The runs of the tasks of [envName], scheduled and manual, oldest
+  /// first.
+  Future<List<HistoryRecord>> taskHistory(
+    String envName, {
+    String? task,
+    int limit = 20,
+  }) async => [
+    for (final r in await history(envName, limit: 500))
+      if (task == null
+          ? r.operation.startsWith('task ')
+          : r.operation == 'task $task')
+        r,
+  ].reversed.take(limit).toList().reversed.toList();
+
+  /// Runs task [name] of [envName] now, on its server, in the same
+  /// process the scheduler uses: the same lock (a run already going is
+  /// not doubled), the timeout, the masked output, the history record.
+  /// With [dryRun] (`--plan`), prints the plan and runs nothing.
+  Operation taskRun(String envName, String name) => _op(
+    'task run',
+    envName,
+    {'task': name},
+    (ctx, rec) async {
+      final e = config.env(envName);
+      final t = e.tasks.where((x) => x.name == name).firstOrNull;
+      if (t == null) {
+        throw Aborted(
+          'no task "$name" in environments.${e.name}.tasks'
+          '${e.tasks.isEmpty ? '' : '. Tasks: ${e.tasks.map((x) => x.name).join(', ')}'}',
+        );
+      }
+      final job = taskJob(config.project, e, t);
+      rec.data['task'] = name;
+      rec.data['job'] = job.id;
+      final argv = job.run;
+      if (argv == null) {
+        throw Aborted(
+          'task $name has no command in podship.yaml (environments.${e.name}.tasks)',
+        );
+      }
+      if (!t.enabled) {
+        ctx.log.warn(
+          '$name is disabled (enabled: false): it never runs on schedule; '
+          'running it now because you asked',
+        );
+      }
+      final target = SchedulerTarget.ofEnv(e);
+      final service = t.service ?? e.serverService;
+      await ctx.run(
+        Plan('run task $name of ${e.name}', [
+          if (!target.isLocal) agentStep(ctx, e),
+          ActionStep(
+            'Run task $name in a $service container of the current release '
+            'on ${target.label} (timeout ${t.timeout} s)',
+            argv.map(shq).join(' '),
+            () async {
+              if (target.isLocal) {
+                final run = await JobRunner(
+                  target.home,
+                  echo: (l) => ctx.log.output(l),
+                ).runJob(job, actor: actor);
+                rec.data.addAll(run.toJson());
+                rec.release = run.release;
+                if (run.skipped) {
+                  throw Aborted('$name is already running on ${target.label}');
+                }
+                if (!run.ok) throw Aborted('task $name failed: ${run.error}');
+                return;
+              }
+              final spec = base64.encode(utf8.encode(jsonEncode(job.toMap())));
+              final code = await ctx.ssh.lines(
+                target.host,
+                '${target.header()}${shq(schedulerBin(target.home))} scheduler run-once '
+                '--home ${shq(target.home)} --job ${shq(spec)} --actor ${shq(actor)}\n',
+                (l, err) => ctx.log.output(l, stderr: err),
+              );
+              if (code != 0) {
+                throw Aborted(
+                  'task $name failed on ${target.host} (exit $code; podship task history --env ${e.name})',
+                );
+              }
+            },
+          ),
+        ]),
+      );
+    },
+    history: false,
+    lock: false,
+  );
+
+  /// Writes the tasks (and `scheduled:` commands) of [envName] into its
+  /// server's registry without a deploy. `--plan` prints the change.
+  Operation taskSync(String envName) => _op('task sync', envName, const {}, (
+    ctx,
+    rec,
+  ) async {
+    final e = config.env(envName);
+    final t = SchedulerTarget.ofEnv(e);
+    final plan = planTaskSync(
+      config.project,
+      e,
+      registryText: await readRegistryText(ctx, t),
+    );
+    rec.data['tasks'] = [for (final x in e.tasks) x.name];
+    if (plan == null) {
+      ctx.log.ok(
+        'the registry of ${t.label} already has the tasks of ${e.name}',
+      );
+      return;
+    }
+    await ctx.run(plan);
+    if (dryRun) return;
+    for (final r in await tasks(envName)) {
+      if (r['warning'] != null) ctx.log.warn('${r['name']}: ${r['warning']}');
+    }
+  }, lock: false);
 
   /// Copies the encrypted backups to this machine and checks the newest.
   Operation backupPull(String envName) => _op(
@@ -2145,6 +2285,7 @@ fi
 if curl -fs -o /dev/null --max-time 5 ${shq(r.healthUrl)}; then echo "HEALTH ok"; else echo "HEALTH failing"; fi
 df -Pk ${shq(e.dir)} 2>/dev/null | tail -1 | awk '{print "DISK " \$4 " " \$2}'
 du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
+${e.tasks.isEmpty ? '' : 'echo "SCHED-STATE \$(tr -d \'\\n\' < ${shq('${e.podshipHome}/scheduler/state.json')} 2>/dev/null)"'}
 ''');
     final st = EnvStatus.parse(
       project: config.project,
@@ -2172,7 +2313,21 @@ du -sk ${shq(l.releases)} 2>/dev/null | awk '{print "RELEASES_KB " \$1}'
             },
       };
     } catch (_) {}
-    return _withDrift(e, st.withLogTables(logs));
+    var withTasks = st.withLogTables(logs);
+    if (e.tasks.isNotEmpty) {
+      Map<String, Object?> sched = const {};
+      for (final line in const LineSplitter().convert(out)) {
+        if (!line.startsWith('SCHED-STATE ')) continue;
+        try {
+          final j = jsonDecode(line.substring(12));
+          if (j is Map) sched = j.cast<String, Object?>();
+        } catch (_) {}
+      }
+      withTasks = withTasks.withTasks(
+        taskRows(config.project, e, state.registry, sched, DateTime.now()),
+      );
+    }
+    return _withDrift(e, withTasks);
   }
 
   /// Adds where each domain's DNS points (Cloudflare API; best effort).

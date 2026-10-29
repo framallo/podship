@@ -11,10 +11,14 @@
 //
 // Nothing here reads `podship.yaml`: a server has none.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
+
+import '../edit/dotenv.dart';
 
 import '../server/registry.dart';
 
@@ -117,8 +121,9 @@ class SchedulerState {
 }
 
 /// The jobs due at [now]: enabled jobs that did not run on today's local
-/// date, once the local time is at or after the nightly time
-/// (`scheduler.at`), in run order (backups, then pulls). The agent ticks
+/// date, once the local time is at or after the job's time (its own `at`, a
+/// task's `daily HH:MM`, else the nightly time `scheduler.at`), in run
+/// order (backups, then pulls, then commands and tasks). The agent ticks
 /// every few minutes for the watch, so the time of day matters: a tick at
 /// 00:10 runs nothing until `at`. One missed night is caught up with one
 /// run at the first tick after `at`; several missed nights still give one
@@ -128,14 +133,69 @@ List<ScheduledJob> dueJobs(
   SchedulerState state,
   DateTime now,
 ) {
-  final at = registry.scheduler;
-  if (now.hour * 60 + now.minute < at.hour * 60 + at.minute) return const [];
   final today = localDate(now);
   return [
     for (final j in registry.orderedJobs)
-      if (j.enabled && state.jobs[j.id]?.lastRunDate != today) j,
+      if (j.enabled &&
+          timeReached(now, j.timeOn(registry.scheduler)) &&
+          state.jobs[j.id]?.lastRunDate != today)
+        j,
   ];
 }
+
+/// Whether the local time of [now] is at or after [at] (`HH:MM`).
+bool timeReached(DateTime now, String at) =>
+    now.hour * 60 + now.minute >=
+    int.parse(at.substring(0, 2)) * 60 + int.parse(at.substring(3, 5));
+
+/// A task the scheduler sees for the first time (a deploy or `task sync`
+/// just wrote it) never runs at that tick: when its time already passed
+/// today, it is marked as run today, so its first run is the next
+/// occurrence. A destructive task (a demo reset) must not fire in the
+/// afternoon because a deploy added it. Returns the ids it marked.
+List<String> settleNewTasks(
+  Registry registry,
+  SchedulerState state,
+  DateTime now,
+) {
+  final marked = <String>[];
+  for (final j in registry.jobs.values) {
+    if (!j.task || state.jobs[j.id] != null) continue;
+    if (!timeReached(now, j.timeOn(registry.scheduler))) continue;
+    state.jobs[j.id] = JobState(lastRunDate: localDate(now));
+    marked.add(j.id);
+  }
+  return marked;
+}
+
+/// When [job] runs next, from [now] and its state: today at its time when
+/// it has not run today and the time is ahead, else tomorrow at its time
+/// (a due job runs at the next tick, which this reports as now). Null for
+/// a disabled job.
+DateTime? nextRun(
+  ScheduledJob job,
+  SchedulerSettings nightly,
+  JobState? state,
+  DateTime now,
+) {
+  if (!job.enabled) return null;
+  final at = job.timeOn(nightly);
+  final today = DateTime(
+    now.year,
+    now.month,
+    now.day,
+    int.parse(at.substring(0, 2)),
+    int.parse(at.substring(3, 5)),
+  );
+  final ranToday = state?.lastRunDate == localDate(now);
+  if (!timeReached(now, at)) return ranToday ? _tomorrow(today) : today;
+  if (ranToday || (job.task && state == null)) return _tomorrow(today);
+  return now;
+}
+
+/// The same wall-clock time on the next day (a DST change keeps 03:00).
+DateTime _tomorrow(DateTime t) =>
+    DateTime(t.year, t.month, t.day + 1, t.hour, t.minute);
 
 /// The podship executable for a job that calls podship (a pull). A compiled
 /// podship is itself; `dart run` or a pub snapshot needs the Dart VM first.
@@ -158,8 +218,12 @@ class JobRun {
     this.error,
     this.stamp,
     this.skipped = false,
+    this.release,
   });
   final ScheduledJob job;
+
+  /// The release a task ran in.
+  final String? release;
   final bool ok;
   final Duration duration;
   final String? error;
@@ -175,6 +239,7 @@ class JobRun {
     'duration_s': duration.inSeconds,
     'error': ?error,
     'stamp': ?stamp,
+    'release': ?release,
   };
 }
 
@@ -185,7 +250,18 @@ class JobRunner {
     DateTime Function()? clock,
     this.echo,
     this.backupCommand,
+    this.onFailure,
+    this.removeContainer,
   }) : clock = clock ?? DateTime.now;
+
+  /// Called with every failed (not skipped) run of a [tick]: the scheduler
+  /// command sends `scheduler_job_failed` through the machine's channels.
+  /// A manual run (`run-once`, `task run`) reports its own failure.
+  final Future<void> Function(JobRun run)? onFailure;
+
+  /// Removes a task's container (tests); default `docker rm -f <name>`.
+  final Future<void> Function(ScheduledJob job, String container)?
+  removeContainer;
 
   /// The command of a backup job (tests); default
   /// `podship agent backup --conf <conf>` with this podship.
@@ -246,9 +322,12 @@ class JobRunner {
   List<String> seed() {
     final reg = readRegistry();
     final state = SchedulerState.load(home);
-    final today = localDate(clock());
+    final now = clock();
+    final today = localDate(now);
     final seeded = <String>[];
     for (final j in reg.jobs.values) {
+      // A task whose time is still ahead today runs today at its time.
+      if (j.task && !timeReached(now, j.timeOn(reg.scheduler))) continue;
       if (state.jobs[j.id]?.lastRunDate == null) {
         state.jobs[j.id] = (state.jobs[j.id] ?? JobState())
           ..lastRunDate = today;
@@ -293,6 +372,7 @@ class JobRunner {
         // Never a burst right after the install: everything starts tonight.
         final today = localDate(now);
         for (final j in reg.jobs.values) {
+          if (j.task && !timeReached(now, j.timeOn(reg.scheduler))) continue;
           state.jobs[j.id] = JobState(lastRunDate: today);
         }
         state.save(home);
@@ -300,6 +380,14 @@ class JobRunner {
           'tick: first run, ${reg.jobs.length} job(s) start tonight at ${reg.scheduler.at}',
         );
         return const [];
+      }
+      if (!force) {
+        for (final id in settleNewTasks(reg, state, now)) {
+          final j = reg.jobs[id]!;
+          log(
+            '$id: new task; first run tomorrow at ${j.timeOn(reg.scheduler)}',
+          );
+        }
       }
       final due = force ? reg.orderedJobs : dueJobs(reg, state, now);
       state.save(home);
@@ -309,7 +397,15 @@ class JobRunner {
       }
       log('tick: ${due.length} due: ${due.map((j) => j.id).join(', ')}');
       for (final j in due) {
-        runs.add(await runJob(j, state: state));
+        final run = await runJob(j, state: state);
+        runs.add(run);
+        if (!run.ok && !run.skipped && onFailure != null) {
+          try {
+            await onFailure!(run);
+          } catch (e) {
+            log('${j.id}: could not send the failure notification: $e');
+          }
+        }
       }
     } catch (e) {
       log('tick failed: $e');
@@ -320,8 +416,14 @@ class JobRunner {
   }
 
   /// Runs [job] now, whatever its state, and records the run. Returns a
-  /// skipped run when the job is already running.
-  Future<JobRun> runJob(ScheduledJob job, {SchedulerState? state}) async {
+  /// skipped run when the job is already running (its lock is held: the
+  /// agent and `task run` take the same lock, so two runs never overlap).
+  /// [actor] goes into the history record.
+  Future<JobRun> runJob(
+    ScheduledJob job, {
+    SchedulerState? state,
+    String actor = 'podship-scheduler',
+  }) async {
     final lock = _lock(job.id.replaceAll('/', '_'));
     if (lock == null) {
       log('${job.id}: already running; skipped');
@@ -336,11 +438,16 @@ class JobRunner {
     final started = clock();
     final watch = Stopwatch()..start();
     final transcript = StringBuffer();
+    final secrets = taskSecrets(job);
     String? stamp;
     String? error;
+    final release = job.task ? _release(job) : null;
     try {
       final (exe, args, env, cwd) = _command(job);
-      log('${job.id}: start');
+      // A killed run may have left the task's container: we hold the lock,
+      // so no other run owns it.
+      if (job.container != null) await _removeContainer(job);
+      log('${job.id}: start${release == null ? '' : ' (release $release)'}');
       final proc = await Process.start(
         exe,
         args,
@@ -349,10 +456,23 @@ class JobRunner {
         includeParentEnvironment: true,
       );
       await proc.stdin.close();
+      var timedOut = false;
+      Timer? kill;
+      final limit = job.timeout == null
+          ? null
+          : Timer(Duration(seconds: job.timeout!), () {
+              timedOut = true;
+              log('${job.id}: timeout after ${job.timeout}s; stopping it');
+              proc.kill();
+              kill = Timer(const Duration(seconds: 10), () {
+                proc.kill(ProcessSignal.sigkill);
+              });
+            });
       Future<void> pump(Stream<List<int>> s) => s
           .transform(utf8.decoder)
           .transform(const LineSplitter())
-          .forEach((l) {
+          .forEach((raw) {
+            final l = redact(raw, secrets);
             transcript.writeln(l);
             echo?.call('  $l');
             final m =
@@ -360,11 +480,20 @@ class JobRunner {
                 RegExp(r'\[backup\] stamp (\S+)').firstMatch(l);
             if (m != null) stamp ??= m[1];
           });
-      await Future.wait([pump(proc.stdout), pump(proc.stderr)]);
+      final pumps = Future.wait([pump(proc.stdout), pump(proc.stderr)]);
       final code = await proc.exitCode;
-      if (code != 0) error = 'exit code $code';
+      limit?.cancel();
+      kill?.cancel();
+      // A grandchild may keep a pipe open after a kill: do not wait for it.
+      await pumps.timeout(const Duration(seconds: 5), onTimeout: () => []);
+      if (timedOut) {
+        error = 'timeout after ${job.timeout}s';
+        if (job.container != null) await _removeContainer(job);
+      } else if (code != 0) {
+        error = 'exit code $code';
+      }
     } catch (e) {
-      error = '$e';
+      error = redact('$e', secrets);
     }
     watch.stop();
     final run = JobRun(
@@ -373,6 +502,7 @@ class JobRunner {
       watch.elapsed,
       error: error,
       stamp: stamp,
+      release: release,
     );
     log(
       '${job.id}: ${error == null ? 'ok' : 'failed ($error)'} in ${watch.elapsed.inSeconds}s'
@@ -400,12 +530,44 @@ class JobRunner {
       log('could not save the state: $e');
     }
     try {
-      _writeHistory(job, run, started, transcript.toString());
+      _writeHistory(job, run, started, transcript.toString(), actor);
     } catch (e) {
       log('could not write the history record: $e');
     }
     _unlock(lock);
     return run;
+  }
+
+  /// The release `<dir>/current` points at, for a task's history record.
+  String? _release(ScheduledJob job) {
+    final cwd = job.cwd;
+    if (cwd == null) return null;
+    try {
+      return p.basename(Link(cwd).targetSync());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _removeContainer(ScheduledJob job) async {
+    final name = job.container!;
+    try {
+      if (removeContainer != null) {
+        await removeContainer!(job, name);
+        return;
+      }
+      // Through sh, so the job's PATH finds docker (Colima, Homebrew).
+      await Process.run(
+        '/bin/sh',
+        ['-c', r'docker rm -f "$1" >/dev/null 2>&1 || true', 'sh', name],
+        environment: {
+          if (job.path != null)
+            'PATH': '${job.path}:${Platform.environment['PATH'] ?? ''}',
+        },
+      );
+    } catch (e) {
+      log('${job.id}: could not remove the container $name: $e');
+    }
   }
 
   /// The process of a job.
@@ -466,6 +628,7 @@ class JobRunner {
     JobRun run,
     DateTime started,
     String transcript,
+    String actor,
   ) {
     final dir = p.join(home, 'history', job.project, job.env);
     final s = started.toUtc();
@@ -475,7 +638,8 @@ class JobRunner {
     final op = switch (job.kind) {
       JobKind.backup => 'backup now',
       JobKind.pull => 'backup pull',
-      JobKind.command => 'scheduled ${job.name}',
+      JobKind.command =>
+        job.task ? 'task ${job.name}' : 'scheduled ${job.name}',
     };
     final base = '$stamp-${op.replaceAll(' ', '-')}';
     final ended = s.add(run.duration);
@@ -487,9 +651,15 @@ class JobRunner {
       'env': job.env,
       'host': Platform.localHostname,
       'error': ?run.error,
+      'release': ?run.release,
       'dry_run': false,
-      'data': {'job': job.id, 'scheduled': true, 'stamp': ?run.stamp},
-      'actor': 'podship-scheduler',
+      'data': {
+        'job': job.id,
+        'scheduled': actor == 'podship-scheduler',
+        'stamp': ?run.stamp,
+        if (job.task) 'task': job.name,
+      },
+      'actor': actor,
       'started_at': s.toIso8601String(),
       'ended_at': ended.toIso8601String(),
       'log': p.join(dir, '$base.log'),
@@ -507,3 +677,56 @@ String localPodshipHome({String? localEnvHome}) =>
     Platform.environment['PODSHIP_HOME'] ??
     localEnvHome ??
     p.join(Platform.environment['HOME'] ?? '/srv', 'podship');
+
+/// The secret values a job's output must not show: the values of the
+/// files in [ScheduledJob.redact] on this machine (`.env`, minus the
+/// [ScheduledJob.plain] names, and every value of `passwords.yaml`) of 8
+/// characters or more, longest first. Read at run time, never stored.
+List<String> taskSecrets(ScheduledJob job) {
+  final out = <String>{};
+  for (final path in job.redact) {
+    final f = File(path);
+    if (!f.existsSync()) continue;
+    String text;
+    try {
+      text = f.readAsStringSync();
+    } catch (_) {
+      continue;
+    }
+    if (path.endsWith('.yaml') || path.endsWith('.yml')) {
+      void walk(Object? v) {
+        if (v is Map) {
+          v.values.forEach(walk);
+        } else if (v is List) {
+          v.forEach(walk);
+        } else if (v != null) {
+          out.add('$v');
+        }
+      }
+
+      try {
+        walk(loadYaml(text));
+      } catch (_) {}
+    } else {
+      final env = DotEnv(text);
+      for (final n in env.names) {
+        if (job.plain.contains(n) || env.markedPlain(n)) continue;
+        final v = env.get(n);
+        if (v != null) out.add(v);
+      }
+    }
+  }
+  return [
+    for (final v in out)
+      if (v.trim().length >= 8) v,
+  ]..sort((a, b) => b.length.compareTo(a.length));
+}
+
+/// [line] with every value of [secrets] replaced by `***`.
+String redact(String line, List<String> secrets) {
+  var l = line;
+  for (final s in secrets) {
+    if (l.contains(s)) l = l.replaceAll(s, '***');
+  }
+  return l;
+}

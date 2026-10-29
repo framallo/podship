@@ -18,6 +18,7 @@ import 'email_sender_command.dart';
 import 'project_commands.dart';
 import 'release_commands.dart';
 import 'scheduler_commands.dart';
+import 'task_commands.dart';
 import 'watch_commands.dart';
 import 'secret_commands.dart';
 import 'self_commands.dart';
@@ -180,6 +181,7 @@ class PodshipRunner extends CommandRunner<int> {
         ],
       ),
       schedulerGroup(),
+      taskGroup(),
       watchGroup(),
       agentGroup(),
       GroupCommand('db', 'The environment database.', [

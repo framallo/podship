@@ -42,6 +42,7 @@ String schedulerPlist({
   required SchedulerSettings settings,
   required String path,
   int? watchInterval,
+  List<String> extraTimes = const [],
 }) =>
     '''
 <?xml version="1.0" encoding="UTF-8"?>
@@ -61,7 +62,7 @@ String schedulerPlist({
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>$path</string></dict>
   <key>StartCalendarInterval</key>
-  <dict><key>Hour</key><integer>${settings.hour}</integer><key>Minute</key><integer>${settings.minute}</integer></dict>
+${_calendar(settings, extraTimes)}
   <key>RunAtLoad</key><true/>${watchInterval == null ? '' : '''
   <key>StartInterval</key><integer>$watchInterval</integer>
   <key>AbandonProcessGroup</key><true/>'''}
@@ -72,12 +73,36 @@ String schedulerPlist({
 </plist>
 ''';
 
+/// The times of the tasks that run at their own time (`daily HH:MM`),
+/// other than the nightly time: the agent fires at each of them too.
+List<String> taskTimes(Registry registry) => {
+  for (final j in registry.jobs.values)
+    if (j.enabled && j.at != null && j.at != registry.scheduler.at) j.at!,
+}.toList()..sort();
+
+/// The launchd calendar entries: the nightly time alone (as before tasks),
+/// or an array with the task times.
+String _calendar(SchedulerSettings settings, List<String> extra) {
+  String entry(int h, int m) =>
+      '<dict><key>Hour</key><integer>$h</integer><key>Minute</key><integer>$m</integer></dict>';
+  final nightly = entry(settings.hour, settings.minute);
+  if (extra.isEmpty) return '  $nightly';
+  return [
+    '  <array>',
+    '    $nightly',
+    for (final t in extra)
+      '    ${entry(int.parse(t.substring(0, 2)), int.parse(t.substring(3, 5)))}',
+    '  </array>',
+  ].join('\n');
+}
+
 /// The systemd units: a persistent nightly timer and a oneshot service.
 ({String service, String timer}) schedulerSystemd({
   required String home,
   required SchedulerSettings settings,
   required String path,
   int? watchInterval,
+  List<String> extraTimes = const [],
 }) => (
   service:
       '''
@@ -107,7 +132,7 @@ KillMode=process'''}
 Description=podship scheduler, nightly at ${settings.at}
 
 [Timer]
-OnCalendar=*-*-* ${settings.at}:00${watchInterval == null ? '' : '''
+OnCalendar=*-*-* ${settings.at}:00${[for (final t in extraTimes) '\nOnCalendar=*-*-* $t:00'].join()}${watchInterval == null ? '' : '''
 OnBootSec=1min
 OnUnitActiveSec=${watchInterval}s'''}
 Persistent=true
@@ -126,12 +151,14 @@ String installLaunchdScript({
   required SchedulerSettings settings,
   required String path,
   int? watchInterval,
+  List<String> extraTimes = const [],
 }) {
   final plist = schedulerPlist(
     home: home,
     settings: settings,
     path: path,
     watchInterval: watchInterval,
+    extraTimes: extraTimes,
   );
   return '''
 mkdir -p ${shq('$home/log')} ${shq('$home/scheduler')}
@@ -156,12 +183,14 @@ String installSystemdScript({
   required SchedulerSettings settings,
   required String path,
   int? watchInterval,
+  List<String> extraTimes = const [],
 }) {
   final u = schedulerSystemd(
     home: home,
     settings: settings,
     path: path,
     watchInterval: watchInterval,
+    extraTimes: extraTimes,
   );
   return '''
 mkdir -p ${shq('$home/log')} ${shq('$home/scheduler')}
@@ -204,7 +233,7 @@ String statusScript(String home) =>
 echo "OS \$(uname -s)"
 if [ "\$(uname -s)" = Darwin ]; then
   if launchctl print gui/\$(id -u)/$schedulerLabel >/dev/null 2>&1; then echo "AGENT loaded"; else echo "AGENT missing"; fi
-  [ -f "\$HOME/Library/LaunchAgents/$schedulerLabel.plist" ] && grep -A1 '<key>Hour</key>' "\$HOME/Library/LaunchAgents/$schedulerLabel.plist" | tr -d '\\n' | sed 's/.*Hour<\\/key><integer>\\([0-9]*\\)<\\/integer><key>Minute<\\/key><integer>\\([0-9]*\\)<\\/integer>.*/AGENT-AT \\1:\\2/'; echo
+  [ -f "\$HOME/Library/LaunchAgents/$schedulerLabel.plist" ] && tr -d '\\n ' < "\$HOME/Library/LaunchAgents/$schedulerLabel.plist" | grep -o '<key>Hour</key><integer>[0-9]*</integer><key>Minute</key><integer>[0-9]*</integer>' | sed 's/.*Hour<\\/key><integer>\\([0-9]*\\)<\\/integer><key>Minute<\\/key><integer>\\([0-9]*\\)<\\/integer>.*/AGENT-AT \\1:\\2/'; echo
 else
   if systemctl is-enabled $schedulerUnit.timer >/dev/null 2>&1; then echo "AGENT loaded"; else echo "AGENT missing"; fi
   grep -h OnCalendar /etc/systemd/system/$schedulerUnit.timer 2>/dev/null | sed 's/.*\\([0-9][0-9]:[0-9][0-9]\\):00.*/AGENT-AT \\1/'
@@ -229,6 +258,7 @@ class SchedulerStatus {
     required this.os,
     required this.agentLoaded,
     required this.agentAt,
+    this.agentTimes = const [],
     required this.binVersion,
     required this.registry,
     required this.state,
@@ -242,6 +272,10 @@ class SchedulerStatus {
 
   /// The time the installed agent fires at, when it is installed.
   final String? agentAt;
+
+  /// Every time the installed agent fires at: the nightly time first, then
+  /// the task times.
+  final List<String> agentTimes;
   final String? binVersion;
   final Registry registry;
   final Map<String, Object?> state;
@@ -266,6 +300,7 @@ class SchedulerStatus {
     'os': os,
     'agent': agentLoaded ? 'loaded' : 'missing',
     'agent_at': ?agentAt,
+    if (agentTimes.length > 1) 'agent_times': agentTimes,
     'at': registry.scheduler.at,
     'podship': ?binVersion,
     'last_tick': ?state['last_tick'],
@@ -282,6 +317,7 @@ SchedulerStatus parseStatus(
   var os = '';
   var loaded = false;
   String? at, bin;
+  final times = <String>[];
   final state = StringBuffer(), reg = StringBuffer();
   final logLines = <String>[];
   String? section;
@@ -309,7 +345,11 @@ SchedulerStatus parseStatus(
       loaded = true;
     } else if (line.startsWith('AGENT-AT ')) {
       final t = line.substring(9).trim().split(':');
-      if (t.length == 2) at = '${t[0].padLeft(2, '0')}:${t[1].padLeft(2, '0')}';
+      if (t.length == 2) {
+        final hm = '${t[0].padLeft(2, '0')}:${t[1].padLeft(2, '0')}';
+        at ??= hm;
+        if (!times.contains(hm)) times.add(hm);
+      }
     } else if (line.startsWith('BIN ')) {
       bin = line.substring(4).trim();
     }
@@ -325,6 +365,7 @@ SchedulerStatus parseStatus(
     os: os,
     agentLoaded: loaded,
     agentAt: at,
+    agentTimes: times,
     binVersion: bin,
     registry: Registry.parse(reg.toString()),
     state: st,

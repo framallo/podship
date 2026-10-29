@@ -925,6 +925,54 @@ class ScheduledCommand {
   final String? path;
 }
 
+/// A recurring task of an environment (`tasks:`): [command] is argv run in
+/// the [service] container of the current release (`compose exec`), with
+/// the container's own environment and secrets. [at] is `HH:MM` machine
+/// local time, or null for the machine's nightly run (`scheduler.at`).
+class EnvTask {
+  EnvTask({
+    required this.name,
+    this.command = const [],
+    this.at,
+    this.service,
+    this.timeout = defaultTimeout,
+    this.enabled = true,
+  });
+
+  /// One hour.
+  static const defaultTimeout = 3600;
+
+  final String name;
+  final List<String> command;
+  final String? at;
+
+  /// The compose service; null is the environment's `server_service`.
+  final String? service;
+
+  /// Seconds before the run is stopped and counted as failed.
+  final int timeout;
+
+  /// A disabled task never runs on schedule; `task run` still runs it.
+  final bool enabled;
+
+  /// `nightly`, or `daily HH:MM`.
+  String get schedule => at == null ? 'nightly' : 'daily $at';
+
+  /// `nightly` (or empty) is null; `daily HH:MM` or `HH:MM` is `HH:MM`.
+  static String? parseSchedule(String s, String where) {
+    final t = s.trim().toLowerCase();
+    if (t.isEmpty || t == 'nightly') return null;
+    final m = RegExp(r'^(?:daily\s+)?(\d{1,2}):(\d{2})$').firstMatch(t);
+    if (m != null) {
+      final h = int.parse(m[1]!), mi = int.parse(m[2]!);
+      if (h <= 23 && mi <= 59) return '${h.toString().padLeft(2, '0')}:${m[2]}';
+    }
+    throw ConfigException(
+      '$where: "$s" is not a schedule (nightly, or daily HH:MM in the server\'s local time)',
+    );
+  }
+}
+
 /// Where the secrets of an environment live on the server.
 class SecretsConfig {
   SecretsConfig({
@@ -1290,6 +1338,7 @@ class EnvConfig {
     this.remotePostSwitch,
     this.scheduler = Scheduler.auto,
     this.scheduled = const [],
+    this.tasks = const [],
     this.watch = const EnvWatch(),
     this.transport,
     ServerpodSettings? serverpod,
@@ -1325,6 +1374,9 @@ class EnvConfig {
 
   /// Nightly commands the scheduler runs on this environment's server.
   final List<ScheduledCommand> scheduled;
+
+  /// Recurring tasks in the server container (`tasks:`).
+  final List<EnvTask> tasks;
 
   /// `watch:`: whether `podship watch` checks this environment, and heals
   /// it on its own server.
@@ -1732,6 +1784,7 @@ class PodshipConfig {
             path: c.optStr('path'),
           ),
       ],
+      tasks: _tasks(e, name),
       runMode: e.str('run_mode', 'production'),
       ports: e.portMap('ports'),
       health: HealthConfig(
@@ -2118,6 +2171,53 @@ class PodshipConfig {
 }
 
 /// Typed access to a YAML map, with paths in error messages.
+List<EnvTask> _tasks(_Reader e, String env) {
+  final where = 'environments.$env.tasks';
+  final out = <EnvTask>[];
+  final scheduled = {for (final c in e.maps('scheduled')) c.str('name')};
+  for (final t in e.maps('tasks')) {
+    final name = t.str('name');
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9_.-]*$').hasMatch(name)) {
+      throw ConfigException(
+        '$where: "$name" is not a task name (letters, digits, . _ -)',
+      );
+    }
+    if (out.any((x) => x.name == name) || scheduled.contains(name)) {
+      throw ConfigException(
+        '$where: two tasks or scheduled commands are named "$name"',
+      );
+    }
+    final command = t.strs('command');
+    if (command.length == 1 && command.first.trim().contains(' ')) {
+      throw ConfigException(
+        '$where.$name.command must be a list (argv), like [./bin/tool, demo, reset]',
+      );
+    }
+    final enabled = t.boolean('enabled', true);
+    if (enabled && command.isEmpty) {
+      throw ConfigException('$where.$name: an enabled task needs a command');
+    }
+    final timeout = t.integer('timeout', EnvTask.defaultTimeout);
+    if (timeout <= 0) {
+      throw ConfigException('$where.$name.timeout must be more than 0 seconds');
+    }
+    out.add(
+      EnvTask(
+        name: name,
+        command: command,
+        at: EnvTask.parseSchedule(
+          t.str('schedule', 'nightly'),
+          '$where.$name.schedule',
+        ),
+        service: t.optStr('service'),
+        timeout: timeout,
+        enabled: enabled,
+      ),
+    );
+  }
+  return out;
+}
+
 class _Reader {
   _Reader(this._m, this._path);
   final YamlMap? _m;

@@ -19,6 +19,7 @@ import '../watch/model.dart';
 import 'context.dart';
 import 'resolve.dart';
 import 'scripts.dart';
+import 'task_ops.dart' show syncCommandJobs;
 
 /// A machine that runs a scheduler: a server of an environment, or this
 /// machine (for the off-site pulls).
@@ -325,6 +326,7 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
   String? at,
   String? binary,
   List<String> replaces = const [],
+  List<EnvConfig> taskEnvs = const [],
 }) async {
   final macos = await isMacos(ctx, t);
   final local = await localBinary(
@@ -363,6 +365,13 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
     } catch (_) {}
   }
   final watchInterval = watch.targets.isEmpty ? null : watch.interval;
+  // The `scheduled:` commands and `tasks:` of the environments on this
+  // machine, from this podship.yaml (a deploy writes them too).
+  for (final e in taskEnvs) {
+    syncCommandJobs(registry, ctx.config.project, e);
+  }
+  // Tasks at their own time (`daily HH:MM`): the agent fires then too.
+  final extra = taskTimes(registry);
   final next = registry.render();
   final steps = <Step>[
     ActionStep(
@@ -387,7 +396,8 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
             retireLegacyScript(legacy, replaces: replaces, macos: macos),
       ),
     RemoteStep(
-      'Register $schedulerLabel (nightly at ${settings.at}, and at load'
+      'Register $schedulerLabel (nightly at ${settings.at}'
+      '${extra.isEmpty ? '' : ', tasks at ${extra.join(', ')}'}, and at load'
       '${watchInterval == null ? '' : '; watch every $watchInterval s'})',
       t.host,
       t.header() +
@@ -397,12 +407,14 @@ Future<SchedulerInstallPlan> planSchedulerInstall(
                   settings: settings,
                   path: t.path,
                   watchInterval: watchInterval,
+                  extraTimes: extra,
                 )
               : installSystemdScript(
                   home: t.home,
                   settings: settings,
                   path: t.path,
                   watchInterval: watchInterval,
+                  extraTimes: extra,
                 )),
     ),
   ];

@@ -20,7 +20,6 @@ import '../images/images.dart';
 import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../release/release.dart';
-import '../server/registry.dart';
 import '../remote/ssh.dart';
 import 'backup_ops.dart';
 import 'bluegreen.dart';
@@ -30,6 +29,7 @@ import 'resolve.dart';
 import 'scheduler_ops.dart' show agentStep;
 import 'watch_ops.dart' show FleetMachine, ownerTarget;
 import 'scripts.dart';
+import 'task_ops.dart' show syncCommandJobs;
 import 'state.dart';
 import 'after_tests.dart';
 import 'tests.dart';
@@ -433,31 +433,10 @@ Plan planDeploy({
   final buildRoot = source == SourceMode.git ? snapshot : root;
   final old = state.current;
   final reg = state.registry..put(r.entry);
-  // `scheduled:` commands, in the current release; a removed one goes.
+  // `scheduled:` commands and `tasks:`, from this podship.yaml; a removed
+  // one goes.
   final project = ctx.config.project;
-  for (final id in [
-    for (final j in reg.jobs.values)
-      if (j.kind == JobKind.command &&
-          j.project == project &&
-          j.env == env.name)
-        j.id,
-  ]) {
-    reg.removeJob(id);
-  }
-  for (final c in env.scheduled) {
-    reg.putJob(
-      ScheduledJob(
-        kind: JobKind.command,
-        project: project,
-        env: env.name,
-        name: c.name,
-        run: c.run,
-        cwd: p.posix.normalize(p.posix.join(env.dir, 'current', c.cwd)),
-        path: c.path ?? env.remotePath,
-        note: 'from podship.yaml scheduled:',
-      ),
-    );
-  }
+  syncCommandJobs(reg, project, env);
   // A watched environment (`podship watch install`): its target on this
   // server follows the podship.yaml of the release (checks, heal). The
   // cross-watch copies on other machines change with `watch install`.

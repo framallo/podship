@@ -7,6 +7,7 @@ import '../api/models.dart';
 import '../config/config.dart';
 import '../ops/context.dart';
 import '../ops/deploy.dart';
+import '../ops/task_ops.dart' show formatTaskRow;
 import '../release/layout.dart';
 import '../remote/ssh.dart';
 import '../protocol/protocol.dart';
@@ -333,6 +334,9 @@ class StatusCommand extends PodshipCommand {
       );
     }
     if (s.dnsNote != null) stdout.writeln('dns: ${s.dnsNote}');
+    for (final t in s.tasks) {
+      stdout.writeln('task ${formatTaskRow(t)}');
+    }
     for (final t in s.logTables.entries) {
       stdout.writeln(
         '${t.key}: ${t.value['rows']} rows, ${(t.value['bytes']! / 1048576).toStringAsFixed(1)} MB',
