@@ -7,7 +7,10 @@
 // (backups first, then pulls), keeps `<home>/scheduler/state.json`, appends
 // to `<home>/log/scheduler.log` and writes a history record per run. A job
 // that fails never stops the others, and a job already running (its lock is
-// held) is skipped.
+// held) is skipped. A task also takes its environment's lock (the deploy
+// lock, `<env dir>/.podship/lock`): it waits for a running deploy, then is
+// skipped with "skipped: deploy running", and a deploy that starts while the
+// task runs stops and names the task.
 //
 // Nothing here reads `podship.yaml`: a server has none.
 
@@ -252,7 +255,21 @@ class JobRunner {
     this.backupCommand,
     this.onFailure,
     this.removeContainer,
-  }) : clock = clock ?? DateTime.now;
+    this.deployWait = const Duration(minutes: 20),
+    this.deployPoll = const Duration(seconds: 15),
+    Future<void> Function(Duration)? pause,
+  }) : clock = clock ?? DateTime.now,
+       pause = pause ?? Future.delayed;
+
+  /// How long a task waits for a deploy that holds its environment's lock
+  /// before it is skipped.
+  final Duration deployWait;
+
+  /// How often a waiting task looks at the lock again.
+  final Duration deployPoll;
+
+  /// Waits (tests do not).
+  final Future<void> Function(Duration) pause;
 
   /// Called with every failed (not skipped) run of a [tick]: the scheduler
   /// command sends `scheduler_job_failed` through the machine's channels.
@@ -306,6 +323,43 @@ class JobRunner {
     } on FileSystemException {
       f.closeSync();
       return null;
+    }
+  }
+
+  /// Takes the environment lock of task [job] (the lock of `deploy` and
+  /// every operation that changes the environment, see `api/lock.dart`):
+  /// `mkdir <env dir>/.podship/lock` plus `owner.json`. Waits up to
+  /// [deployWait] while someone else holds it. Returns the lock path when
+  /// taken, null when [job] has no environment folder, or throws
+  /// [DeployRunning] with the holder.
+  Future<String?> _takeEnvLock(ScheduledJob job, String actor) async {
+    final path = envLockPath(job);
+    if (path == null) return null;
+    final owner = jsonEncode({
+      'operation': 'task ${job.name}',
+      'actor': actor,
+      'started_at': clock().toUtc().toIso8601String(),
+    });
+    final waited = Stopwatch()..start();
+    var said = false;
+    while (true) {
+      Directory(p.dirname(path)).createSync(recursive: true);
+      // mkdir is atomic: exactly one of two racing processes creates it.
+      final r = Process.runSync('mkdir', [path]);
+      if (r.exitCode == 0) {
+        File(p.join(path, 'owner.json')).writeAsStringSync(owner);
+        return path;
+      }
+      if (!Directory(path).existsSync()) {
+        throw StateError('cannot create the lock $path: ${r.stderr}');
+      }
+      final holder = lockHolderText(path);
+      if (waited.elapsed >= deployWait) throw DeployRunning(holder);
+      if (!said) {
+        log('${job.id}: the environment is locked by $holder; waiting');
+        said = true;
+      }
+      await pause(deployPoll);
     }
   }
 
@@ -437,10 +491,42 @@ class JobRunner {
     }
     final started = clock();
     final watch = Stopwatch()..start();
+    String? envLock;
+    if (job.task) {
+      try {
+        envLock = await _takeEnvLock(job, actor);
+      } on DeployRunning catch (e) {
+        watch.stop();
+        final run = JobRun(
+          job,
+          false,
+          watch.elapsed,
+          error: 'skipped: deploy running (${e.holder})',
+          skipped: true,
+        );
+        log('${job.id}: ${run.error}');
+        _record(job, run, started, '${run.error}\n', actor, state);
+        _unlock(lock);
+        return run;
+      } catch (e) {
+        watch.stop();
+        final run = JobRun(
+          job,
+          false,
+          watch.elapsed,
+          error: 'cannot take the environment lock: $e',
+        );
+        log('${job.id}: ${run.error}');
+        _record(job, run, started, '${run.error}\n', actor, state);
+        _unlock(lock);
+        return run;
+      }
+    }
     final transcript = StringBuffer();
     final secrets = taskSecrets(job);
     String? stamp;
     String? error;
+    // Read after the lock: a deploy may have switched `current` meanwhile.
     final release = job.task ? _release(job) : null;
     try {
       final (exe, args, env, cwd) = _command(job);
@@ -494,6 +580,14 @@ class JobRunner {
       }
     } catch (e) {
       error = redact('$e', secrets);
+    } finally {
+      if (envLock != null) {
+        try {
+          Directory(envLock).deleteSync(recursive: true);
+        } catch (e) {
+          log('${job.id}: could not release the lock $envLock: $e');
+        }
+      }
     }
     watch.stop();
     final run = JobRun(
@@ -515,14 +609,28 @@ class JobRunner {
           ..writeAsStringSync(transcript.toString(), mode: FileMode.append);
       } catch (_) {}
     }
+    _record(job, run, started, transcript.toString(), actor, state);
+    _unlock(lock);
+    return run;
+  }
+
+  /// Saves the state of [run] (today counts as run) and its history record.
+  void _record(
+    ScheduledJob job,
+    JobRun run,
+    DateTime started,
+    String transcript,
+    String actor,
+    SchedulerState? state,
+  ) {
     final st = state ?? SchedulerState.load(home);
     st.jobs[job.id] = JobState(
       lastRun: started.toUtc().toIso8601String(),
       lastRunDate: localDate(started),
-      lastOk: error == null,
-      lastError: error,
-      lastDuration: watch.elapsed.inSeconds,
-      lastStamp: stamp,
+      lastOk: run.ok,
+      lastError: run.error,
+      lastDuration: run.duration.inSeconds,
+      lastStamp: run.stamp,
     );
     try {
       st.save(home);
@@ -530,12 +638,10 @@ class JobRunner {
       log('could not save the state: $e');
     }
     try {
-      _writeHistory(job, run, started, transcript.toString(), actor);
+      _writeHistory(job, run, started, transcript, actor);
     } catch (e) {
       log('could not write the history record: $e');
     }
-    _unlock(lock);
-    return run;
   }
 
   /// The release `<dir>/current` points at, for a task's history record.
@@ -657,6 +763,7 @@ class JobRunner {
         'job': job.id,
         'scheduled': actor == 'podship-scheduler',
         'stamp': ?run.stamp,
+        if (run.skipped) 'skipped': true,
         if (job.task) 'task': job.name,
       },
       'actor': actor,
@@ -667,6 +774,39 @@ class JobRunner {
     Directory(dir).createSync(recursive: true);
     File(p.join(dir, '$base.json')).writeAsStringSync('${jsonEncode(json)}\n');
     File(p.join(dir, '$base.log')).writeAsStringSync(transcript);
+  }
+}
+
+/// A task was not run: a deploy (or another operation) held the
+/// environment's lock longer than [JobRunner.deployWait].
+class DeployRunning implements Exception {
+  DeployRunning(this.holder);
+
+  /// Who holds the lock, as `actor (operation, since time)`.
+  final String holder;
+
+  @override
+  String toString() => 'deploy running ($holder)';
+}
+
+/// The environment lock of task [job]: `<env dir>/.podship/lock`, the same
+/// folder `deploy` takes (`api/lock.dart`). A task's [ScheduledJob.cwd] is
+/// `<env dir>/current`. Null for other jobs.
+String? envLockPath(ScheduledJob job) {
+  final cwd = job.cwd;
+  if (!job.task || cwd == null || p.basename(cwd) != 'current') return null;
+  return p.join(p.dirname(cwd), '.podship', 'lock');
+}
+
+/// The holder of the lock folder [path] from its `owner.json`, as
+/// `actor (operation, since time)`.
+String lockHolderText(String path) {
+  try {
+    final j =
+        jsonDecode(File(p.join(path, 'owner.json')).readAsStringSync()) as Map;
+    return '${j['actor']} (${j['operation']}, since ${j['started_at']})';
+  } catch (_) {
+    return 'an unknown holder';
   }
 }
 

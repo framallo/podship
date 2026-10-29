@@ -404,12 +404,29 @@ $demoReset
     JobRunner runner({
       DateTime Function()? clock,
       Future<void> Function(JobRun)? onFailure,
+      Duration deployWait = Duration.zero,
+      Future<void> Function(Duration)? pause,
     }) => JobRunner(
       home,
       clock: clock,
       onFailure: onFailure,
       removeContainer: (job, name) async => removed.add(name),
+      deployWait: deployWait,
+      pause: pause ?? (_) async {},
     );
+
+    Directory deployLock() {
+      final d = Directory(p.join(envDir, '.podship', 'lock'))
+        ..createSync(recursive: true);
+      File(p.join(d.path, 'owner.json')).writeAsStringSync(
+        jsonEncode({
+          'operation': 'deploy',
+          'actor': 'owner@example.com',
+          'started_at': '2026-10-29T04:29:00Z',
+        }),
+      );
+      return d;
+    }
 
     test('runs in the current release, masks secrets, records the run', () async {
       final job = taskJob('shop', env, env.tasks.first);
@@ -492,6 +509,82 @@ $demoReset
       holder.kill();
       expect(run.skipped, isTrue);
       expect(marks.existsSync(), isFalse);
+    });
+
+    test('a task takes the deploy lock while it runs and frees it', () async {
+      writeCompose('cat ${p.join(envDir, '.podship', 'lock', 'owner.json')}');
+      final job = taskJob('shop', env, env.tasks.first);
+      expect(envLockPath(job), p.join(envDir, '.podship', 'lock'));
+      final run = await runner().runJob(job, actor: 'me@example.com');
+      expect(run.ok, isTrue, reason: run.error);
+      final log = File(job.log!).readAsStringSync();
+      expect(log, contains('"operation":"task demo-reset"'));
+      expect(log, contains('"actor":"me@example.com"'));
+      expect(
+        Directory(p.join(envDir, '.podship', 'lock')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('during a deploy the task is skipped and the skip recorded', () async {
+      final lock = deployLock();
+      final job = taskJob('shop', env, env.tasks.first);
+      final failed = <JobRun>[];
+      final run = await JobRunner(
+        home,
+        removeContainer: (job, name) async => removed.add(name),
+        deployWait: const Duration(milliseconds: 50),
+        deployPoll: const Duration(milliseconds: 10),
+        onFailure: (r) async => failed.add(r),
+      ).runJob(job);
+      expect(run.skipped, isTrue);
+      expect(run.ok, isFalse);
+      expect(
+        run.error,
+        'skipped: deploy running (owner@example.com (deploy, since 2026-10-29T04:29:00Z))',
+      );
+      expect(marks.existsSync(), isFalse);
+      expect(removed, isEmpty);
+      // The deploy's lock stays.
+      expect(lock.existsSync(), isTrue);
+      final st = SchedulerState.load(home).jobs[job.id]!;
+      expect(st.lastError, startsWith('skipped: deploy running'));
+      final dir = Directory(p.join(home, 'history', 'shop', 'production'));
+      final json = dir.listSync().firstWhere((f) => f.path.endsWith('.json'));
+      final rec = jsonDecode(File(json.path).readAsStringSync()) as Map;
+      expect(rec['operation'], 'task demo-reset');
+      expect(rec['error'], startsWith('skipped: deploy running'));
+      expect((rec['data'] as Map)['skipped'], isTrue);
+      expect(
+        File(p.join(home, 'log', 'scheduler.log')).readAsStringSync(),
+        contains('skipped: deploy running'),
+      );
+    });
+
+    test('a task waits for a deploy that ends, then runs', () async {
+      final lock = deployLock();
+      var waits = 0;
+      final run = await runner(
+        deployWait: const Duration(minutes: 20),
+        pause: (_) async {
+          waits++;
+          lock.deleteSync(recursive: true);
+        },
+      ).runJob(taskJob('shop', env, env.tasks.first));
+      expect(run.ok, isTrue, reason: run.error);
+      expect(waits, 1);
+      expect(marks.existsSync(), isTrue);
+      expect(
+        File(p.join(home, 'log', 'scheduler.log')).readAsStringSync(),
+        contains('locked by owner@example.com (deploy'),
+      );
+    });
+
+    test('a scheduled command (not a task) does not take the lock', () {
+      final reg = Registry();
+      syncCommandJobs(reg, 'shop', env);
+      final shots = reg.jobs.values.firstWhere((j) => j.name == 'shots');
+      expect(envLockPath(shots), isNull);
     });
 
     test('a scheduled failure is reported once; the tick goes on', () async {

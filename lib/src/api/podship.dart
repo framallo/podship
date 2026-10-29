@@ -1254,7 +1254,7 @@ class Podship {
                 rec.data.addAll(run.toJson());
                 rec.release = run.release;
                 if (run.skipped) {
-                  throw Aborted('$name is already running on ${target.label}');
+                  throw Aborted('$name on ${target.label}: ${run.error}');
                 }
                 if (!run.ok) throw Aborted('task $name failed: ${run.error}');
                 return;

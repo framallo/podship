@@ -178,7 +178,7 @@ class SchedulerRunOnceCommand extends _SchedulerCommand {
         job,
         actor: (argResults!['actor'] as String?) ?? 'podship-scheduler',
       );
-      if (run.skipped) stderr.writeln('${job.id} is already running');
+      if (run.skipped) stderr.writeln('${job.id}: ${run.error}');
       return run.ok ? 0 : 1;
     }
     if (argResults!.rest.isEmpty) {
