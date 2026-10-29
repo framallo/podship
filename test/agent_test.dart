@@ -32,9 +32,8 @@ class FakeProc implements Proc {
     final r = answer?.call(cmd, stdinText) ?? ProcResult(0);
     if (r.ok) {
       if (stdoutFile != null) {
-        File(
-          stdoutFile,
-        ).writeAsStringSync(r.stdout.isEmpty ? 'data' : r.stdout);
+        File(stdoutFile)
+            .writeAsStringSync(r.stdout.isEmpty ? 'data' : r.stdout);
       }
       final o = cmd.indexOf('-o');
       if ((cmd.first == 'zstd' || cmd.first == 'age') && o >= 0) {
@@ -42,17 +41,15 @@ class FakeProc implements Proc {
       }
       final x = cmd.indexOf('-x');
       if (cmd.first == 'tar' && x >= 0) {
-        File(
-          p.join(cmd[cmd.indexOf('-C') + 1], 'file.txt'),
-        ).writeAsStringSync('f');
+        File(p.join(cmd[cmd.indexOf('-C') + 1], 'file.txt'))
+            .writeAsStringSync('f');
       }
       if (cmd.contains('python')) {
         final out = cmd[cmd.indexWhere((a) => a.endsWith(':/out'))]
             .split(':')
             .first;
-        File(
-          p.join(out, cmd.last.replaceAll('/', '_')),
-        ).writeAsStringSync('sqlite');
+        File(p.join(out, cmd.last.replaceAll('/', '_')))
+            .writeAsStringSync('sqlite');
       }
     }
     return stdoutFile == null ? r : ProcResult(r.code, stderr: r.stderr);
@@ -242,9 +239,8 @@ void main() {
       () async {
         final s = settingsFor(dir);
         // An old backup that retention deletes.
-        Directory(
-          p.join(s.plainDir, '2026-01-01T0330'),
-        ).createSync(recursive: true);
+        Directory(p.join(s.plainDir, '2026-01-01T0330'))
+            .createSync(recursive: true);
         final proc = FakeProc(server);
         final out = _Sink();
         final stamp = await BackupAgent(
@@ -349,6 +345,54 @@ void main() {
       );
     });
 
+    test('removeTree deletes again what one pass left (errno 66)', () {
+      final dir = Directory.systemTemp.createTempSync('podship-rm-');
+      File(p.join(dir.path, 'a', 'b'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('x');
+      var calls = 0;
+      removeTree(
+        dir.path,
+        pause: Duration.zero,
+        delete: (x) {
+          calls++;
+          if (calls == 1) {
+            throw FileSystemException(
+              'Deletion failed',
+              x,
+              const OSError('Directory not empty', 66),
+            );
+          }
+          Directory(x).deleteSync(recursive: true);
+        },
+      );
+      expect(calls, 2);
+      expect(dir.existsSync(), isFalse);
+    });
+
+    test('removeTree throws after the last pass', () {
+      final dir = Directory.systemTemp.createTempSync('podship-rm-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      var calls = 0;
+      expect(
+        () => removeTree(
+          dir.path,
+          passes: 3,
+          pause: Duration.zero,
+          delete: (x) {
+            calls++;
+            throw FileSystemException('Deletion failed', x);
+          },
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(calls, 3);
+    });
+
+    test('removeTree of a missing folder does nothing', () {
+      removeTree(p.join(Directory.systemTemp.path, 'podship-missing-xyz'));
+    });
+
     test('vanishedFiles reads GNU, BusyBox and bsdtar messages', () {
       expect(
         vanishedFiles(
@@ -423,9 +467,8 @@ void main() {
       bdir = p.join(s.plainDir, '2026-10-08T0330');
       Directory(bdir).createSync(recursive: true);
       File(p.join(bdir, 'db.dump')).writeAsStringSync('dump');
-      File(
-        p.join(bdir, 'counts.txt'),
-      ).writeAsStringSync('user 3\nticket 5\njob 8\n');
+      File(p.join(bdir, 'counts.txt'))
+          .writeAsStringSync('user 3\nticket 5\njob 8\n');
       await writeSums(bdir, ['db.dump', 'counts.txt']);
     });
 

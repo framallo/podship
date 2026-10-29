@@ -111,7 +111,7 @@ class BackupAgent {
       if (keep.contains(st)) continue;
       log('retention: delete $st');
       final dir = Directory(p.join(s.plainDir, st));
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      if (dir.existsSync()) removeTree(dir.path);
       final enc = File(p.join(s.encDir, '$st.tar.age'));
       if (enc.existsSync()) enc.deleteSync();
     }
@@ -268,17 +268,13 @@ class BackupAgent {
         log('volume ${v.volume} → ${v.name}.$ext');
         if (v.isFolder) {
           if (!Directory(v.volume).existsSync()) fail('no folder ${v.volume}');
-        } else if (!(await proc.run([
-          'docker',
-          'volume',
-          'inspect',
-          v.volume,
-        ])).ok) {
+        } else if (!(await proc.run(['docker', 'volume', 'inspect', v.volume]))
+            .ok) {
           fail('no Docker volume ${v.volume}');
         }
-        vtmp = Directory(
-          volumeTmp,
-        ).createTempSync('podship-volume-${v.name}.').path;
+        vtmp = Directory(volumeTmp)
+            .createTempSync('podship-volume-${v.name}.')
+            .path;
         await _chmod('777', [vtmp]);
         final into = p.join(tmp, v.name);
         Directory(into).createSync();
@@ -367,8 +363,8 @@ class BackupAgent {
               ])
             : await proc.run(['tar', '-C', tmp, '-czf', arc, v.name]);
         if (!r.ok) fail('cannot compress volume ${v.volume}');
-        Directory(into).deleteSync(recursive: true);
-        Directory(vtmp).deleteSync(recursive: true);
+        removeTree(into);
+        removeTree(vtmp);
         vtmp = null;
         files.add('${v.name}.$ext');
       }
@@ -399,7 +395,7 @@ class BackupAgent {
         if (!r.ok || !File(enc).existsSync() || File(enc).lengthSync() == 0) {
           fail('the encrypted package is empty');
         }
-        Directory(p.join(tmp, 'package')).deleteSync(recursive: true);
+        removeTree(p.join(tmp, 'package'));
         await _chmod('600', [enc]);
         moveFile(enc, p.join(s.encDir, '$stamp.tar.age'));
       } else {
@@ -423,13 +419,43 @@ class BackupAgent {
     } finally {
       for (final d in [tmp, vtmp]) {
         if (d != null && Directory(d).existsSync()) {
-          Directory(d).deleteSync(recursive: true);
+          // The cleanup never hides the result of the backup.
+          try {
+            removeTree(d);
+          } on FileSystemException catch (e) {
+            log('cannot remove $d: ${e.osError?.message ?? e.message}');
+          }
         }
       }
       try {
         lock.unlockSync();
       } catch (_) {}
       lock.closeSync();
+    }
+  }
+}
+
+/// Deletes the folder [path] and everything in it, in up to [passes]
+/// passes. On APFS one recursive delete can skip entries of a folder it
+/// is emptying and stop with "Directory not empty" (errno 66); the next
+/// pass deletes what is left. The nightly Boceto backup failed this way
+/// (exit code 255) on 4 of 7 nights in October 2026 (F6). Throws the last
+/// error when every pass fails.
+void removeTree(
+  String path, {
+  void Function(String path)? delete,
+  int passes = 5,
+  Duration pause = const Duration(milliseconds: 200),
+}) {
+  final del = delete ?? (String x) => Directory(x).deleteSync(recursive: true);
+  for (var i = 1; ; i++) {
+    if (!Directory(path).existsSync()) return;
+    try {
+      del(path);
+      return;
+    } on FileSystemException {
+      if (i >= passes) rethrow;
+      if (pause > Duration.zero) sleep(pause);
     }
   }
 }
