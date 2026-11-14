@@ -152,6 +152,11 @@ Plan planRollback({
   );
 }
 
+/// The release a plan of [planRollback] switches to (its title names it;
+/// a blue/green rollback has no `Switch to` step).
+String rollbackTarget(Plan plan) =>
+    RegExp(r' to (\S+)').firstMatch(plan.title)!.group(1)!;
+
 /// Plans `restart`: recreate the containers of the current release, for
 /// example after `env set` or `secret set`.
 Plan planRestart({

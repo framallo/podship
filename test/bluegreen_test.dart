@@ -473,6 +473,9 @@ void main() {
       final p = planRollback(ctx: ctx, r: r, state: s);
       expect(p.steps.first.title, contains('(blue/green)'));
       expect(p.recovery.single.title, 'Flip the front back');
+      // The API records the target from the title: no `Switch to` step
+      // (staging 2026-11-14: "Bad state: No element" after a good flip).
+      expect(rollbackTarget(p), '20261001-000000-aaaaaaa');
     });
 
     final perEnvText = sampleConfig.replaceFirst(

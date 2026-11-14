@@ -597,13 +597,7 @@ class Podship {
       if (withDb != null) rec.data['with_db'] = withDb;
       try {
         await ctx.run(plan);
-        rec.release = dryRun
-            ? state.current
-            : plan.steps
-                  .whereType<RemoteStep>()
-                  .firstWhere((s) => s.title.startsWith('Switch to '))
-                  .title
-                  .substring(10);
+        rec.release = dryRun ? state.current : rollbackTarget(plan);
         if (!dryRun && rec.release != null) {
           final gh = GitHub(config, ctx.log);
           final fromSha = _shaOf(state, state.current);
