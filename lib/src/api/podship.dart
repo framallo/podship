@@ -572,12 +572,18 @@ class Podship {
 
   /// Switches to a previous release (code only), or to [to]. With [withDb],
   /// restores that backup first.
-  Operation rollback(String envName, {String? to, String? withDb}) => _op(
+  Operation rollback(
+    String envName, {
+    String? to,
+    String? withDb,
+    bool allowDestructiveMigrations = false,
+  }) => _op(
     'rollback',
     envName,
     {
       'to': to,
       'with_db': withDb,
+      if (allowDestructiveMigrations) 'allow_destructive_migrations': true,
       if (withDb != null) 'confirm_project': config.project,
     },
     (ctx, rec) async {
@@ -592,6 +598,7 @@ class Podship {
         state: state,
         to: to,
         withDb: withDb,
+        allowDestructiveMigrations: allowDestructiveMigrations,
       );
       rec.previousRelease = state.current;
       if (withDb != null) rec.data['with_db'] = withDb;
@@ -646,11 +653,13 @@ class Podship {
     String? release,
     String? skipTestsReason,
     bool confirmedUntested = false,
+    bool allowDestructiveMigrations = false,
   }) => _op(
     'promote',
     toEnv,
     {
       'from': fromEnv,
+      if (allowDestructiveMigrations) 'allow_destructive_migrations': true,
       'release': release,
       'skip_tests_reason': skipTestsReason,
       if (confirmedUntested) 'confirm_env': toEnv,
@@ -710,6 +719,7 @@ class Podship {
             toState: state,
             release: id,
             workDir: work.path,
+            allowDestructiveMigrations: allowDestructiveMigrations,
           ),
         );
         rec.release = dryRun ? state.current : id;

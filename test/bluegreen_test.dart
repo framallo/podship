@@ -550,4 +550,287 @@ void main() {
       },
     );
   });
+
+  group('review 2026-11-14', () {
+    test('H1: a front with no ports is refused', () {
+      expect(() => frontConf(const [], 'blue'), throwsArgumentError);
+    });
+
+    test('H3: blue_green.stable adds to the database service', () {
+      final env = PodshipConfig.parse(
+        sampleConfig.replaceFirst(
+          '    database: {name: demo}\n',
+          '    database: {name: demo}\n    switch: blue_green\n'
+              '    blue_green: {stable: [redis]}\n',
+        ),
+      ).env('production');
+      expect(env.stableServices, ['postgres', 'redis']);
+    });
+
+    group('H2: compose.sh sends the stable services to the base project', () {
+      late Directory dir;
+      late String sh;
+      setUp(() {
+        dir = Directory.systemTemp.createTempSync('podship-route');
+        Directory('${dir.path}/bin').createSync();
+        Directory('${dir.path}/state').createSync();
+        File(
+          '${dir.path}/state/active-project',
+        ).writeAsStringSync('presente-blue\n');
+        File('${dir.path}/bin/docker').writeAsStringSync('''
+#!/bin/bash
+echo "\$*" >> ${dir.path}/calls
+case "\$1 \$2" in
+  "network inspect") [ "\$3" = presente-blue-net ];;
+  "ps -q") case "\$*" in *service=postgres*) echo c1;; esac;;
+esac
+''');
+        Process.runSync('chmod', ['755', '${dir.path}/bin/docker']);
+        sh = '${dir.path}/compose.sh';
+        File(sh).writeAsStringSync(
+          composeSh(
+            composeProject: 'presente',
+            releaseDir: '${dir.path}/r1',
+            composeFiles: ['docker-compose.yml'],
+            blueGreenState: '${dir.path}/state',
+            stable: ['postgres'],
+          ),
+        );
+      });
+      tearDown(() => dir.deleteSync(recursive: true));
+
+      List<String> run(List<String> args) {
+        File('${dir.path}/calls').writeAsStringSync('');
+        final r = Process.runSync(
+          'bash',
+          [sh, ...args],
+          environment: {
+            'PATH': '${dir.path}/bin:${Platform.environment['PATH']}',
+          },
+        );
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+        return File('${dir.path}/calls').readAsLinesSync();
+      }
+
+      String project(List<String> calls) => RegExp(
+        r'^compose -p (\S+)',
+      ).firstMatch(calls.firstWhere((c) => c.startsWith('compose')))!.group(1)!;
+
+      test('up -d postgres goes to the base project and joins again', () {
+        final calls = run(['up', '-d', '--force-recreate', 'postgres']);
+        expect(project(calls), 'presente');
+        final up = calls.indexWhere((c) => c.startsWith('compose'));
+        expect(
+          calls.skip(up),
+          contains('network connect --alias postgres presente-blue-net c1'),
+        );
+        expect(
+          calls.skip(up),
+          isNot(contains(contains('presente-green-net c1'))),
+        );
+      });
+
+      test('exec, logs and restart of postgres too', () {
+        expect(project(run(['exec', 'postgres', 'psql'])), 'presente');
+        expect(project(run(['logs', '--tail', '5', 'postgres'])), 'presente');
+        expect(project(run(['restart', 'postgres'])), 'presente');
+      });
+
+      test(
+        'a color service stays in the color, also with "postgres" as a value',
+        () {
+          expect(project(run(['up', '-d'])), 'presente-blue');
+          expect(
+            project(run(['exec', '-u', 'postgres', 'server', 'psql'])),
+            'presente-blue',
+          );
+          expect(
+            project(
+              run([
+                'run', '--rm', '--no-deps', '-T', '--name', 'x', //
+                '--entrypoint', 'postgres', 'server',
+              ]),
+            ),
+            'presente-blue',
+          );
+        },
+      );
+    });
+
+    final perEnvText = sampleConfig.replaceFirst(
+      '    database: {name: demo}\n',
+      '    database: {name: demo}\n    switch: blue_green\n'
+          '    migrations: maintenance\n',
+    );
+    final c3 = PodshipConfig.parse(perEnvText, root: '/work/demo');
+    final ctx3 = Ctx(config: c3, ssh: Ssh(), log: Log.silent(), dryRun: true);
+    final s3 = parseState(
+      'CURRENT 20261002-000000-bbbbbbb\n'
+      'R 20261002-000000-bbbbbbb ok {"id":"x","sha":"abc","images":[]}\n'
+      'R 20261001-000000-aaaaaaa ok {"id":"y","sha":"abd","images":[]}\n'
+      'ENVFILE yes\nDB yes\nPORTS 22\nREGISTRY-BEGIN\nREGISTRY-END\n',
+    );
+    final r3 = resolveEnv(c3, c3.env('production'), s3.registry);
+
+    test('M6: restart is a blue/green start of the current release', () {
+      final p = planRestart(ctx: ctx3, r: r3, state: s3);
+      expect(p.title, contains('blue/green'));
+      expect(p.steps.first.title, startsWith('Start 20261002-000000-bbbbbbb'));
+      expect(p.steps.last.title, 'Stop the old color');
+      expect(p.recovery.single.title, 'Flip the front back');
+    });
+
+    test('M6: restart of named services warns; stable and color not mixed', () {
+      final db = planRestart(
+        ctx: ctx3,
+        r: r3,
+        state: s3,
+        services: ['postgres'],
+      );
+      expect(db.steps.first.describe(), contains('base project'));
+      expect(
+        db.steps[1].describe(),
+        contains('--force-recreate --no-deps postgres'),
+      );
+      final app = planRestart(
+        ctx: ctx3,
+        r: r3,
+        state: s3,
+        services: ['server'],
+      );
+      expect(app.steps.first.describe(), contains('short outage'));
+      expect(
+        () => planRestart(
+          ctx: ctx3,
+          r: r3,
+          state: s3,
+          services: ['server', 'postgres'],
+        ),
+        throwsA(isA<Aborted>()),
+      );
+    });
+
+    test('M7: the new front config is tested before it replaces the old', () {
+      final f = flipScript(
+        l: EnvLayout(c3.env('production')),
+        composeProject: 'demo',
+        color: 'green',
+        ports: [PublishedPort('nginx', '127.0.0.1', 8087, 8080)],
+      );
+      final t = f.indexOf('nginx -t -q -c /etc/podship-front/next.conf');
+      final mv = f.indexOf('next.conf\' \'');
+      final reload = f.indexOf('nginx -s reload');
+      expect(t, greaterThan(0));
+      expect(f.indexOf('mv -f', t), lessThan(reload));
+      expect(mv, isNot(0));
+      expect(f.indexOf('active-project'), greaterThan(reload));
+      // The front image is there before the base project stops.
+      expect(
+        f.indexOf('docker pull'),
+        lessThan(f.indexOf('docker run -d --name demo-front')),
+      );
+      expect(bashOk(f), isTrue);
+    });
+
+    test('M7: the front config names the active color', () {
+      expect(
+        activeProject(
+          composeProject: 'demo',
+          recorded: 'demo-blue',
+          frontColor: 'green',
+        ),
+        'demo-green',
+      );
+      expect(
+        activeProject(composeProject: 'demo', recorded: '', frontColor: ''),
+        '',
+      );
+      expect(
+        () => activeProject(
+          composeProject: 'demo',
+          recorded: 'demo-blue',
+          frontColor: '',
+        ),
+        throwsA(isA<Aborted>()),
+      );
+      final dir = Directory.systemTemp.createTempSync('podship-front');
+      try {
+        File('${dir.path}/nginx.conf').writeAsStringSync(
+          frontConf([PublishedPort('nginx', '127.0.0.1', 1, 2)], 'green'),
+        );
+        final l = EnvLayout(c3.env('production'));
+        final script = frontColorScript(l, 'demo')
+            .replaceFirst(
+              RegExp(r'^docker container inspect \S+ >/dev/null 2>&1 && '),
+              '',
+            )
+            .replaceAll(
+              '${l.state}/front/nginx.conf',
+              '${dir.path}/nginx.conf',
+            );
+        expect(
+          (Process.runSync('bash', ['-c', script]).stdout as String).trim(),
+          'green',
+        );
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'rollback and promote check the migrations; the flag switches in place',
+      () {
+        final p = planRollback(ctx: ctx3, r: r3, state: s3);
+        final titles = p.steps.map((x) => x.title).toList();
+        expect(titles.first, 'Check the migrations (blue/green)');
+        expect(p.guardFrom, 1);
+        final inPlace = planRollback(
+          ctx: ctx3,
+          r: r3,
+          state: s3,
+          allowDestructiveMigrations: true,
+        );
+        final t2 = inPlace.steps.map((x) => x.title).toList();
+        expect(t2, contains('Switch mode: in place'));
+        expect(t2, contains(startsWith('Switch to')));
+        expect(t2, isNot(contains('Check the migrations (blue/green)')));
+        expect(rollbackTarget(inPlace), '20261001-000000-aaaaaaa');
+      },
+    );
+
+    test('the rollback target is the last " to " of the title', () {
+      expect(
+        rollbackTarget(Plan('rollback go to env from a to b (code only)', [])),
+        'b',
+      );
+    });
+
+    test('--allow-destructive-migrations migrates in the base project', () {
+      final p = planDeploy(
+        ctx: ctx3,
+        r: r3,
+        state: s3,
+        git: GitInfo('a0dc2b0123456789', ref: 'main'),
+        now: DateTime.utc(2026, 10, 6, 16),
+        snapshot: '/tmp/snap',
+        options: DeployOptions(allowDestructiveMigrations: true),
+      );
+      final m = p.steps.firstWhere((x) => x.title == 'Apply migrations');
+      expect(m.describe(), contains('PODSHIP_COMPOSE_PROJECT=demo'));
+    });
+
+    test('a failed public check hides Set-Cookie', () {
+      expect(
+        preflightCheckScript(PublicCheck(url: 'https://x.test/'), 8080, 'blue'),
+        contains("grep -vi '^ *set-cookie:'"),
+      );
+    });
+
+    test('a changed stable service is reported, never recreated', () {
+      final s = stableDriftScript('demo', '/r/compose.sh', ['postgres']);
+      expect(s, contains('config --hash'));
+      expect(s, contains('podship restart postgres'));
+      expect(bashOk(s), isTrue);
+    });
+  });
 }

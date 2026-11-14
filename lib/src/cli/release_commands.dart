@@ -126,6 +126,13 @@ class RollbackCommand extends PodshipCommand {
         'with-db',
         help: 'Also restore this database backup (a stamp from `backup list`).',
       )
+      ..addFlag(
+        'allow-destructive-migrations',
+        negatable: false,
+        help:
+            'switch: blue_green only. Switch in place (a short downtime) when '
+            'the two releases do not share a backward-compatible schema.',
+      )
       ..addOption(
         'confirm',
         help: 'The project name, to confirm --with-db without a terminal.',
@@ -155,7 +162,13 @@ class RollbackCommand extends PodshipCommand {
       throw Aborted('cancelled');
     }
     return runOp(
-      api.rollback(e.name, to: argResults!['to'] as String?, withDb: withDb),
+      api.rollback(
+        e.name,
+        to: argResults!['to'] as String?,
+        withDb: withDb,
+        allowDestructiveMigrations:
+            argResults!['allow-destructive-migrations'] == true,
+      ),
     );
   }
 }
@@ -191,6 +204,13 @@ class PromoteCommand extends PodshipCommand {
             'Promote a release whose commit has no passing tests (needs --reason).',
       )
       ..addOption('reason', help: 'Why the tests are skipped.')
+      ..addFlag(
+        'allow-destructive-migrations',
+        negatable: false,
+        help:
+            'switch: blue_green only. Switch in place (a short downtime) when '
+            'the two releases do not share a backward-compatible schema.',
+      )
       ..addOption(
         'confirm',
         help: 'The target environment name, to confirm without a terminal.',
@@ -236,6 +256,8 @@ class PromoteCommand extends PodshipCommand {
         release: argResults!['release'] as String?,
         skipTestsReason: skipTests ? reason : null,
         confirmedUntested: skipTests,
+        allowDestructiveMigrations:
+            argResults!['allow-destructive-migrations'] == true,
       ),
     );
   }

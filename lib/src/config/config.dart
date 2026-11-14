@@ -1457,10 +1457,13 @@ class EnvConfig {
   final BlueGreenConfig blueGreen;
 
   /// The services that stay in the base compose project and serve both
-  /// colors (`blue_green.stable`; per-env database: its service by default).
-  List<String> get stableServices =>
-      blueGreen.stable ??
-      (database.mode == DatabaseMode.perEnv ? [database.service] : const []);
+  /// colors: `blue_green.stable`, plus the database service with a per-env
+  /// database (always: in a color it would be a second Postgres on the same
+  /// data files).
+  List<String> get stableServices => {
+    if (database.mode == DatabaseMode.perEnv) database.service,
+    ...?blueGreen.stable,
+  }.toList();
 
   bool get isProduction => name == 'production';
   String get registryPath => '$podshipHome/registry.yaml';

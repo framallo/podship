@@ -715,8 +715,10 @@ Plan planDeploy({
         'Apply migrations',
         env.host,
         '${ctx.header(env)}'
-            '${env.database.mode == DatabaseMode.perEnv ? '${shq(l.composeSh(id))} up -d --no-build ${env.database.service}\n' : ''}'
-            '${shq(l.composeSh(id))} run --rm --no-deps '
+            // The base project: with a color still active, compose.sh would
+            // pick the color, and this release has no override for it yet.
+            '${env.database.mode == DatabaseMode.perEnv ? 'PODSHIP_COMPOSE_PROJECT=${shq(env.composeProject)} ${shq(l.composeSh(id))} up -d --no-build ${env.database.service}\n' : ''}'
+            'PODSHIP_COMPOSE_PROJECT=${shq(env.composeProject)} ${shq(l.composeSh(id))} run --rm --no-deps '
             '-e SERVERPOD_SERVER_ROLE=maintenance '
             '-e SERVERPOD_APPLY_MIGRATIONS=true ${env.serverService}\n',
       ),

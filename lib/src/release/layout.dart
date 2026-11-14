@@ -17,7 +17,8 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../config/config.dart';
-import '../ops/bluegreen.dart' show stableJoinScript;
+import '../ops/bluegreen.dart'
+    show colorProject, stableJoinScript, stableRouteScript;
 import '../remote/ssh.dart';
 
 /// The paths of one environment on its server.
@@ -326,16 +327,39 @@ String composeSh({
       ..writeln(
         'proj="\${PODSHIP_COMPOSE_PROJECT:-\$(cat ${shq('$blueGreenState/active-project')} 2>/dev/null || echo ${shq(composeProject)})}"',
       )
+      ..write(stableRouteScript(composeProject, stable))
       ..write(stableJoinScript(composeProject, stable))
       ..writeln('bg=()')
       ..writeln(
         '[ -f ${shq('$releaseDir/.podship/')}"bg-\$proj.yml" ] && bg=(-f ${shq('$releaseDir/.podship/')}"bg-\$proj.yml")',
-      )
-      ..writeln(
-        'exec docker compose -p "\$proj" '
-        '--project-directory ${shq(releaseDir)} '
-        '--env-file ${shq('$releaseDir/.env')} $files \${bg[@]+"\${bg[@]}"} "\$@"',
       );
+    final run =
+        'docker compose -p "\$proj" '
+        '--project-directory ${shq(releaseDir)} '
+        '--env-file ${shq('$releaseDir/.env')} $files \${bg[@]+"\${bg[@]}"} "\$@"';
+    if (stable.isNotEmpty) {
+      // Routed to the base project: a recreated stable container must join
+      // the color networks again, or the running color loses it.
+      b
+        ..writeln('if [ -n "\$routed" ]; then')
+        ..writeln('  rc=0; $run || rc=\$?')
+        ..writeln(
+          '  for proj in ${shq(colorProject(composeProject, 'blue'))} ${shq(colorProject(composeProject, 'green'))}; do',
+        )
+        ..writeln(
+          '    docker network inspect "\$proj-net" >/dev/null 2>&1 || continue',
+        )
+        ..write(
+          stableJoinScript(
+            composeProject,
+            stable,
+          ).split('\n').map((x) => x.isEmpty ? x : '    $x').join('\n'),
+        )
+        ..writeln('  done')
+        ..writeln('  exit \$rc')
+        ..writeln('fi');
+    }
+    b.writeln('exec $run');
     return b.toString();
   }
   b.writeln(

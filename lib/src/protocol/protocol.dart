@@ -211,6 +211,12 @@ const operations = <OperationSpec>[
       ParamSpec('to', 'string', 'The release id (default: the previous one).'),
       ParamSpec('with_db', 'string', 'A backup stamp to restore first.'),
       ParamSpec(
+        'allow_destructive_migrations',
+        'boolean',
+        'switch: blue_green only: switch in place when the two releases do '
+            'not share a backward-compatible schema.',
+      ),
+      ParamSpec(
         'confirm_project',
         'string',
         'The project name, typed by the user; required with with_db.',
@@ -227,6 +233,12 @@ const operations = <OperationSpec>[
         'release',
         'string',
         'The release (default: the one running on from).',
+      ),
+      ParamSpec(
+        'allow_destructive_migrations',
+        'boolean',
+        'switch: blue_green only: switch in place when the two releases do '
+            'not share a backward-compatible schema.',
       ),
       _reason,
       _confirmEnv,
@@ -855,7 +867,12 @@ Stream<Map<String, Object?>> dispatch(
           ),
         );
       case 'rollback':
-        op = api.rollback(env!, to: s('to'), withDb: s('with_db'));
+        op = api.rollback(
+          env!,
+          to: s('to'),
+          withDb: s('with_db'),
+          allowDestructiveMigrations: b('allow_destructive_migrations'),
+        );
       case 'promote':
         op = api.promote(
           s('from')!,
@@ -863,6 +880,7 @@ Stream<Map<String, Object?>> dispatch(
           release: s('release'),
           skipTestsReason: skipReason,
           confirmedUntested: confirmedUntested,
+          allowDestructiveMigrations: b('allow_destructive_migrations'),
         );
       case 'restart':
         op = api.restart(env!, services: l('services'));

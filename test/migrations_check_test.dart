@@ -24,8 +24,11 @@ CREATE TABLE "ops_event" (
 CREATE UNIQUE INDEX "ops_event_seq_idx" ON "ops_event" USING btree ("seq");
 ALTER TABLE "company" ADD COLUMN "demoSince" timestamp without time zone;
 ALTER TABLE "company" ADD COLUMN "plan" text NOT NULL DEFAULT 'trial'::text;
-ALTER TABLE ONLY "x" ADD CONSTRAINT "x_fk_0" FOREIGN KEY("a") REFERENCES "y"("id");
-DROP INDEX IF EXISTS "old_idx";
+ALTER TABLE ONLY "ops_event" ADD CONSTRAINT "x_fk_0" FOREIGN KEY("a") REFERENCES "y"("id");
+INSERT INTO "ops_event" ("companyId", "at") VALUES (gen_random_uuid(), now());
+CREATE INDEX "company_plan_idx" ON "company" USING btree ("plan");
+ALTER TABLE "company" ADD COLUMN "key" text, ADD COLUMN "n" bigint NOT NULL DEFAULT 0;
+ALTER TABLE "company" ALTER COLUMN "plan" SET DEFAULT 'free';
 INSERT INTO "serverpod_migrations" ("module", "version", "timestamp")
     VALUES ('presente', '20261113', now())
     ON CONFLICT ("module")

@@ -226,6 +226,11 @@ String colorOverride({
 /// The nginx config of the front: one TCP proxy per published port, to the
 /// [color]'s alias.
 String frontConf(List<PublishedPort> ports, String color) {
+  // An empty `stream {}` passes `nginx -t`, and a reload then closes every
+  // listener: the environment goes down.
+  if (ports.isEmpty) {
+    throw ArgumentError('the front of $color needs at least one port');
+  }
   final b = StringBuffer()
     ..writeln('# Written by podship: the front of the $color color.')
     ..writeln('worker_processes 1;')
@@ -277,6 +282,56 @@ String stableJoinScript(String composeProject, List<String> stable) {
   return b.toString();
 }
 
+/// Shell (compose.sh): when `$proj` is a color and the arguments name a
+/// [stable] service (`up -d postgres`, `restart postgres`, `exec postgres
+/// psql`, `logs postgres`), the command goes to the base project instead:
+/// in a color, compose enables a profiled service when it is named, and
+/// that would start a second, empty database next to the real one. Sets
+/// `routed` (empty when not routed).
+String stableRouteScript(String composeProject, List<String> stable) {
+  final names = ' ${stable.join(' ')} ';
+  final b = StringBuffer()..writeln('routed=');
+  if (stable.isEmpty) return b.toString();
+  b
+    ..writeln('_podship_names_stable() {')
+    ..writeln(r'  local sub= first= skip= a')
+    ..writeln(r'  for a in "$@"; do')
+    ..writeln(r'    if [ -n "$skip" ]; then skip=; continue; fi')
+    ..writeln(r'    case "$a" in')
+    ..writeln(r'      --*=*) continue;;')
+    // Options whose value could be a service name (exec -u postgres).
+    ..writeln(
+      r'      -e|--env|-u|--user|-w|--workdir|--name|--entrypoint|-l|--label|-v|--volume|-p|--publish|--profile|--env-file|-f|--file|--project-directory) skip=1; continue;;',
+    )
+    ..writeln(r'      -*) continue;;')
+    ..writeln('    esac')
+    ..writeln(r'    if [ -z "$sub" ]; then sub=$a; continue; fi')
+    ..writeln(r'    case "$sub" in')
+    ..writeln('      exec|run)')
+    ..writeln(r'        [ -z "$first" ] || continue; first=$a')
+    ..writeln('        case ${shq(names)} in *" \$a "*) return 0;; esac;;')
+    ..writeln(
+      '      up|start|restart|stop|create|rm|kill|pull|logs|ps|top|pause|unpause|port|attach|wait|watch|events|images|cp)',
+    )
+    ..writeln('        case ${shq(names)} in *" \$a "*) return 0;; esac;;')
+    ..writeln('    esac')
+    ..writeln('  done')
+    ..writeln('  return 1')
+    ..writeln('}')
+    ..writeln('case "\$proj" in')
+    ..writeln(
+      '  ${shq(colorProject(composeProject, 'blue'))}|${shq(colorProject(composeProject, 'green'))})',
+    )
+    ..writeln('    if _podship_names_stable "\$@"; then')
+    ..writeln(
+      '      echo "compose.sh: ${stable.join(', ')} run in the base project ${composeProject.replaceAll('"', '')}, not in \$proj" >&2',
+    )
+    ..writeln('      routed=\$proj; proj=${shq(composeProject)}')
+    ..writeln('    fi;;')
+    ..writeln('esac');
+  return b.toString();
+}
+
 /// Shell: one public check of the new color, from inside container `$c`,
 /// before it takes traffic. The request goes to [port] in the container
 /// with the check's Host header; busybox `wget -S` gives the status and
@@ -311,9 +366,68 @@ String preflightCheckScript(PublicCheck c, int port, String color) {
     ..writeln('  if ${conds.join(' && ')}; then ok=1; break; fi; sleep 2')
     ..writeln('done')
     ..writeln(
-      '[ -n "\$ok" ] || { echo "$color fails the public check "$what" (status \$st):" >&2; printf \'%s\\n\' "\$out" | head -20 >&2; exit 1; }',
+      '[ -n "\$ok" ] || { echo "$color fails the public check "$what" (status \$st):" >&2; printf \'%s\\n\' "\$out" | grep -vi \'^ *set-cookie:\' | head -20 >&2; exit 1; }',
     )
     ..writeln('echo "$color passes "$what" (\$st)"');
+  return b.toString();
+}
+
+/// Shell: finds the [service] container of compose [project] (as `$c`)
+/// and waits until it answers each of [paths] on [port] from inside.
+String healthWaitScript({
+  required String project,
+  required String label,
+  required String service,
+  required int port,
+  required List<String> paths,
+  int seconds = 180,
+}) {
+  final b = StringBuffer()
+    ..writeln(
+      'c=\$(docker ps -q --filter label=com.docker.compose.project=$project --filter label=com.docker.compose.service=$service | head -1)',
+    )
+    ..writeln(
+      '[ -n "\$c" ] || { echo "no $service container in $project" >&2; exit 1; }',
+    );
+  for (final h in paths) {
+    b
+      ..writeln('ok=; for i in \$(seq $seconds); do')
+      ..writeln(
+        '  if docker exec "\$c" wget -qO- -T 5 ${shq('http://127.0.0.1:$port$h')} >/dev/null 2>&1; then ok=1; break; fi; sleep 1',
+      )
+      ..writeln('done')
+      ..writeln(
+        '[ -n "\$ok" ] || { echo "$label does not answer $h" >&2; docker logs --tail 40 "\$c" >&2; exit 1; }',
+      )
+      ..writeln('echo "$label answers $h"');
+  }
+  return b.toString();
+}
+
+/// Shell: warns when a running stable service differs from the compose
+/// files of the release (an image bump, new settings): a blue/green deploy
+/// never recreates it, so the change waits for `podship restart <service>`.
+String stableDriftScript(
+  String composeProject,
+  String compose,
+  List<String> stable,
+) {
+  final b = StringBuffer();
+  for (final s in stable) {
+    b
+      ..writeln(
+        'want=\$(PODSHIP_COMPOSE_PROJECT=${shq(composeProject)} $compose config --hash ${shq(s)} 2>/dev/null | awk \'{print \$2}\' || true)',
+      )
+      ..writeln(
+        'sc=\$(docker ps -q --filter label=com.docker.compose.project=${shq(composeProject)} --filter label=com.docker.compose.service=${shq(s)} | head -1); have=',
+      )
+      ..writeln(
+        '[ -z "\$sc" ] || have=\$(docker inspect -f \'{{index .Config.Labels "com.docker.compose.config-hash"}}\' "\$sc" 2>/dev/null || true)',
+      )
+      ..writeln(
+        'if [ -n "\$want" ] && [ -n "\$have" ] && [ "\$want" != "\$have" ]; then echo "WARNING: $s changed in the compose files (image or settings), but blue/green keeps the running one; apply it with: podship restart $s (a short database outage)" >&2; fi',
+      );
+  }
   return b.toString();
 }
 
@@ -353,6 +467,7 @@ String startColorScript({
       ..writeln(
         'PODSHIP_COMPOSE_PROJECT=${shq(composeProject)} $compose up -d --no-build --no-recreate --wait $names',
       )
+      ..write(stableDriftScript(composeProject, compose, stable))
       ..writeln('proj=${shq(proj)}')
       ..write(stableJoinScript(composeProject, stable));
   }
@@ -373,24 +488,16 @@ String startColorScript({
     ..writeln(
       'PODSHIP_COMPOSE_PROJECT=$proj $compose up -d --no-build --remove-orphans',
     )
-    ..writeln(
-      'c=\$(docker ps -q --filter label=com.docker.compose.project=$proj --filter label=com.docker.compose.service=$serverService | head -1)',
-    )
-    ..writeln(
-      '[ -n "\$c" ] || { echo "no $serverService container in $proj" >&2; exit 1; }',
+    ..write(
+      healthWaitScript(
+        project: proj,
+        label: color,
+        service: serverService,
+        port: serverPort,
+        paths: healthPaths,
+        seconds: waitSeconds,
+      ),
     );
-  for (final h in healthPaths) {
-    b
-      ..writeln('ok=; for i in \$(seq $waitSeconds); do')
-      ..writeln(
-        '  if docker exec "\$c" wget -qO- -T 5 ${shq('http://127.0.0.1:$serverPort$h')} >/dev/null 2>&1; then ok=1; break; fi; sleep 1',
-      )
-      ..writeln('done')
-      ..writeln(
-        '[ -n "\$ok" ] || { echo "$color does not answer $h" >&2; docker logs --tail 40 "\$c" >&2; exit 1; }',
-      )
-      ..writeln('echo "$color answers $h"');
-  }
   for (final c in checks) {
     b.write(preflightCheckScript(c, serverPort, color));
   }
@@ -439,16 +546,49 @@ String flipScript({
   final publish = {
     for (final p in ports) '-p ${p.hostIp}:${p.published}:${p.published}',
   }.join(' ');
+  // A running front: the new config is tested before it replaces the one
+  // nginx runs, so the file on disk always names the color that serves.
+  // active-project follows the reload; a crash in between is repaired at
+  // the next start (frontColorScript).
   return '''
-${writeFile(conf, frontConf(ports, color))}if docker container inspect $front >/dev/null 2>&1; then
-  docker exec $front nginx -t -q -c /etc/podship-front/nginx.conf
+if docker container inspect $front >/dev/null 2>&1; then
+${writeFile('${l.state}/front/next.conf', frontConf(ports, color))}  docker exec $front nginx -t -q -c /etc/podship-front/next.conf
+  mv -f ${shq('${l.state}/front/next.conf')} ${shq(conf)}
   docker exec $front nginx -s reload -c /etc/podship-front/nginx.conf
 else
+${writeFile(conf, frontConf(ports, color))}  docker image inspect nginx:1.27-alpine >/dev/null 2>&1 || docker pull -q nginx:1.27-alpine >/dev/null
 $stopBase  docker run -d --name $front --restart unless-stopped --label podship.front=$composeProject --network ${frontNetwork(composeProject)} $publish -v ${shq('${l.state}/front')}:/etc/podship-front:ro nginx:1.27-alpine nginx -c /etc/podship-front/nginx.conf -g 'daemon off;' >/dev/null
 $afterBase fi
 echo ${colorProject(composeProject, color)} > ${shq('${l.state}/active-project')}
 echo "front → $color"
 ''';
+}
+
+/// Shell: prints the color the front serves (from its config), or nothing
+/// when no front container runs.
+String frontColorScript(EnvLayout l, String composeProject) =>
+    'docker container inspect ${frontContainer(composeProject)} >/dev/null 2>&1 && '
+    "sed -n 's/^# Written by podship: the front of the \\([a-z]*\\) color\\.\$/\\1/p' "
+    '${shq('${l.state}/front/nginx.conf')} 2>/dev/null || true\n';
+
+/// The compose project with the traffic: the front's config wins over
+/// active-project, which is written after the reload. Throws when a color
+/// is recorded but no front runs.
+String activeProject({
+  required String composeProject,
+  required String recorded,
+  required String frontColor,
+}) {
+  if (frontColor.isNotEmpty) return colorProject(composeProject, frontColor);
+  if (recorded.isNotEmpty) {
+    throw Aborted(
+      'blue/green: $recorded is recorded as active, but the front '
+      '(${frontContainer(composeProject)}) does not run. Start it again '
+      '(docker start ${frontContainer(composeProject)}) or leave blue/green '
+      'with switch: in_place',
+    );
+  }
+  return '';
 }
 
 /// Stops the containers of the color that no longer takes traffic (kept,
@@ -513,7 +653,7 @@ String stopBaseRestScript(
 /// base project can take the ports again. Nothing when no color is active.
 String leaveBlueGreenScript(EnvLayout l, String composeProject) =>
     '''
-if [ -f ${shq('${l.state}/active-project')} ]; then
+if [ -f ${shq('${l.state}/active-project')} ] || docker container inspect ${frontContainer(composeProject)} >/dev/null 2>&1; then
   docker rm -f ${frontContainer(composeProject)} >/dev/null 2>&1 || true
   for p in ${colorProject(composeProject, 'blue')} ${colorProject(composeProject, 'green')}; do
     ids=\$(docker ps -aq --filter label=com.docker.compose.project=\$p)
@@ -554,6 +694,8 @@ fi
   String? active; // the compose project that had the traffic
   String? color;
   List<PublishedPort> ports = const [];
+  PublishedPort? served; // the service that answers /health
+  var healthPaths = const <String>[];
   Future<String> q(String s) => ctx.query(env, s);
   Future<void> stream(String script) async {
     final code = await ctx.ssh.lines(
@@ -573,17 +715,35 @@ fi
         '${migrate ? '; migrations in the new color' : ''}'
         '; wait for /health and /readyz and the public checks inside it; flip the front ($cp-front, nginx stream); record',
     () async {
-      active = (await q(
+      final recorded = (await q(
         'cat ${shq('${l.state}/active-project')} 2>/dev/null || true\n',
       )).trim();
-      color = otherColor(
+      final frontColor = (await q(frontColorScript(l, cp))).trim();
+      active = activeProject(
+        composeProject: cp,
+        recorded: recorded,
+        frontColor: frontColor,
+      );
+      if (active != recorded) {
+        ctx.log.warn(
+          'blue/green: active-project said "$recorded", the front serves $active; recording $active',
+        );
+        await stream(
+          'echo ${shq(active!)} > ${shq('${l.state}/active-project')}\n',
+        );
+      }
+      // [color] and [ports] are set only right before the new color
+      // starts: a failure before that started nothing, and the recovery
+      // then leaves the front alone (an empty port list would write a
+      // front with no listener).
+      final next = otherColor(
         active == '$cp-blue'
             ? 'blue'
             : active == '$cp-green'
             ? 'green'
             : null,
       );
-      final proj = colorProject(cp, color!);
+      final proj = colorProject(cp, next);
       // A release made by an in-place deploy (a rollback target from before
       // blue/green) has a compose.sh that ignores PODSHIP_COMPOSE_PROJECT:
       // it gets the blue/green one.
@@ -609,7 +769,7 @@ fi
           'PODSHIP_COMPOSE_PROJECT=$cp ${shq(l.composeSh(id))} config --format json\n',
         ),
       );
-      ports = cfg.ports;
+      final cfgPorts = cfg.ports;
       for (final s in stable) {
         if (!cfg.services.containsKey(s)) {
           throw Aborted(
@@ -617,7 +777,7 @@ fi
           );
         }
       }
-      final stablePorts = ports.where((p) => stable.contains(p.service));
+      final stablePorts = cfgPorts.where((p) => stable.contains(p.service));
       if (stablePorts.isNotEmpty) {
         throw Aborted(
           'blue/green: a stable service publishes a port (${stablePorts.join(', ')}); '
@@ -625,7 +785,7 @@ fi
         );
       }
       final health = Uri.parse(r.healthUrl);
-      final hp = ports.where((p) => p.published == health.port).firstOrNull;
+      final hp = cfgPorts.where((p) => p.published == health.port).firstOrNull;
       if (hp == null) {
         throw Aborted(
           'blue/green: no service publishes port ${health.port} of ${r.healthUrl}',
@@ -634,6 +794,10 @@ fi
       final readiness = r.readinessUrl == null
           ? null
           : Uri.parse(r.readinessUrl!).path;
+      ports = cfgPorts;
+      served = hp;
+      healthPaths = [health.path, ?readiness];
+      color = next;
       await stream(
         startColorScript(
           l: l,
@@ -650,7 +814,7 @@ fi
           ),
           serverService: hp.service,
           serverPort: hp.target,
-          healthPaths: [health.path, ?readiness],
+          healthPaths: healthPaths,
           stable: stable,
           checks: preflight
               ? [
@@ -708,7 +872,7 @@ fi
       'Flip the front back',
       'start the old color again (or the base project) and point the front at it',
       () async {
-        if (color == null) return;
+        if (color == null || ports.isEmpty) return;
         if (active == null || active!.isEmpty) {
           await stream(
             'docker rm -f ${frontContainer(cp)} >/dev/null 2>&1 || true\n'
@@ -721,6 +885,10 @@ fi
           await stream(
             'ids=\$(docker ps -aq --filter label=com.docker.compose.project=$active)\n'
             '[ -z "\$ids" ] || docker start \$ids >/dev/null\n'
+            // The old color answers before it gets the traffic back.
+            // If it does not within 120 s, it gets it anyway: the new color
+            // already failed.
+            '(\n${healthWaitScript(project: active!, label: back, service: served!.service, port: served!.target, paths: healthPaths, seconds: 120)}) || echo "$back is not healthy yet; flipping back anyway" >&2\n'
             '${flipScript(l: l, composeProject: cp, color: back, ports: ports)}',
           );
         }
