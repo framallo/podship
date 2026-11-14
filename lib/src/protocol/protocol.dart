@@ -193,6 +193,12 @@ const operations = <OperationSpec>[
         'boolean',
         'Run every test suite, even one whose inputs passed before.',
       ),
+      ParamSpec(
+        'allow_destructive_migrations',
+        'boolean',
+        'switch: blue_green only: ship migrations that break the running '
+            'release by switching in place for this deploy.',
+      ),
       _reason,
       _confirmEnv,
     ],
@@ -845,6 +851,7 @@ Stream<Map<String, Object?>> dispatch(
             skipBackup: b('skip_backup'),
             publicCheck: p['public_check'] != false,
             fullTests: b('full_tests'),
+            allowDestructiveMigrations: b('allow_destructive_migrations'),
           ),
         );
       case 'rollback':

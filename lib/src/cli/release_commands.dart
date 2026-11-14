@@ -51,6 +51,14 @@ class DeployCommand extends PodshipCommand {
         defaultsTo: true,
         help:
             'Also check the public health URL (turn off before the domain is routed).',
+      )
+      ..addFlag(
+        'allow-destructive-migrations',
+        negatable: false,
+        help:
+            'switch: blue_green only. Ship migrations that break the running '
+            'release (drop, rename, type change, NOT NULL without default) by '
+            'switching in place for this deploy (a short downtime).',
       );
   }
   @override
@@ -100,6 +108,7 @@ class DeployCommand extends PodshipCommand {
           skipHooks: a['skip-hooks'] == true,
           publicCheck: a['public-check'] == true,
           fullTests: a['full-tests'] == true,
+          allowDestructiveMigrations: a['allow-destructive-migrations'] == true,
         ),
       ),
     );

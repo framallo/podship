@@ -438,6 +438,7 @@ class Podship {
             inputs: inputs,
             images: images,
             afterTests: afterTests,
+            allowDestructiveMigrations: options.allowDestructiveMigrations,
           ),
         );
         final id = plan.title.split(' as ').last;

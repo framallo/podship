@@ -23,6 +23,7 @@ import '../release/release.dart';
 import '../remote/ssh.dart';
 import 'backup_ops.dart';
 import 'bluegreen.dart';
+import 'migrations_check.dart';
 import 'context.dart';
 import 'inputs.dart';
 import 'resolve.dart';
@@ -92,7 +93,13 @@ class DeployOptions {
     this.inputs,
     this.images,
     this.afterTests,
+    this.allowDestructiveMigrations = false,
   });
+
+  /// `switch: blue_green` only: ship new migrations that are not backward
+  /// compatible (see migrations_check.dart) by switching in place for this
+  /// deploy. Without it, a blue/green deploy stops on them.
+  final bool allowDestructiveMigrations;
 
   /// What runs with the outcome of the suites that ran after the switch
   /// (a notification, an issue). Never fails the deploy.
@@ -349,6 +356,7 @@ void writeReleaseMeta({
         ports: r.ports,
         remotePath: env.remotePath,
         blueGreenState: blueGreenBlocker(env) == null ? l.state : null,
+        stable: blueGreenBlocker(env) == null ? env.stableServices : const [],
       ),
     );
   Process.runSync('chmod', ['755', sh.path]);
@@ -508,6 +516,12 @@ Plan planDeploy({
         )
       : null;
   final imgRoot = '$snapshot.image';
+  final bgBlock =
+      blueGreenBlocker(env) ??
+      (options.allowDestructiveMigrations
+          ? '--allow-destructive-migrations: switching in place for this deploy'
+          : null);
+  final serverMigrations = p.join(snapshot, config.serverPackage, 'migrations');
   final steps = <Step>[
     if (source == SourceMode.git)
       ActionStep(
@@ -607,6 +621,31 @@ Plan planDeploy({
         );
       },
     ),
+    if (bgBlock == null && old != null)
+      ActionStep(
+        'Check the new migrations (blue/green)',
+        'the old release runs on the new schema during the switch: no drops, renames, type changes or NOT NULL without a default',
+        () async {
+          final deployed = (await ctx.query(
+            env,
+            'ls -1 ${shq('${l.release(old)}/${config.serverPackage}/migrations')} 2>/dev/null || true\n',
+          )).split('\n').map((x) => x.trim()).where((x) => x.isNotEmpty).toSet();
+          if (deployed.isEmpty &&
+              Directory(serverMigrations).existsSync() &&
+              Directory(
+                serverMigrations,
+              ).listSync().whereType<Directory>().isNotEmpty) {
+            throw Aborted(
+              'blue/green: cannot list the migrations of release $old on '
+              '${env.host}, so the new ones are unknown. Deploy with '
+              '--allow-destructive-migrations to switch in place.',
+            );
+          }
+          final issues = checkNewMigrations(serverMigrations, deployed);
+          if (issues.isNotEmpty) throw Aborted(destructiveMessage(issues));
+          ctx.log.info('migrations: backward compatible');
+        },
+      ),
     RemoteStep(
       'Prepare ${env.host}:${env.dir}',
       env.host,
@@ -671,7 +710,7 @@ Plan planDeploy({
             ].join('\n'),
       ),
     if (!local && backupStep != null) ...[agentStep(ctx, env), backupStep],
-    if (env.migrations == MigrationMode.maintenance)
+    if (env.migrations == MigrationMode.maintenance && bgBlock != null)
       RemoteStep(
         'Apply migrations',
         env.host,
@@ -682,9 +721,16 @@ Plan planDeploy({
             '-e SERVERPOD_APPLY_MIGRATIONS=true ${env.serverService}\n',
       ),
   ];
-  final bgBlock = blueGreenBlocker(env);
   final bg = bgBlock == null
-      ? blueGreenSteps(ctx, r, id, old: old, action: 'deploy')
+      ? blueGreenSteps(
+          ctx,
+          r,
+          id,
+          old: old,
+          action: 'deploy',
+          migrate: env.migrations == MigrationMode.maintenance,
+          preflight: options.publicCheck,
+        )
       : null;
   if (env.switchMode == SwitchMode.blueGreen && bgBlock != null) {
     steps.add(

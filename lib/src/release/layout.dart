@@ -17,6 +17,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../config/config.dart';
+import '../ops/bluegreen.dart' show stableJoinScript;
 import '../remote/ssh.dart';
 
 /// The paths of one environment on its server.
@@ -303,6 +304,7 @@ String composeSh({
   Map<String, int> ports = const {},
   String? remotePath,
   String? blueGreenState,
+  List<String> stable = const [],
 }) {
   final files = [
     for (final f in composeFiles) '-f ${shq(p.posix.join(releaseDir, f))}',
@@ -324,6 +326,7 @@ String composeSh({
       ..writeln(
         'proj="\${PODSHIP_COMPOSE_PROJECT:-\$(cat ${shq('$blueGreenState/active-project')} 2>/dev/null || echo ${shq(composeProject)})}"',
       )
+      ..write(stableJoinScript(composeProject, stable))
       ..writeln('bg=()')
       ..writeln(
         '[ -f ${shq('$releaseDir/.podship/')}"bg-\$proj.yml" ] && bg=(-f ${shq('$releaseDir/.podship/')}"bg-\$proj.yml")',
