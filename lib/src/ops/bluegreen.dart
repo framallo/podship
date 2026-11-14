@@ -581,6 +581,26 @@ fi
             : null,
       );
       final proj = colorProject(cp, color!);
+      // A release made by an in-place deploy (a rollback target from before
+      // blue/green) has a compose.sh that ignores PODSHIP_COMPOSE_PROJECT:
+      // it gets the blue/green one.
+      final sh = l.composeSh(id);
+      final hasBg = (await q(
+        'grep -q PODSHIP_COMPOSE_PROJECT ${shq(sh)} && echo yes || echo no\n',
+      )).trim();
+      if (hasBg != 'yes') {
+        final files = (await q(
+          'cat ${shq('${l.release(id)}/.podship/compose-files')}\n',
+        )).split('\n').map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
+        if (files.isEmpty) {
+          throw Aborted('blue/green: release $id lists no compose files');
+        }
+        await stream(
+          '${writeFile(sh, composeSh(composeProject: cp, releaseDir: l.release(id), composeFiles: files, ports: r.ports, remotePath: env.remotePath, blueGreenState: l.state, stable: stable))}'
+          'chmod 755 ${shq(sh)}\n'
+          'echo "compose.sh of $id: blue/green"\n',
+        );
+      }
       final cfg = parseComposeConfig(
         await q(
           'PODSHIP_COMPOSE_PROJECT=$cp ${shq(l.composeSh(id))} config --format json\n',
