@@ -353,6 +353,17 @@ void main() {
       expect(out, contains('http://127.0.0.1:8080/health'));
     });
 
+    test('a 2xx with the wrong content type fails', () {
+      final out = run(
+        PublicCheck(
+          url: 'https://app.example.com/health',
+          contentType: 'text/html',
+        ),
+        okJson,
+      );
+      expect(out, startsWith('1|'));
+    });
+
     test('fails on a wrong body', () {
       final out = run(
         PublicCheck(url: 'https://app.example.com/health', contains: 'nope'),
@@ -362,19 +373,24 @@ void main() {
       expect(out, contains('blue fails the public check'));
     });
 
-    test('an expected 404 of a POST passes (busybox prints the headers)', () {
-      final out = run(
-        PublicCheck(
-          url: 'https://app.example.com/rpc/nothing-here',
-          method: 'post',
-          status: [400, 404],
-          contentType: 'text/plain',
-        ),
-        'Connecting to 127.0.0.1:8080\n  HTTP/1.1 404 Not Found\n  Content-Type: text/plain\nwget: server returned error: HTTP/1.1 404 Not Found\n',
-      );
-      expect(out, startsWith('0|'));
-      expect(out, contains('--post-data='));
-    });
+    test(
+      'an expected 400 of a POST passes on its status (busybox prints no headers)',
+      () {
+        final out = run(
+          PublicCheck(
+            url: 'https://app.example.com/rpc/nothing-here',
+            method: 'post',
+            status: [400, 404],
+            contentType: 'text/plain',
+          ),
+          // What busybox wget prints for a 4xx (staging, 2026-11-14): no
+          // headers, no body.
+          'Connecting to 127.0.0.1:8080 (127.0.0.1:8080)\n  HTTP/1.1 400 Bad Request\nwget: server returned error: HTTP/1.1 400 Bad Request\n',
+        );
+        expect(out, startsWith('0|'));
+        expect(out, contains('--post-data='));
+      },
+    );
 
     test('an unexpected 200 fails a check that wants 404', () {
       final out = run(

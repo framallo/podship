@@ -301,9 +301,11 @@ String preflightCheckScript(PublicCheck c, int port, String color) {
     else
       'case " ${c.status.join(' ')} " in *" \$st "*) true;; *) false;; esac',
     if (c.contentType != null)
-      "printf '%s\\n' \"\$out\" | grep -qi ${shq('^ *content-type: *${c.contentType}')}",
+      // busybox wget prints no headers and no body for a 4xx or 5xx: then
+      // only the status counts here (the checks after the flip see all).
+      "{ ! printf '%s\\n' \"\$out\" | grep -qi '^ *content-type:' || printf '%s\\n' \"\$out\" | grep -qi ${shq('^ *content-type: *${c.contentType}')}; }",
     if (c.contains != null)
-      "printf '%s\\n' \"\$out\" | grep -qF -- ${shq(c.contains!)}",
+      "{ case \"\$st\" in 2??) printf '%s\\n' \"\$out\" | grep -qF -- ${shq(c.contains!)};; *) true;; esac; }",
   ];
   b
     ..writeln('  if ${conds.join(' && ')}; then ok=1; break; fi; sleep 2')
