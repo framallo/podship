@@ -519,6 +519,14 @@ if [ -f ${shq('${l.state}/active-project')} ]; then
     ids=\$(docker ps -aq --filter label=com.docker.compose.project=\$p)
     [ -z "\$ids" ] || { docker stop -t 10 \$ids >/dev/null; docker rm \$ids >/dev/null; }
   done
+  for n in ${colorNetwork(composeProject, 'blue')} ${colorNetwork(composeProject, 'green')} ${frontNetwork(composeProject)}; do
+    docker network inspect "\$n" >/dev/null 2>&1 || continue
+    for c in \$(docker network inspect -f '{{range \$k, \$v := .Containers}}{{\$k}} {{end}}' "\$n"); do
+      docker network disconnect -f "\$n" "\$c" >/dev/null 2>&1 || true
+    done
+    docker network rm "\$n" >/dev/null 2>&1 || true
+  done
+  rm -rf ${shq('${l.state}/front')}
   rm -f ${shq('${l.state}/active-project')}
   echo "left blue/green: the base project takes the ports"
 fi

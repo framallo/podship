@@ -306,6 +306,9 @@ void main() {
       final s = switchTo(EnvLayout(env), 'r3', action: 'deploy');
       expect(s, contains('docker rm -f demo-front'));
       expect(s, contains('rm -f /srv/demo/.podship/active-project'));
+      // The stable services leave the color networks, which go.
+      expect(s, contains('demo-blue-net demo-green-net demo-front'));
+      expect(s, contains(r'docker network disconnect -f "$n" "$c"'));
       expect(s.indexOf('demo-front'), lessThan(s.indexOf('up -d --no-build')));
       expect(bashOk(s), isTrue);
     });
