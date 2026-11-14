@@ -309,6 +309,12 @@ void main() {
       // The stable services leave the color networks, which go.
       expect(s, contains('demo-blue-net demo-green-net demo-front'));
       expect(s, contains(r'docker network disconnect -f "$n" "$c"'));
+      expect(
+        s,
+        contains(
+          'docker ps -aq --filter label=com.docker.compose.project=demo)',
+        ),
+      );
       expect(s.indexOf('demo-front'), lessThan(s.indexOf('up -d --no-build')));
       expect(bashOk(s), isTrue);
     });

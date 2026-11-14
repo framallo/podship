@@ -521,7 +521,10 @@ if [ -f ${shq('${l.state}/active-project')} ]; then
   done
   for n in ${colorNetwork(composeProject, 'blue')} ${colorNetwork(composeProject, 'green')} ${frontNetwork(composeProject)}; do
     docker network inspect "\$n" >/dev/null 2>&1 || continue
-    for c in \$(docker network inspect -f '{{range \$k, \$v := .Containers}}{{\$k}} {{end}}' "\$n"); do
+    # Running endpoints, and every container of the base project: a stopped
+    # container is not listed, but keeps the network in its config and would
+    # not start once the network is gone (staging 2026-11-14).
+    for c in \$(docker network inspect -f '{{range \$k, \$v := .Containers}}{{\$k}} {{end}}' "\$n") \$(docker ps -aq --filter label=com.docker.compose.project=$composeProject); do
       docker network disconnect -f "\$n" "\$c" >/dev/null 2>&1 || true
     done
     docker network rm "\$n" >/dev/null 2>&1 || true
