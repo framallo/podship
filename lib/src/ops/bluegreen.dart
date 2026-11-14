@@ -470,15 +470,17 @@ String stopColorScript(
 
 /// The first blue/green deploy: the base project (no color) holds the
 /// ports. Its services that publish them ([front]) stop right before the
-/// front starts (a second or two); without [front], every service but the
-/// [stable] ones.
+/// front starts, with 1 s to quit: nginx keeps the port until it exits,
+/// and an open WebSocket keeps a graceful quit waiting (staging
+/// 2026-11-14: 5 s of 502 with a 5 s timeout). Without [front], every
+/// service but the [stable] ones.
 String stopBaseScript(
   String composeProject, {
   List<String> front = const [],
   List<String> stable = const [],
 }) {
   if (front.isNotEmpty) {
-    return stopServicesScript(composeProject, front, 5, indent: '  ');
+    return stopServicesScript(composeProject, front, 1, indent: '  ');
   }
   return stopBaseRestScript(composeProject, stable: stable, timeout: 30);
 }
