@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 
 import '../config/config.dart';
 import '../release/layout.dart';
+import 'bluegreen.dart' show leaveBlueGreenScript;
 import '../remote/ssh.dart';
 import '../scheduler/agent.dart' show schedulerBin;
 import 'resolve.dart';
@@ -85,7 +86,7 @@ String switchTo(
 }) =>
     '''
 cd ${shq(l.dir)}
-${shq(l.composeSh(id))} up -d --no-build --remove-orphans
+${leaveBlueGreenScript(l, l.env.composeProject)}${shq(l.composeSh(id))} up -d --no-build --remove-orphans
 ln -sfn ${shq('releases/$id')} current.podship-new
 _mvlink current.podship-new current
 mkdir -p ${shq(l.state)}

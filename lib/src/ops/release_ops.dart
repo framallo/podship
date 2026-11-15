@@ -14,6 +14,7 @@ import 'backup_ops.dart';
 import 'bluegreen.dart';
 import 'context.dart';
 import 'deploy.dart';
+import 'migrations_check.dart';
 import 'resolve.dart';
 import 'scheduler_ops.dart' show agentStep;
 import 'scripts.dart';
@@ -27,10 +28,11 @@ import 'state.dart';
   String id, {
   required String? old,
   required String action,
+  bool inPlace = false,
 }) {
   final env = r.env;
   final l = EnvLayout(env);
-  if (blueGreenBlocker(env) == null) {
+  if (blueGreenBlocker(env) == null && !inPlace) {
     final bg = blueGreenSteps(ctx, r, id, old: old, action: action);
     return (
       steps: [
@@ -91,6 +93,53 @@ import 'state.dart';
   );
 }
 
+/// The migration folder names of [dir] on [env]'s host.
+Future<Set<String>> remoteMigrationNames(
+  Ctx ctx,
+  EnvConfig env,
+  String dir,
+) async => (await ctx.query(env, 'ls -1 ${shq(dir)} 2>/dev/null || true\n'))
+    .split('\n')
+    .map((x) => x.trim())
+    .where((x) => x.isNotEmpty && !x.contains('.'))
+    .toSet();
+
+/// The step that stops a blue/green [command] when the two releases do not
+/// share a backward-compatible schema: the migrations of [aDir] (on [aEnv])
+/// that [bDir] (on [bEnv]) does not have, and the other way around. Both
+/// releases run on the same database during the switch.
+Step migrationsCheckStep(
+  Ctx ctx, {
+  required String command,
+  required EnvConfig aEnv,
+  required String aDir,
+  required EnvConfig bEnv,
+  required String bDir,
+}) => ActionStep(
+  'Check the migrations (blue/green)',
+  'both releases run on the same schema during the switch: the migrations one has and the other lacks must be backward compatible',
+  () async {
+    final aNames = await remoteMigrationNames(ctx, aEnv, aDir);
+    final bNames = await remoteMigrationNames(ctx, bEnv, bDir);
+    final issues = <MigrationIssue>{
+      ...checkMigrations(
+        parseRemoteMigrations(
+          await ctx.query(aEnv, remoteMigrationsScript(aDir, bNames)),
+        ),
+      ),
+      ...checkMigrations(
+        parseRemoteMigrations(
+          await ctx.query(bEnv, remoteMigrationsScript(bDir, aNames)),
+        ),
+      ),
+    }.toList();
+    if (issues.isNotEmpty) {
+      throw Aborted(destructiveMessage(issues, command: command));
+    }
+    ctx.log.info('migrations: backward compatible');
+  },
+);
+
 /// Plans `rollback`. Code only, unless [withDb] names a backup stamp: then
 /// the database is restored first, through the same path as
 /// `backup restore`.
@@ -100,6 +149,7 @@ Plan planRollback({
   required EnvState state,
   String? to,
   String? withDb,
+  bool allowDestructiveMigrations = false,
 }) {
   final env = r.env;
   final l = EnvLayout(env);
@@ -112,14 +162,38 @@ Plan planRollback({
     );
   }
   if (target == state.current) throw Aborted('$target is already running');
+  final bg = blueGreenBlocker(env) == null;
   final sw = switchSteps(
     ctx,
     r,
     target,
     old: state.current,
     action: 'rollback',
+    inPlace: allowDestructiveMigrations,
   );
+  final pkg = ctx.config.serverPackage;
   final steps = <Step>[
+    if (bg && allowDestructiveMigrations)
+      ActionStep(
+        'Switch mode: in place',
+        '--allow-destructive-migrations: switching in place for this rollback',
+        () async => ctx.log.warn(
+          '--allow-destructive-migrations: switching in place for this rollback',
+        ),
+      ),
+    // With a database restore the schema is the backup's: no check.
+    if (bg &&
+        !allowDestructiveMigrations &&
+        withDb == null &&
+        state.current != null)
+      migrationsCheckStep(
+        ctx,
+        command: 'rollback',
+        aEnv: env,
+        aDir: '${l.release(state.current!)}/$pkg/migrations',
+        bEnv: env,
+        bDir: '${l.release(target)}/$pkg/migrations',
+      ),
     if (withDb != null) ...[
       agentStep(ctx, env),
       RemoteStep(
@@ -143,6 +217,7 @@ Plan planRollback({
     ),
   );
   return Plan(
+    // rollbackTarget reads the last " to <id>": nothing after it may say " to ".
     'rollback ${ctx.config.project} ${env.name} from ${state.current} to $target'
     '${withDb == null ? ' (code only)' : ' with database backup $withDb'}',
     steps,
@@ -152,8 +227,20 @@ Plan planRollback({
   );
 }
 
+/// The release a plan of [planRollback] switches to (its title names it;
+/// a blue/green rollback has no `Switch to` step).
+String rollbackTarget(Plan plan) =>
+    RegExp(r' to (\S+)').allMatches(plan.title).last.group(1)!;
+
 /// Plans `restart`: recreate the containers of the current release, for
 /// example after `env set` or `secret set`.
+///
+/// With `switch: blue_green`, a restart of the whole release is a
+/// blue/green start of the current release in the other color (no
+/// downtime). Named stable services (the database) are recreated in the
+/// base project (compose.sh routes them there and joins them to the color
+/// networks again). Other named services are recreated in place in the
+/// active color: a short outage for them.
 Plan planRestart({
   required Ctx ctx,
   required ResolvedEnv r,
@@ -162,23 +249,59 @@ Plan planRestart({
 }) {
   final env = r.env;
   final l = EnvLayout(env);
-  if (state.current == null) {
+  final current = state.current;
+  if (current == null) {
     throw Aborted('nothing is deployed to ${env.name}');
   }
-  return Plan('restart ${env.name} (${state.current})', [
+  final health = HealthStep(
+    'Health check',
+    env.host,
+    r.healthUrls,
+    publicUrls: r.publicHealthUrls,
+    attempts: env.health.attempts,
+    intervalSeconds: env.health.intervalSeconds,
+  );
+  if (blueGreenBlocker(env) == null) {
+    final stable = env.stableServices;
+    if (services.isEmpty) {
+      final sw = switchSteps(ctx, r, current, old: current, action: 'restart');
+      return Plan(
+        'restart ${env.name} ($current, blue/green: the other color starts, then takes the traffic)',
+        sw.steps,
+        recovery: sw.recovery,
+        guardFrom: 0,
+      );
+    }
+    final named = services.where(stable.contains).toList();
+    if (named.isNotEmpty && named.length != services.length) {
+      throw Aborted(
+        'restart either the stable services (${stable.join(', ')}, in the '
+        'base project) or services of the active color, not both',
+      );
+    }
+    final warn = named.isNotEmpty
+        ? '${named.join(', ')} restart in the base project ${env.composeProject}; '
+              'both colors lose the database for a moment'
+        : '${services.join(', ')} restart in place in the active color: a '
+              'short outage for them. `podship restart` with no services '
+              'restarts the whole release blue/green, without downtime';
+    return Plan('restart ${env.name} ($current)', [
+      ActionStep('Warning', warn, () async => ctx.log.warn(warn)),
+      RemoteStep(
+        'Recreate ${services.join(', ')}',
+        env.host,
+        '${ctx.header(env)}${shq(l.currentComposeSh)} up -d --no-build --force-recreate --no-deps ${services.map(shq).join(' ')}\n',
+      ),
+      health,
+    ]);
+  }
+  return Plan('restart ${env.name} ($current)', [
     RemoteStep(
       'Recreate containers',
       env.host,
       '${ctx.header(env)}${shq(l.currentComposeSh)} up -d --no-build --force-recreate ${services.isEmpty ? '' : '--no-deps '}${services.map(shq).join(' ')}\n',
     ),
-    HealthStep(
-      'Health check',
-      env.host,
-      r.healthUrls,
-      publicUrls: r.publicHealthUrls,
-      attempts: env.health.attempts,
-      intervalSeconds: env.health.intervalSeconds,
-    ),
+    health,
   ]);
 }
 
@@ -212,6 +335,7 @@ Future<Plan> planPromote({
   required EnvState toState,
   required String release,
   required String workDir,
+  bool allowDestructiveMigrations = false,
 }) async {
   final config = ctx.config;
   final src = EnvLayout(from);
@@ -243,7 +367,26 @@ Future<Plan> planPromote({
     pinned[service] = imageName(env.composeProject, service, release);
   }
   final stage = '${dst.state}/promote-$release';
+  final bg = blueGreenBlocker(env) == null;
+  final pkg = config.serverPackage;
   final steps = <Step>[
+    if (bg && allowDestructiveMigrations)
+      ActionStep(
+        'Switch mode: in place',
+        '--allow-destructive-migrations: switching in place for this promote',
+        () async => ctx.log.warn(
+          '--allow-destructive-migrations: switching in place for this promote',
+        ),
+      )
+    else if (bg && toState.current != null)
+      migrationsCheckStep(
+        ctx,
+        command: 'promote',
+        aEnv: from,
+        aDir: '${src.release(release)}/$pkg/migrations',
+        bEnv: env,
+        bDir: '${dst.release(toState.current!)}/$pkg/migrations',
+      ),
     ActionStep(
       'Write release metadata for ${env.name}',
       'read the compose files of $release from ${from.name}; write .podship/',
@@ -342,6 +485,7 @@ Future<Plan> planPromote({
     release,
     old: toState.current,
     action: 'promote from ${from.name}',
+    inPlace: allowDestructiveMigrations,
   );
   final guardFrom = steps.length;
   steps.addAll(sw.steps);

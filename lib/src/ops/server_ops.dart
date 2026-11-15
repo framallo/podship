@@ -5,6 +5,7 @@ import '../plan/plan.dart';
 import '../release/layout.dart';
 import '../remote/ssh.dart';
 import '../server/registry.dart';
+import 'bluegreen.dart';
 import 'context.dart';
 import 'resolve.dart';
 import 'scripts.dart';
@@ -132,8 +133,8 @@ Plan planDestroy(
     ...domainSteps,
     ...scheduleSteps,
     RemoteStep('Stop and remove containers, volumes and images', env.host, '''
-${ctx.header(env)}if [ -x ${shq(l.currentComposeSh)} ]; then
-  ${shq(l.currentComposeSh)} down --volumes --remove-orphans --timeout 20
+${ctx.header(env)}${leaveBlueGreenScript(l, env.composeProject)}if [ -x ${shq(l.currentComposeSh)} ]; then
+  PODSHIP_COMPOSE_PROJECT=${shq(env.composeProject)} ${shq(l.currentComposeSh)} down --volumes --remove-orphans --timeout 20
 else
   ids=\$(docker ps -aq --filter label=com.docker.compose.project=${shq(env.composeProject)})
   [ -n "\$ids" ] && docker rm -f \$ids

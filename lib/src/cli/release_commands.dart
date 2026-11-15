@@ -51,6 +51,14 @@ class DeployCommand extends PodshipCommand {
         defaultsTo: true,
         help:
             'Also check the public health URL (turn off before the domain is routed).',
+      )
+      ..addFlag(
+        'allow-destructive-migrations',
+        negatable: false,
+        help:
+            'switch: blue_green only. Ship migrations that break the running '
+            'release (drop, rename, type change, NOT NULL without default) by '
+            'switching in place for this deploy (a short downtime).',
       );
   }
   @override
@@ -100,6 +108,7 @@ class DeployCommand extends PodshipCommand {
           skipHooks: a['skip-hooks'] == true,
           publicCheck: a['public-check'] == true,
           fullTests: a['full-tests'] == true,
+          allowDestructiveMigrations: a['allow-destructive-migrations'] == true,
         ),
       ),
     );
@@ -116,6 +125,13 @@ class RollbackCommand extends PodshipCommand {
       ..addOption(
         'with-db',
         help: 'Also restore this database backup (a stamp from `backup list`).',
+      )
+      ..addFlag(
+        'allow-destructive-migrations',
+        negatable: false,
+        help:
+            'switch: blue_green only. Switch in place (a short downtime) when '
+            'the two releases do not share a backward-compatible schema.',
       )
       ..addOption(
         'confirm',
@@ -146,7 +162,13 @@ class RollbackCommand extends PodshipCommand {
       throw Aborted('cancelled');
     }
     return runOp(
-      api.rollback(e.name, to: argResults!['to'] as String?, withDb: withDb),
+      api.rollback(
+        e.name,
+        to: argResults!['to'] as String?,
+        withDb: withDb,
+        allowDestructiveMigrations:
+            argResults!['allow-destructive-migrations'] == true,
+      ),
     );
   }
 }
@@ -182,6 +204,13 @@ class PromoteCommand extends PodshipCommand {
             'Promote a release whose commit has no passing tests (needs --reason).',
       )
       ..addOption('reason', help: 'Why the tests are skipped.')
+      ..addFlag(
+        'allow-destructive-migrations',
+        negatable: false,
+        help:
+            'switch: blue_green only. Switch in place (a short downtime) when '
+            'the two releases do not share a backward-compatible schema.',
+      )
       ..addOption(
         'confirm',
         help: 'The target environment name, to confirm without a terminal.',
@@ -227,6 +256,8 @@ class PromoteCommand extends PodshipCommand {
         release: argResults!['release'] as String?,
         skipTestsReason: skipTests ? reason : null,
         confirmedUntested: skipTests,
+        allowDestructiveMigrations:
+            argResults!['allow-destructive-migrations'] == true,
       ),
     );
   }

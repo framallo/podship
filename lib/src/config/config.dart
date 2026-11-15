@@ -819,6 +819,22 @@ class EnvBuild {
   };
 }
 
+/// The settings of `switch: blue_green`.
+class BlueGreenConfig {
+  BlueGreenConfig({this.stable, this.drainSeconds = 30});
+
+  /// Services that never run in a color: they stay in the base compose
+  /// project, keep running across flips, and both colors reach them on the
+  /// network `<project>-stable` by their service name. Null: the database
+  /// service in per-env mode.
+  final List<String>? stable;
+
+  /// How long the old color's front services (the ones that publish ports,
+  /// like nginx) may take to finish open requests and streams after the
+  /// flip before they are killed. The other services stop after them.
+  final int drainSeconds;
+}
+
 /// How migrations are applied.
 enum MigrationMode {
   /// The server applies them when it starts (`--apply-migrations` in the
@@ -1347,7 +1363,9 @@ class EnvConfig {
     this.email,
     EnvBuild? build,
     this.switchMode = SwitchMode.inPlace,
+    BlueGreenConfig? blueGreen,
   }) : build = build ?? EnvBuild(),
+       blueGreen = blueGreen ?? BlueGreenConfig(),
        dns = dns ?? DnsConfig(),
        serverpod = serverpod ?? ServerpodSettings(),
        secrets = secrets ?? SecretsConfig(),
@@ -1434,6 +1452,18 @@ class EnvConfig {
 
   /// How a release replaces the running one.
   final SwitchMode switchMode;
+
+  /// The settings of `switch: blue_green`.
+  final BlueGreenConfig blueGreen;
+
+  /// The services that stay in the base compose project and serve both
+  /// colors: `blue_green.stable`, plus the database service with a per-env
+  /// database (always: in a color it would be a second Postgres on the same
+  /// data files).
+  List<String> get stableServices => {
+    if (database.mode == DatabaseMode.perEnv) database.service,
+    ...?blueGreen.stable,
+  }.toList();
 
   bool get isProduction => name == 'production';
   String get registryPath => '$podshipHome/registry.yaml';
@@ -1984,6 +2014,14 @@ class PodshipConfig {
             )
           : null,
       build: _parseEnvBuild(name, e),
+      blueGreen: e.has('blue_green')
+          ? BlueGreenConfig(
+              stable: e.map('blue_green').has('stable')
+                  ? e.map('blue_green').strs('stable')
+                  : null,
+              drainSeconds: e.map('blue_green').integer('drain', 30),
+            )
+          : null,
       switchMode: switch (e.str('switch', 'in_place')) {
         'in_place' => SwitchMode.inPlace,
         'blue_green' => SwitchMode.blueGreen,

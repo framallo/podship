@@ -438,6 +438,7 @@ class Podship {
             inputs: inputs,
             images: images,
             afterTests: afterTests,
+            allowDestructiveMigrations: options.allowDestructiveMigrations,
           ),
         );
         final id = plan.title.split(' as ').last;
@@ -571,12 +572,18 @@ class Podship {
 
   /// Switches to a previous release (code only), or to [to]. With [withDb],
   /// restores that backup first.
-  Operation rollback(String envName, {String? to, String? withDb}) => _op(
+  Operation rollback(
+    String envName, {
+    String? to,
+    String? withDb,
+    bool allowDestructiveMigrations = false,
+  }) => _op(
     'rollback',
     envName,
     {
       'to': to,
       'with_db': withDb,
+      if (allowDestructiveMigrations) 'allow_destructive_migrations': true,
       if (withDb != null) 'confirm_project': config.project,
     },
     (ctx, rec) async {
@@ -591,18 +598,13 @@ class Podship {
         state: state,
         to: to,
         withDb: withDb,
+        allowDestructiveMigrations: allowDestructiveMigrations,
       );
       rec.previousRelease = state.current;
       if (withDb != null) rec.data['with_db'] = withDb;
       try {
         await ctx.run(plan);
-        rec.release = dryRun
-            ? state.current
-            : plan.steps
-                  .whereType<RemoteStep>()
-                  .firstWhere((s) => s.title.startsWith('Switch to '))
-                  .title
-                  .substring(10);
+        rec.release = dryRun ? state.current : rollbackTarget(plan);
         if (!dryRun && rec.release != null) {
           final gh = GitHub(config, ctx.log);
           final fromSha = _shaOf(state, state.current);
@@ -651,11 +653,13 @@ class Podship {
     String? release,
     String? skipTestsReason,
     bool confirmedUntested = false,
+    bool allowDestructiveMigrations = false,
   }) => _op(
     'promote',
     toEnv,
     {
       'from': fromEnv,
+      if (allowDestructiveMigrations) 'allow_destructive_migrations': true,
       'release': release,
       'skip_tests_reason': skipTestsReason,
       if (confirmedUntested) 'confirm_env': toEnv,
@@ -715,6 +719,7 @@ class Podship {
             toState: state,
             release: id,
             workDir: work.path,
+            allowDestructiveMigrations: allowDestructiveMigrations,
           ),
         );
         rec.release = dryRun ? state.current : id;
